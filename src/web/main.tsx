@@ -8,6 +8,8 @@ import { Workbench } from './pages/Workbench.tsx';
 import { PlanPage } from './pages/Plan.tsx';
 import { LibraryPage } from './pages/Library.tsx';
 import { LoginScreen } from './ui/auth.tsx';
+import { AdminPage } from './pages/Admin.tsx';
+import { FeedbackButton } from './ui/feedback.tsx';
 
 function Pages() {
   const { session, route, needLogin } = useApp();
@@ -21,6 +23,7 @@ function Pages() {
     case 'wb': return <Workbench key={k} />;
     case 'plan': return <PlanPage key={k} />;
     case 'lib': return <LibraryPage key={k} />;
+    case 'admin': return <AdminPage key={k} />;
     default: return <Home key={k} />;
   }
 }
@@ -37,6 +40,7 @@ function App() {
     <Header />
     <main id="main"><Pages /></main>
     <Foot />
+    <FeedbackButton />
   </AppProvider>;
 }
 

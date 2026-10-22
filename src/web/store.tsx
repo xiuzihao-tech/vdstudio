@@ -3,12 +3,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, ApiError, type Session } from './api.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
-export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'lib';
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'lib' | 'admin';
 export interface Route { view: View; sub?: string; id?: string }
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
-  const views: View[] = ['home', 'ip', 'gen', 'wb', 'plan', 'lib'];
+  const views: View[] = ['home', 'ip', 'gen', 'wb', 'plan', 'lib', 'admin'];
   return { view: (views as string[]).includes(v) ? (v as View) : 'home', sub: sub || undefined, id: id || undefined };
 }
 export const routePath = (r: Route) => r.view === 'home' ? '/' : `/${[r.view, r.sub, r.id].filter(Boolean).join('/')}`;
@@ -58,6 +58,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void reloadSession(); }, [reloadSession]);
   useEffect(() => { if (session) document.body.dataset.theme = session.workspace.theme; }, [session]);
   useEffect(() => { const f = () => setRoute(parseRoute(location.pathname)); addEventListener('popstate', f); return () => removeEventListener('popstate', f); }, []);
+  // 埋点：每次切页记一次（只记页面名，不记内容）
+  useEffect(() => { if (session) void api.track('page_view', { view: route.view, sub: route.sub ?? '' }); }, [route.view, route.sub, !!session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nav = useCallback((r: Route | View, replace = false) => {
     const next = typeof r === 'string' ? { view: r } : r;

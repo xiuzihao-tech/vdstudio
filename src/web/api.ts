@@ -17,18 +17,41 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { user: { email: string; name: string } | null; authRequired: boolean; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }
 export interface TopicList { topics: Topic[]; scheduled: Record<string, string> }
 export interface TopicFilter { cat: number | 'all'; dir: string; type: number | '不限'; heat: number | '不限'; period: number | '不限' }
 
+export interface AdminOverview {
+  since: string; funnel: { label: string; owners: number }[]; daily: { day: string; active: number; gens: number; drafts: number }[];
+  jobs: { status: string; n: number; cost: number }[]; totals: { users: number; newUsers: number; feedbackNew: number; spentToday: number };
+  events: { name: string; n: number }[]; settings: { genPaused: boolean };
+  config: { inviteRequired: boolean; authRequired: boolean; initialPoints: number; dailyJobsPerUser: number; dailyBudget: number }; ai: Session['ai'];
+}
+export interface AdminUser { id: string; email: string; name: string; invite: string | null; createdAt: string; balance: number; jobs: number; spent: number; lastActive: string | null }
+export interface Invite { code: string; note: string; maxUses: number; used: number; createdAt: string }
+export interface Feedback { id: string; page: string; text: string; contact: string; status: string; createdAt: string; email: string | null; name: string | null }
+
 const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o).map(([k, v]) => [k, String(v)])).toString();
 
 export const api = {
   session: () => call<Session>('GET', '/api/session'),
-  register: (email: string, password: string, name: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/register', { email, password, name }),
+  register: (email: string, password: string, name: string, invite?: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/register', { email, password, name, invite: invite || undefined }),
+  authConfig: () => call<{ authRequired: boolean; inviteRequired: boolean }>('GET', '/api/auth/config'),
+  track: (name: string, props?: Record<string, string | number | boolean>) => call<{ ok: true }>('POST', '/api/events', { name, props }).catch(() => undefined),
+  feedback: (text: string, page: string, contact: string) => call<{ ok: true }>('POST', '/api/feedback', { text, page, contact }),
+  admin: {
+    overview: (days: number) => call<AdminOverview>('GET', `/api/admin/overview?days=${days}`),
+    users: () => call<{ users: AdminUser[] }>('GET', '/api/admin/users'),
+    addPoints: (id: string, delta: number) => call<{ users: AdminUser[] }>('POST', `/api/admin/users/${id}/points`, { delta }),
+    invites: () => call<{ invites: Invite[] }>('GET', '/api/admin/invites'),
+    createInvites: (count: number, maxUses: number, note: string) => call<{ codes: string[]; invites: Invite[] }>('POST', '/api/admin/invites', { count, maxUses, note }),
+    feedback: () => call<{ feedback: Feedback[] }>('GET', '/api/admin/feedback'),
+    setFeedback: (id: string, status: string) => call<{ feedback: Feedback[] }>('POST', `/api/admin/feedback/${id}`, { status }),
+    setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
+  },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
   logout: () => call<{ ok: true }>('POST', '/api/auth/logout'),
   switchPersona: (persona: PersonaId) => call<Session>('POST', '/api/session/persona', { persona }),

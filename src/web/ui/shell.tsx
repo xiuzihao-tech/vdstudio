@@ -64,6 +64,7 @@ export function Header() {
       <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲</span></div>
       <nav className="tabs" aria-label="主导航">
         {TABS.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}>{n}</button>)}
+        {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
       </nav>
       <span className="sp" />
       <span className="pts">余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</span>

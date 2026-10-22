@@ -1,5 +1,5 @@
 // 登录 / 注册表单。注册时匿名期间做的内容会原样带进账号。
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
 
@@ -9,12 +9,15 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? '');
+  const [needInvite, setNeedInvite] = useState(false);
+  useEffect(() => { api.authConfig().then(c => setNeedInvite(c.inviteRequired)).catch(() => undefined); }, []);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try {
-      const r = mode === 'login' ? await api.login(email, password) : await api.register(email, password, name);
+      const r = mode === 'login' ? await api.login(email, password) : await api.register(email, password, name, invite);
       await reloadSession(); bump(); toast(r.message); onDone?.();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : '出错了'); } finally { setBusy(false); }
   };
@@ -23,6 +26,7 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
       <button type="button" aria-pressed={mode === 'login'} onClick={() => setMode('login')}>登录</button>
       <button type="button" aria-pressed={mode === 'register'} onClick={() => setMode('register')}>注册</button>
     </div>
+    {mode === 'register' && needInvite && <><label className="lb" htmlFor="auInvite">邀请码</label><input className="fld" id="auInvite" value={invite} onChange={e => setInvite(e.target.value.toUpperCase())} required placeholder="比如 FD3K9QXZ" style={{ marginBottom: 14, letterSpacing: '.08em' }} /></>}
     {mode === 'register' && <><label className="lb" htmlFor="auName">名字</label><input className="fld" id="auName" autoComplete="name" value={name} onChange={e => setName(e.target.value)} required maxLength={40} /></>}
     <label className="lb" htmlFor="auEmail" style={{ marginTop: mode === 'register' ? 14 : 0 }}>邮箱</label>
     <input className="fld" id="auEmail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />

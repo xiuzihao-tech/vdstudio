@@ -803,3 +803,8 @@ body[data-theme=poster] .gfoot{border:2px solid #000;background:#fff}
   .steps i{flex:none;width:8px}
   .cpm{padding:18px 16px}
 }
+
+/* ===== 提意见按钮 ===== */
+.fbb{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:30;writing-mode:vertical-rl;letter-spacing:.15em;padding:14px 8px;border-radius:10px 0 0 10px;background:var(--pri);color:var(--pritx);font-size:13.5px;font-weight:500;box-shadow:0 10px 30px -10px rgba(0,0,0,.4)}
+body[data-theme=poster] .fbb{border-radius:0;border:2px solid #000;background:var(--ac);color:#000}
+@media (max-width:760px){.fbb{padding:10px 5px;font-size:12px}}

@@ -163,10 +163,11 @@ export function GenPage() {
       </details>
 
       <div className="gfoot" id="gFoot">
-        <div><p className="t2">{shots.length} 镜 · {g.len} 秒 · {g.ratio} · {isDraft(g) ? '样片 480p' : g.res}</p><p className="xs m3">{m.n} · {VOICES.find(v => v.id === g.voice)!.n} · 余额 {Math.round(session!.workspace.balance).toLocaleString()} 点</p></div>
+        <div><p className="t2">{shots.length} 镜 · {g.len} 秒 · {g.ratio} · {isDraft(g) ? '样片 480p' : g.res}</p><p className="xs m3">{m.n} · {VOICES.find(v => v.id === g.voice)!.n} · 余额 {Math.round(session!.workspace.balance).toLocaleString()} 点{session!.limits.dailyJobs ? ` · 今天还能生成 ${Math.max(0, session!.limits.dailyJobs - session!.limits.jobsToday)} 次` : ''}</p>
+          {session!.limits.genPaused && <p className="xs" style={{ color: 'var(--err)' }}>生成功能暂时关闭，管理员打开后就能用</p>}</div>
         <span className="sp" />
         <button className="btn g" onClick={toWb}>进制作台</button>
-        <button className="btn y" id="gGo" disabled={blocked || !!running} onClick={() => submit(false)}>{running ? '生成中…' : `生成视频 · ${cost} 点`}</button>
+        <button className="btn y" id="gGo" disabled={blocked || !!running || session!.limits.genPaused} onClick={() => submit(false)}>{running ? '生成中…' : `生成视频 · ${cost} 点`}</button>
       </div>
 
       <div id="gOut" aria-live="polite"><JobView job={job} onFinal={() => job && submit(true)} onAgain={() => submit(false)} onWb={toWb} onSch={async () => { try { const t = topic ?? await api.addTopic({ title: (job?.output as VideoOutput | null)?.title ?? (g.title || '未命名'), hook: lines[0] ?? '', source: 'mat', why: '从生成视频来' }); if (!topic) set({ topicId: t.id }); schedule(t); } catch (e) { fail(e); } }} /></div>
@@ -186,14 +187,16 @@ function JobView({ job, onFinal, onAgain, onWb, onSch }: { job: Job | null; onFi
   if (job.status === 'failed') return <div className="gout" style={{ gridTemplateColumns: '1fr' }}><div><p className="t1">没生成成功</p><p className="s m" style={{ marginTop: 6 }}>{job.error}。点数已退回。</p><button className="btn y" style={{ marginTop: 12 }} onClick={onAgain}>再试一次</button></div></div>;
   const o = job.output as VideoOutput, first = o.shots[0];
   return <div className="gout">
-    <div className={`pv ${o.ratio === '16:9' ? 'h' : ''}`}>{first.videoUrl
+    <div className={`pv ${o.ratio === '16:9' ? 'h' : ''}`}>{o.videoUrl
+      ? <video src={o.videoUrl} controls playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} />
+      : first.videoUrl
       ? <ShotPlayer urls={o.shots.map(s => s.videoUrl ?? null)} />
       : <><Ph k={first.k} tag="gen" /><p className="cap2">{first.line}</p></>}</div>
     <div>
       <p className="xs m3">{o.draft ? '样片 · 480p' : `成片 · ${o.res}`} · AI 生成内容已标识</p><h2 className="d3" style={{ marginTop: 6 }}>{o.title}</h2>
       <div className="list" style={{ marginTop: 14 }}><div><span>规格</span><span className="v">{o.ratio} · {o.len} 秒 · {o.shots.length} 镜</span></div><div><span>声音</span><span className="v">{VOICES.find(v => v.id === o.voice)?.n}</span></div><div><span>模型</span><span className="v">{modelOf(o.model).n}</span></div><div><span>花费</span><span className="v">{job.cost} 点</span></div></div>
       <div className="row" style={{ marginTop: 16, gap: 8 }}>
-        {o.draft ? <button className="btn y" id="goFinal" onClick={onFinal}>转成片</button> : <button className="btn y" onClick={() => toast('已开始下载（示意）')}>下载</button>}
+        {o.draft ? <button className="btn y" id="goFinal" onClick={onFinal}>转成片</button> : o.videoUrl ? <a className="btn y" href={o.videoUrl} download={`${o.title}.mp4`} onClick={() => void api.track('download')}>下载</a> : <button className="btn y" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}
         <button className="btn g" onClick={onWb}>进制作台精修</button>
         <button className="btn g" id="goSch" onClick={onSch}>放进排期</button>
       </div>

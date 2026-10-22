@@ -10,7 +10,7 @@ const PORT = 5300 + Math.floor(Math.random() * 500);
 const data = mkdtempSync(join(tmpdir(), 'findai-e2e-'));
 const shots = process.env.SHOTS ?? join(data, 'shots');
 mkdirSync(shots, { recursive: true });
-const srv = spawn(process.execPath, ['--no-warnings', 'dist/server.js'], { env: { ...process.env, PORT: String(PORT), DATA_DIR: data, MOCK_DELAY_MS: '60' }, stdio: 'inherit' });
+const srv = spawn(process.execPath, ['--no-warnings', 'dist/server.js'], { env: { ...process.env, PORT: String(PORT), DATA_DIR: data, MOCK_DELAY_MS: '60', ADMIN_EMAILS: 'boss@example.com', DAILY_JOBS_PER_USER: '50' }, stdio: 'inherit' });
 const base = `http://localhost:${PORT}`;
 for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/session'); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
 
@@ -156,6 +156,33 @@ await run('切换人设与主题', async () => {
   await $('.tabs [data-go=ip]').click(); await $('#hot .hc').first().waitFor();
   await $('#whoBtn').click(); await $('[data-th=cinema]').click(); await $('#shX').click();
   await shot('10_cinema');
+});
+
+await run('提意见 → 管理员后台：漏斗、反馈、邀请码、暂停生成', async () => {
+  await $('#fbBtn').click(); await $('#fbTx').fill('生成按钮可以再显眼一点'); await $('#fbGo').click(); await page.waitForTimeout(300);
+  const ctx2 = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+  const a = await ctx2.newPage();
+  a.on('pageerror', e => errors.push(`admin pageerror: ${e.message}`));
+  await a.goto(base);
+  await a.locator('#loginBtn').click(); await a.locator('#authForm .seg button', { hasText: '注册' }).click();
+  await a.locator('#auName').fill('管理员'); await a.locator('#auEmail').fill('boss@example.com'); await a.locator('#auPw').fill('secret123'); await a.locator('#auGo').click();
+  await a.locator('.tabs [data-go=admin]').click();
+  await a.locator('#funnel').waitFor();
+  const funnel = await a.locator('#funnel').textContent();
+  if (!/提交生成\s*\d/.test(funnel)) throw new Error('漏斗没数据：' + funnel);
+  await a.screenshot({ path: join(shots, '11_admin.png'), fullPage: true });
+  await a.locator('#v-admin .seg button', { hasText: '反馈' }).click();
+  await a.locator('#fbList', { hasText: '生成按钮可以再显眼一点' }).waitFor();
+  await a.locator('#v-admin .seg button', { hasText: '邀请码' }).click();
+  await a.locator('#mkInv').click(); await a.locator('textarea[readonly]').waitFor();
+  if (!(await a.locator('textarea[readonly]').inputValue()).includes('?invite=FD')) throw new Error('邀请链接不对');
+  await a.locator('#v-admin .seg button', { hasText: '用户' }).click(); await a.locator('#userList', { hasText: 'lin@example.com' }).waitFor();
+  await a.locator('#v-admin .seg button', { hasText: '概览' }).click(); await a.locator('#pauseSw').uncheck(); await a.waitForTimeout(300);
+  await page.locator('.tabs [data-go=gen]').click(); await page.reload();
+  await page.getByText('生成功能暂时关闭').waitFor();
+  if (!(await page.locator('#gGo').isDisabled())) throw new Error('暂停后生成按钮还能点');
+  await a.locator('#pauseSw').check();
+  await ctx2.close();
 });
 
 const m = await browser.newPage({ viewport: { width: 390, height: 844 } });
