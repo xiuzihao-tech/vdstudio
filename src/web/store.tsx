@@ -1,0 +1,109 @@
+// 全局状态：会话、导航、提示、弹层、跨页交接（文案 → 生成 / 制作台，素材 → 各处，排期 → 选题库）。
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api, ApiError, type Session } from './api.ts';
+import type { GenSettings, Topic } from '../shared/types.ts';
+
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'lib';
+export interface Route { view: View; sub?: string; id?: string }
+
+export function parseRoute(path: string): Route {
+  const [, v, sub, id] = path.split('/');
+  const views: View[] = ['home', 'ip', 'gen', 'wb', 'plan', 'lib'];
+  return { view: (views as string[]).includes(v) ? (v as View) : 'home', sub: sub || undefined, id: id || undefined };
+}
+export const routePath = (r: Route) => r.view === 'home' ? '/' : `/${[r.view, r.sub, r.id].filter(Boolean).join('/')}`;
+
+/** 排期“从选题库挑”时带过去的目标格子 */
+export interface PlaceTarget { planId: string; date: string; label: string }
+/** 制作台的输入：一组带台词的镜头 + 全片设置 */
+export interface WbSeed { title: string; lines: string[]; assetIds: string[]; settings?: Partial<GenSettings>; topicId?: string | null }
+
+interface SheetSpec { title: string; body: ReactNode; foot?: ReactNode; wide?: boolean }
+interface Ctx {
+  session: Session | null; reloadSession: () => Promise<void>; setSession: (s: Session) => void;
+  route: Route; nav: (r: Route | View, replace?: boolean) => void;
+  toast: (m: string) => void; fail: (e: unknown) => void;
+  sheet: (s: SheetSpec | null) => void;
+  genSeed: Partial<GenSettings> | null; setGenSeed: (g: Partial<GenSettings> | null) => void;
+  wbSeed: WbSeed | null; setWbSeed: (w: WbSeed | null) => void;
+  place: PlaceTarget | null; setPlace: (p: PlaceTarget | null) => void;
+  matSeed: string[] | null; setMatSeed: (ids: string[] | null) => void;
+  /** 任何会影响选题、排期、余额的写操作之后调用，让各页重新拉数据 */
+  bump: () => void; version: number;
+  jobsVersion: number; bumpJobs: () => void;
+}
+const C = createContext<Ctx | null>(null);
+export const useApp = () => { const c = useContext(C); if (!c) throw new Error('useApp 必须在 AppProvider 里用'); return c; };
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
+  const [toastMsg, setToast] = useState<{ m: string; n: number } | null>(null);
+  const [sheetSpec, setSheet] = useState<SheetSpec | null>(null);
+  const [genSeed, setGenSeed] = useState<Partial<GenSettings> | null>(null);
+  const [wbSeed, setWbSeed] = useState<WbSeed | null>(null);
+  const [place, setPlace] = useState<PlaceTarget | null>(null);
+  const [matSeed, setMatSeed] = useState<string[] | null>(null);
+  const [version, setVersion] = useState(0);
+  const [jobsVersion, setJobsVersion] = useState(0);
+  const lastFocus = useRef<HTMLElement | null>(null);
+
+  const reloadSession = useCallback(async () => { setSession(await api.session()); }, []);
+  useEffect(() => { void reloadSession(); }, [reloadSession]);
+  useEffect(() => { if (session) document.body.dataset.theme = session.workspace.theme; }, [session]);
+  useEffect(() => { const f = () => setRoute(parseRoute(location.pathname)); addEventListener('popstate', f); return () => removeEventListener('popstate', f); }, []);
+
+  const nav = useCallback((r: Route | View, replace = false) => {
+    const next = typeof r === 'string' ? { view: r } : r;
+    const p = routePath(next);
+    if (p !== location.pathname) (replace ? history.replaceState : history.pushState).call(history, null, '', p);
+    setRoute(next); setSheet(null); window.scrollTo(0, 0);
+  }, []);
+  const toast = useCallback((m: string) => setToast({ m, n: Date.now() }), []);
+  const fail = useCallback((e: unknown) => { console.error(e); setToast({ m: e instanceof ApiError ? e.message : '出错了，稍后再试', n: Date.now() }); }, []);
+  const sheet = useCallback((s: SheetSpec | null) => {
+    if (s && !sheetSpec) lastFocus.current = document.activeElement as HTMLElement;
+    setSheet(s);
+    if (!s && lastFocus.current && document.contains(lastFocus.current)) lastFocus.current.focus();
+  }, [sheetSpec]);
+  useEffect(() => { if (!toastMsg) return; const h = setTimeout(() => setToast(null), 2600); return () => clearTimeout(h); }, [toastMsg]);
+  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null); }; addEventListener('keydown', f); return () => removeEventListener('keydown', f); }, []);
+
+  const value = useMemo<Ctx>(() => ({
+    session, reloadSession, setSession, route, nav, toast, fail, sheet, genSeed, setGenSeed, wbSeed, setWbSeed, place, setPlace, matSeed, setMatSeed,
+    bump: () => { setVersion(v => v + 1); void reloadSession(); }, version, jobsVersion, bumpJobs: () => { setJobsVersion(v => v + 1); void reloadSession(); },
+  }), [session, reloadSession, route, nav, toast, fail, sheet, genSeed, wbSeed, place, matSeed, version, jobsVersion]);
+
+  return (
+    <C.Provider value={value}>
+      {children}
+      <div className={`scrim${sheetSpec ? ' on' : ''}`} onClick={() => sheet(null)} />
+      <div className={`sheet${sheetSpec ? ' on' : ''}`} role="dialog" aria-modal="true" aria-labelledby="shT" aria-hidden={!sheetSpec}>
+        {sheetSpec && <>
+          <div className="shh"><h2 id="shT">{sheetSpec.title}</h2><button className="cls" id="shX" aria-label="关闭" autoFocus onClick={() => sheet(null)}>×</button></div>
+          <div className="sb" id="shB">{sheetSpec.body}</div>
+          {sheetSpec.foot && <div className="sf" id="shF">{sheetSpec.foot}</div>}
+        </>}
+      </div>
+      <div id="toast" role="status" aria-live="polite" className={toastMsg ? 'on' : ''}>{toastMsg?.m}</div>
+    </C.Provider>
+  );
+}
+
+/** 拉数据的小钩子：依赖变化或全局 version 变化时重拉 */
+export function useData<T>(load: () => Promise<T>, deps: unknown[]): { data: T | null; reload: () => void; loading: boolean; error: string | null; set: (t: T) => void } {
+  const { version, fail } = useApp();
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let live = true; setLoading(true);
+    load().then(d => { if (live) { setData(d); setError(null); } }).catch(e => { if (live) { setError(e instanceof ApiError ? e.message : '加载失败'); fail(e); } }).finally(() => live && setLoading(false));
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, version, n]);
+  return { data, loading, error, reload: () => setN(x => x + 1), set: setData };
+}
+
+export type { Topic };
