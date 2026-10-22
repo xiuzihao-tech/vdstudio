@@ -186,7 +186,9 @@ function JobView({ job, onFinal, onAgain, onWb, onSch }: { job: Job | null; onFi
   if (job.status === 'failed') return <div className="gout" style={{ gridTemplateColumns: '1fr' }}><div><p className="t1">没生成成功</p><p className="s m" style={{ marginTop: 6 }}>{job.error}。点数已退回。</p><button className="btn y" style={{ marginTop: 12 }} onClick={onAgain}>再试一次</button></div></div>;
   const o = job.output as VideoOutput, first = o.shots[0];
   return <div className="gout">
-    <div className={`pv ${o.ratio === '16:9' ? 'h' : ''}`}><Ph k={first.k} tag="gen" /><p className="cap2">{first.line}</p></div>
+    <div className={`pv ${o.ratio === '16:9' ? 'h' : ''}`}>{first.videoUrl
+      ? <ShotPlayer urls={o.shots.map(s => s.videoUrl ?? null)} />
+      : <><Ph k={first.k} tag="gen" /><p className="cap2">{first.line}</p></>}</div>
     <div>
       <p className="xs m3">{o.draft ? '样片 · 480p' : `成片 · ${o.res}`} · AI 生成内容已标识</p><h2 className="d3" style={{ marginTop: 6 }}>{o.title}</h2>
       <div className="list" style={{ marginTop: 14 }}><div><span>规格</span><span className="v">{o.ratio} · {o.len} 秒 · {o.shots.length} 镜</span></div><div><span>声音</span><span className="v">{VOICES.find(v => v.id === o.voice)?.n}</span></div><div><span>模型</span><span className="v">{modelOf(o.model).n}</span></div><div><span>花费</span><span className="v">{job.cost} 点</span></div></div>
@@ -198,6 +200,14 @@ function JobView({ job, onFinal, onAgain, onWb, onSch }: { job: Job | null; onFi
       <div className="row" style={{ marginTop: 10, gap: 14 }}><button className="lnk s" onClick={onAgain}>换一版</button><button className="lnk s" onClick={() => toast(`已生成剪映草稿：${o.title}.zip（示意）`)}>导出剪映草稿</button></div>
     </div>
   </div>;
+}
+
+/** 逐镜连播：真实视频服务返回的是每镜一段，合成整条之前先按顺序播 */
+function ShotPlayer({ urls }: { urls: (string | null)[] }) {
+  const list = urls.filter((u): u is string => !!u);
+  const [i, setI] = useState(0);
+  return <video key={list[i]} src={list[i]} autoPlay={i > 0} controls playsInline onEnded={() => setI(x => (x + 1 < list.length ? x + 1 : x))}
+    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} />;
 }
 
 function DraftPicker({ onPick }: { onPick: (copy: string, title: string, topicId: string, len: number) => void }) {

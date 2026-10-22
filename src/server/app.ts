@@ -1,10 +1,11 @@
 // 应用：组装数据库、供应方、路由，处理静态文件。createApp 便于测试时用内存库启动。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
 import { makeAuth, type User } from './auth.ts';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
@@ -21,13 +22,23 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
 const ASSET_TYPE = (mime: string) => mime.startsWith('video/') ? '视频' : mime.startsWith('audio/') ? '音频' : '照片';
 
-export interface AppOptions { dbFile: string; dataDir: string; webDir: string; authRequired?: boolean; secureCookies?: boolean }
+export interface AppOptions { dbFile: string; dataDir: string; webDir: string; authRequired?: boolean; secureCookies?: boolean; publicBaseUrl?: string; fileSignSecret?: string }
 
 export function createApp(o: AppOptions) {
   const db = openDb(o.dbFile);
   const repo = makeRepo(db);
-  const providers = loadProviders();
-  const runner = new JobRunner(repo, providers);
+  const { providers, info: providerInfo } = loadProviders();
+  console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
+  /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
+  const signKey = o.fileSignSecret ?? randomBytes(32).toString('hex');
+  const sign = (rel: string, exp: number) => createHmac('sha256', signKey).update(`${rel}:${exp}`).digest('base64url');
+  const signedUrl = (rel: string, ttlSec = 7200) => { const exp = Math.floor(Date.now() / 1000) + ttlSec; return `/files/${rel}?exp=${exp}&sig=${sign(rel, exp)}`; };
+  const validSig = (rel: string, exp: string | null, sig: string | null) => {
+    if (!exp || !sig || Number(exp) < Date.now() / 1000) return false;
+    const a = Buffer.from(sign(rel, Number(exp))), b = Buffer.from(sig);
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
+  const runner = new JobRunner(repo, providers, a => (o.publicBaseUrl && a.url && a.mime?.startsWith('image/')) ? `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}` : null);
   const filesDir = join(o.dataDir, 'files');
   mkdirSync(filesDir, { recursive: true });
   for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
@@ -59,7 +70,7 @@ export function createApp(o: AppOptions) {
   const aiCtx = (ws: Workspace) => ({ persona: personaOf(ws.persona), positioning: ws.positioning });
   const topicOr404 = (ws: Workspace, id: string) => { const t = repo.topic(ws.id, id); if (!t) throw new HttpError(404, '选题不存在'); return t; };
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
-  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, authRequired: !!o.authRequired, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
+  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, authRequired: !!o.authRequired, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
 
   const r = new Router();
@@ -141,7 +152,7 @@ export function createApp(o: AppOptions) {
 
   /* ---------- 工具 ---------- */
   r.post('/api/tools/banned', async req => { const { text } = await body(req, z.object({ text: z.string().max(5000) })); return { hits: findBanned(text) }; });
-  r.post('/api/tools/humanize', async req => { const { text } = await body(req, z.object({ text: z.string().max(5000) })); return { text: await providers.copy.humanize(text) }; });
+  r.post('/api/tools/humanize', async req => { const ws = W(req), { text } = await body(req, z.object({ text: z.string().max(5000) })); return { text: await providers.copy.humanize(aiCtx(ws), text) }; });
   r.post('/api/tools/transcribe', async req => {
     const ws = W(req), d = await body(req, z.object({ kind: z.enum(['audio', 'video']), ref: z.string().max(500) }));
     return { text: await providers.transcribe.transcribe(aiCtx(ws), d) };
@@ -255,7 +266,7 @@ export function createApp(o: AppOptions) {
   const webRoot = resolve(o.webDir);
   function serveFile(res: ServerResponse, base: string, rel: string, fallback?: string) {
     const p = normalize(join(base, rel));
-    if (!p.startsWith(base)) { res.writeHead(403).end(); return; }
+    if (p !== base && !p.startsWith(base + sep)) { res.writeHead(403).end(); return; }
     let f = p;
     if (!existsSync(f) || statSync(f).isDirectory()) { if (!fallback) { res.writeHead(404).end(); return; } f = join(base, fallback); }
     res.writeHead(200, { 'content-type': MIME[extname(f)] ?? 'application/octet-stream', 'cache-control': f.endsWith('index.html') ? 'no-cache' : 'public, max-age=300' });
@@ -276,14 +287,17 @@ export function createApp(o: AppOptions) {
         return;
       }
       if (req.path.startsWith('/files/')) {
-        // 只能访问自己账号（owner）名下工作区的文件
-        const c = ctx(req), rel = req.path.slice(7), fileWs = repo.ws(rel.split('/')[0]);
-        if (!fileWs || fileWs.ownerId !== c.owner) throw new HttpError(404, '文件不存在');
+        // 带有效签名的链接（给视频服务用）直接放行；否则只能访问自己账号（owner）名下工作区的文件
+        const rel = decodeURIComponent(req.path.slice(7));
+        if (!validSig(rel, req.query.get('exp'), req.query.get('sig'))) {
+          const c = ctx(req), fileWs = repo.ws(rel.split('/')[0]);
+          if (!fileWs || fileWs.ownerId !== c.owner) throw new HttpError(404, '文件不存在');
+        }
         return serveFile(res, resolve(filesDir), rel);
       }
       serveFile(res, webRoot, req.path === '/' ? 'index.html' : req.path.slice(1), 'index.html');
     } catch (e) { sendError(res, e); }
   }
 
-  return { server: createServer((q, s) => { void handle(q, s); }), db, repo };
+  return { server: createServer((q, s) => { void handle(q, s); }), db, repo, signedUrl, providerInfo };
 }

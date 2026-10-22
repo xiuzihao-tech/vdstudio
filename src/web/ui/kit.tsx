@@ -28,7 +28,7 @@ export function Pills<T extends string | number>({ value, options, onChange, lab
   return (
     <div className="pills" role="group" aria-label={label}>
       {options.map(o => {
-        const [v, t] = Array.isArray(o) ? o : [o, String(o)];
+        const [v, t]: [T, string] = Array.isArray(o) ? (o as [T, string]) : [o as T, String(o)];
         const dis = disabled?.(v);
         return <button key={String(v)} type="button" className={`pill${small ? ' sm' : ''}`} aria-pressed={sel(v)} aria-disabled={dis || undefined} style={dis ? { opacity: 0.45 } : undefined} onClick={() => onChange(v)}>{t}</button>;
       })}

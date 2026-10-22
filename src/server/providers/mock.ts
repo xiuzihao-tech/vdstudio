@@ -74,7 +74,7 @@ export const mockProviders: Providers = {
       };
     },
     async rewrite(_ctx, d, how, hook) { await delay(200); return rewriteLocal(d, how, hook); },
-    async humanize(text) {
+    async humanize(_ctx, text) {
       await delay(200);
       return text.split('。').filter(Boolean).map((s, i) => (i % 2 ? '' : LIVE_OPENERS[(i / 2) % LIVE_OPENERS.length]) + s.replace('我们', '我')).join('。') + '。';
     },

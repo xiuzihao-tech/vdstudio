@@ -61,7 +61,7 @@ export interface GenSettings {
   model: string; len: number; ratio: Ratio; res: Resolution; draft: boolean;
   voice: VoiceId; speed: number; bgm: string; subs: boolean; ambience: boolean; cover: boolean; style: string;
 }
-export interface PlannedShot { dur: number; line: string; k: SceneKey; generated: boolean }
+export interface PlannedShot { dur: number; line: string; k: SceneKey; generated: boolean; /** 真实视频服务生成后回填 */ videoUrl?: string | null }
 
 export type IssueCode = 'model_off' | 'res_unsupported' | 'no_copy' | 'copy_too_long' | 'voice_missing' | 'voice_busy' | 'no_assets';
 export interface GenIssue { code: IssueCode; blocking: boolean; text: string; fixes: { id: string; label: string }[] }

@@ -3,7 +3,7 @@ import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
 import { GEN_STEPS, genCost, isDraft, planShots } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
 import { WEEKDAYS } from '../shared/catalog.ts';
-import type { GenSettings, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
+import type { Asset, GenSettings, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
 import { tx, type DB } from './db.ts';
@@ -129,7 +129,8 @@ export function published(repo: Repo, ws: Workspace, today = todayIso()) {
 
 /* ================= 生成任务 ================= */
 export class JobRunner {
-  constructor(private repo: Repo, private providers: Providers) {}
+  /** frameUrl：把素材变成视频服务能访问的公网地址（签名、限时）；没配公网地址时返回 null，只用文字生成 */
+  constructor(private repo: Repo, private providers: Providers, private frameUrl: (a: Asset) => string | null = () => null) {}
 
   /** 校验、扣点、建任务，然后在后台跑；返回任务或错误 */
   startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
@@ -146,8 +147,9 @@ export class JobRunner {
     this.repo.markAssetsUsed(ws.id, g.assetIds);
     this.repo.updateJob(job.id, { status: 'running' });
     const output: VideoOutput = { draft: !final && isDraft(g), shots, title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
-    this.providers.video.run({ settings: g, shots, final }, step => this.repo.updateJob(job.id, { step }))
-      .then(() => this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output }))
+    const frames = shots.map((_, i) => assets.length ? this.frameUrl(assets[i % assets.length]) : null);
+    this.providers.video.run({ settings: g, shots, final, frames }, step => this.repo.updateJob(job.id, { step }))
+      .then(r => { if (r?.shotVideos) output.shots = output.shots.map((s, i) => ({ ...s, videoUrl: r.shotVideos![i] ?? null })); this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output }); })
       .catch(err => { this.repo.updateJob(job.id, { status: 'failed', error: String(err?.message ?? err) }); this.repo.refund(ws.id, cost, '生成失败退点', job.id); });
     return { ok: true, job: this.repo.job(ws.id, job.id)! };
   }

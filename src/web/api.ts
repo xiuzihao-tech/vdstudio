@@ -17,7 +17,7 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { user: { email: string; name: string } | null; authRequired: boolean; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; authRequired: boolean; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }

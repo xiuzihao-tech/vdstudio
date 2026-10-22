@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 process.env.MOCK_DELAY_MS = '0';
+process.env.AI_PROVIDER = 'mock'; // 不受本机 .env 里真实密钥影响
 process.env.TODAY = '2026-10-21';
 const { createApp } = await import('../../src/server/app.ts');
 const { hashPassword, verifyPassword } = await import('../../src/server/auth.ts');
@@ -107,4 +108,15 @@ test('文件隔离：别人的上传文件拿不到', async () => {
   assert.equal((await a('GET', up.json.url)).raw.status, 200);
   await b('GET', '/api/session');
   assert.equal((await b('GET', up.json.url)).status, 404);
+});
+
+test('签名文件链接：视频服务不带 Cookie 也能取首帧，签名错或过期就拿不到', async () => {
+  const { app, base } = await boot(false); servers.push(app.server);
+  const a = client(base);
+  const up = await a('POST', '/api/assets', new Uint8Array([9, 9, 9]), { 'content-type': 'image/png', 'x-file-name': 'f.png' });
+  const signed = app.signedUrl(up.json.url.slice(7));
+  assert.equal((await fetch(base + signed)).status, 200);
+  assert.equal((await fetch(base + signed.replace(/sig=.{4}/, 'sig=AAAA'))).status, 404);
+  assert.equal((await fetch(base + app.signedUrl(up.json.url.slice(7), -10))).status, 404);
+  assert.equal((await fetch(base + up.json.url)).status, 404, '不带签名、不带 Cookie 拿不到');
 });

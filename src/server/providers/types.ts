@@ -17,12 +17,13 @@ export interface TopicProvider {
 export interface CopyProvider {
   generate(ctx: Ctx, t: Topic, o: { kind: CopyKind; len: CopyLen; tone: Tone; version: number }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
   rewrite(ctx: Ctx, d: CopyDraft, how: Rewrite, hook: string): Promise<{ draft: CopyDraft; changed: number }>;
-  humanize(text: string): Promise<string>;
+  humanize(ctx: Ctx, text: string): Promise<string>;
 }
 
 /** 视频生成（Seedance 等）。run 内部负责提交、轮询，并逐步回报进度 */
 export interface VideoProvider {
-  run(input: { settings: GenSettings; shots: PlannedShot[]; final: boolean }, onStep: (i: number) => void): Promise<void>;
+  /** frames：每镜首帧图片的公网地址（没有则为 null）。返回每镜生成好的视频地址（Mock 不返回） */
+  run(input: { settings: GenSettings; shots: PlannedShot[]; final: boolean; frames: (string | null)[] }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[] } | void>;
 }
 
 /** 声音克隆与配音 */

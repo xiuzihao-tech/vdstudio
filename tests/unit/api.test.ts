@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 process.env.MOCK_DELAY_MS = '0';
+process.env.AI_PROVIDER = 'mock'; // 不受本机 .env 里真实密钥影响
 process.env.TODAY = '2026-10-21';
 const { createApp } = await import('../../src/server/app.ts');
 

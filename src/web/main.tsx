@@ -25,12 +25,18 @@ function Pages() {
   }
 }
 
+function Foot() {
+  const { session } = useApp();
+  const mockParts = [session?.ai.copy !== 'llm' && '文案', session?.ai.video !== 'seedance' && '视频'].filter(Boolean).join('和');
+  return <footer className="foot">FIND AI × 大哲 联合出品 · {mockParts ? `开发版：${mockParts}为模拟结果` : '文案与视频由真实 AI 服务生成'}，热门选题为示意数据，“点”为占位单位</footer>;
+}
+
 function App() {
   return <AppProvider>
     <Icons />
     <Header />
     <main id="main"><Pages /></main>
-    <footer className="foot">FIND AI × 大哲 联合出品 · 开发版：AI 能力为 Mock，热门选题为示意数据，“点”为占位单位，模型参数以实际接入为准</footer>
+    <Foot />
   </AppProvider>;
 }
 
