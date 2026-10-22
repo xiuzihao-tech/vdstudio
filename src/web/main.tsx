@@ -7,9 +7,11 @@ import { GenPage } from './pages/Gen.tsx';
 import { Workbench } from './pages/Workbench.tsx';
 import { PlanPage } from './pages/Plan.tsx';
 import { LibraryPage } from './pages/Library.tsx';
+import { LoginScreen } from './ui/auth.tsx';
 
 function Pages() {
-  const { session, route } = useApp();
+  const { session, route, needLogin } = useApp();
+  if (needLogin) return <LoginScreen />;
   if (!session) return <div className="vb wrap" style={{ paddingTop: 120, textAlign: 'center' }}><p className="s m">加载中…</p></div>;
   // key：切换人设时整页重挂载，避免上一个工作区的状态残留
   const k = session.workspace.id;

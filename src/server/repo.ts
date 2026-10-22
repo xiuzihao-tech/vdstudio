@@ -6,7 +6,7 @@ import type { Asset, CopyDraft, Job, Plan, Positioning, Slot, Topic, Workspace, 
 type Row = Record<string, any>;
 const j = (s: string | null) => (s == null ? null : JSON.parse(s));
 
-const toWs = (r: Row): Workspace => ({ id: r.id, persona: r.persona, positioning: j(r.positioning), balance: r.balance, voiceClone: r.voice_clone, theme: r.theme });
+const toWs = (r: Row): Workspace & { ownerId: string } => ({ id: r.id, ownerId: r.owner_id, persona: r.persona, positioning: j(r.positioning), balance: r.balance, voiceClone: r.voice_clone, theme: r.theme });
 const toTopic = (r: Row): Topic => ({ id: r.id, cat: r.cat, title: r.title, hook: r.hook, why: r.why, dir: r.dir, type: r.type, heat: r.heat, k: r.k, ageMonths: r.age_months, source: r.source, fav: !!r.fav, createdAt: r.created_at });
 const toAsset = (r: Row): Asset => ({ id: r.id, type: r.type, name: r.name, k: r.k, url: r.file ? `/files/${r.file}` : null, mime: r.mime, size: r.size, used: r.used, source: r.source, createdAt: r.created_at });
 const toJob = (r: Row): Job => ({ id: r.id, kind: r.kind, status: r.status, step: r.step, steps: j(r.steps), cost: r.cost, title: r.title, input: j(r.input), output: j(r.output), error: r.error, createdAt: r.created_at, updatedAt: r.updated_at });
@@ -22,9 +22,9 @@ export function makeRepo(db: DB) {
     createOwner(): string { const id = newId('own'); db.prepare('INSERT INTO owners (id, created_at) VALUES (?,?)').run(id, now()); return id; },
     currentWsId: (owner: string) => (db.prepare('SELECT current_ws FROM owners WHERE id=?').get(owner) as Row | undefined)?.current_ws as string | null,
     setCurrentWs: (owner: string, ws: string) => { db.prepare('UPDATE owners SET current_ws=? WHERE id=?').run(ws, owner); },
-    wsByPersona(owner: string, persona: PersonaId): Workspace | null { const r = db.prepare('SELECT * FROM workspaces WHERE owner_id=? AND persona=?').get(owner, persona) as Row | undefined; return r ? toWs(r) : null; },
-    ws(id: string): Workspace | null { const r = db.prepare('SELECT * FROM workspaces WHERE id=?').get(id) as Row | undefined; return r ? toWs(r) : null; },
-    insertWs(owner: string, persona: PersonaId, positioning: Positioning): Workspace {
+    wsByPersona(owner: string, persona: PersonaId): (Workspace & { ownerId: string }) | null { const r = db.prepare('SELECT * FROM workspaces WHERE owner_id=? AND persona=?').get(owner, persona) as Row | undefined; return r ? toWs(r) : null; },
+    ws(id: string): (Workspace & { ownerId: string }) | null { const r = db.prepare('SELECT * FROM workspaces WHERE id=?').get(id) as Row | undefined; return r ? toWs(r) : null; },
+    insertWs(owner: string, persona: PersonaId, positioning: Positioning): Workspace & { ownerId: string } {
       const id = newId('ws');
       db.prepare('INSERT INTO workspaces (id, owner_id, persona, positioning, created_at) VALUES (?,?,?,?,?)').run(id, owner, persona, JSON.stringify(positioning), now());
       return this.ws(id)!;

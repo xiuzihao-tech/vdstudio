@@ -21,6 +21,8 @@ export interface WbSeed { title: string; lines: string[]; assetIds: string[]; se
 interface SheetSpec { title: string; body: ReactNode; foot?: ReactNode; wide?: boolean }
 interface Ctx {
   session: Session | null; reloadSession: () => Promise<void>; setSession: (s: Session) => void;
+  /** 强制登录模式下未登录 */
+  needLogin: boolean;
   route: Route; nav: (r: Route | View, replace?: boolean) => void;
   toast: (m: string) => void; fail: (e: unknown) => void;
   sheet: (s: SheetSpec | null) => void;
@@ -48,7 +50,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [jobsVersion, setJobsVersion] = useState(0);
   const lastFocus = useRef<HTMLElement | null>(null);
 
-  const reloadSession = useCallback(async () => { setSession(await api.session()); }, []);
+  const [needLogin, setNeedLogin] = useState(false);
+  const reloadSession = useCallback(async () => {
+    try { setSession(await api.session()); setNeedLogin(false); }
+    catch (e) { if (e instanceof ApiError && e.status === 401) { setSession(null); setNeedLogin(true); } else throw e; }
+  }, []);
   useEffect(() => { void reloadSession(); }, [reloadSession]);
   useEffect(() => { if (session) document.body.dataset.theme = session.workspace.theme; }, [session]);
   useEffect(() => { const f = () => setRoute(parseRoute(location.pathname)); addEventListener('popstate', f); return () => removeEventListener('popstate', f); }, []);
@@ -70,9 +76,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null); }; addEventListener('keydown', f); return () => removeEventListener('keydown', f); }, []);
 
   const value = useMemo<Ctx>(() => ({
-    session, reloadSession, setSession, route, nav, toast, fail, sheet, genSeed, setGenSeed, wbSeed, setWbSeed, place, setPlace, matSeed, setMatSeed,
+    session, reloadSession, setSession, needLogin, route, nav, toast, fail, sheet, genSeed, setGenSeed, wbSeed, setWbSeed, place, setPlace, matSeed, setMatSeed,
     bump: () => { setVersion(v => v + 1); void reloadSession(); }, version, jobsVersion, bumpJobs: () => { setJobsVersion(v => v + 1); void reloadSession(); },
-  }), [session, reloadSession, route, nav, toast, fail, sheet, genSeed, wbSeed, place, matSeed, version, jobsVersion]);
+  }), [session, needLogin, reloadSession, route, nav, toast, fail, sheet, genSeed, wbSeed, place, matSeed, version, jobsVersion]);
 
   return (
     <C.Provider value={value}>

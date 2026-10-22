@@ -17,7 +17,7 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; authRequired: boolean; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }
@@ -28,6 +28,9 @@ const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o)
 
 export const api = {
   session: () => call<Session>('GET', '/api/session'),
+  register: (email: string, password: string, name: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/register', { email, password, name }),
+  login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
+  logout: () => call<{ ok: true }>('POST', '/api/auth/logout'),
   switchPersona: (persona: PersonaId) => call<Session>('POST', '/api/session/persona', { persona }),
   savePositioning: (p: Positioning) => call<Session>('PUT', '/api/workspace/positioning', p),
   setTheme: (theme: string) => call<{ ok: true }>('PUT', '/api/workspace/theme', { theme }),

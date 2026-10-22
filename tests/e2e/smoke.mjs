@@ -137,6 +137,20 @@ await run('素材：上传真实文件、多选、送去简易生成', async () 
   await $('[data-snd=gen]').click();
   await $('#gAtt img').first().waitFor();
 });
+await run('账号：注册保留内容 → 退出 → 登录', async () => {
+  await $('#loginBtn').click(); await $('#authForm .seg button', { hasText: '注册' }).click();
+  await $('#auName').fill('林设计师'); await $('#auEmail').fill('lin@example.com'); await $('#auPw').fill('secret123'); await $('#auGo').click();
+  await $('#whoBtn', { hasText: '林设计师 ·' }).waitFor();
+  if (await $('#loginBtn').count()) throw new Error('注册后还显示登录按钮');
+  await $('.tabs [data-go=ip]').click(); await $('#ipTabs [data-v=mine]').click();
+  const drafts = await $('.mine button[data-v=draft] b').textContent();
+  if (drafts === '0') throw new Error('注册后草稿丢了');
+  await $('#whoBtn').click(); await $('#logoutBtn').click(); await $('#loginBtn').waitFor();
+  await $('#loginBtn').click(); await $('#auEmail').fill('lin@example.com'); await $('#auPw').fill('secret123'); await $('#auGo').click();
+  await $('#whoBtn', { hasText: '林设计师 ·' }).waitFor();
+  await $('.tabs [data-go=ip]').click(); await $('#ipTabs [data-v=mine]').click();
+  if (await $('.mine button[data-v=draft] b').textContent() !== drafts) throw new Error('重新登录后草稿数量不对');
+});
 await run('切换人设与主题', async () => {
   await $('#whoBtn').click(); await $('[data-pv=dev]').click(); await page.waitForTimeout(400);
   await $('.tabs [data-go=ip]').click(); await $('#hot .hc').first().waitFor();

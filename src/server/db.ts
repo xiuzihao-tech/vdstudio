@@ -32,6 +32,12 @@ const MIGRATIONS: string[] = [
    CREATE TABLE slots (plan_id TEXT NOT NULL, date TEXT NOT NULL, topic_id TEXT NOT NULL, pin TEXT NOT NULL, why TEXT NOT NULL, col TEXT NOT NULL,
      PRIMARY KEY(plan_id, date));
    CREATE TABLE covers (id TEXT PRIMARY KEY, ws TEXT NOT NULL, title TEXT NOT NULL, style TEXT NOT NULL, created_at TEXT NOT NULL);`,
+  // 1：账号与会话。owner 是数据归属，账号登录后绑定到一个 owner
+  `CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, pass_hash TEXT NOT NULL, owner_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+   CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+   CREATE INDEX sessions_user ON sessions(user_id);`,
+  // 2：生成结果里每镜的视频地址（真实视频服务回填）
+  `ALTER TABLE jobs ADD COLUMN external TEXT;`,
 ];
 
 export type DB = DatabaseSync;

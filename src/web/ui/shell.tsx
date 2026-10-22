@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useApp, type View } from '../store.tsx';
 import { Src } from './kit.tsx';
+import { AuthForm } from './auth.tsx';
 import type { Job } from '../../shared/types.ts';
 
 const TABS: [View, string, string][] = [['home', '创作', '创作'], ['ip', '选题文案', '选题'], ['gen', '生成视频', '生成'], ['wb', '制作台', '制作台'], ['plan', '排期', '排期'], ['lib', '作品与素材', '素材']];
@@ -12,7 +13,7 @@ const THEMES: [string, string][] = [['studio', '展厅'], ['cinema', '放映'], 
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
 export function Header() {
-  const { session, route, nav, sheet, setSession, fail, toast, jobsVersion, bump } = useApp();
+  const { session, route, nav, sheet, setSession, fail, toast, jobsVersion, bump, reloadSession } = useApp();
   const [jobs, setJobs] = useState<Job[]>([]);
   const running = jobs.filter(j => j.status === 'queued' || j.status === 'running').length;
 
@@ -37,6 +38,10 @@ export function Header() {
       <div className="pills">{THEMES.map(([k, n]) => <button key={k} className="pill sm" data-th={k} aria-pressed={session!.workspace.theme === k}
         onClick={async () => { document.body.dataset.theme = k; setSession({ ...session!, workspace: { ...session!.workspace, theme: k } }); await api.setTheme(k).catch(fail); }}>{n}</button>)}</div>
       <p className="note">每个身份是独立的工作区：选题、文案、素材、排期互不影响。</p>
+      <p className="lb" style={{ marginTop: 18 }}>账号</p>
+      {session!.user
+        ? <div className="list"><div><span>{session!.user.name}<br /><span className="xs m3">{session!.user.email}</span></span><button className="btn g sm" id="logoutBtn" onClick={async () => { try { await api.logout(); sheet(null); await reloadSession(); bump(); toast('已退出'); } catch (e) { fail(e); } }}>退出</button></div></div>
+        : <><p className="s m" style={{ marginBottom: 12 }}>还没登录，内容只存在这台设备的浏览器里。注册后换设备也能用。</p><AuthForm initial="register" onDone={() => sheet(null)} /></>}
     </>,
   });
 
@@ -62,7 +67,8 @@ export function Header() {
       </nav>
       <span className="sp" />
       <span className="pts">余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</span>
-      <button className="who" id="whoBtn" aria-label="切换身份" onClick={whoSheet} disabled={!session}>{session?.persona.n ?? '…'}</button>
+      {session && !session.user && <button className="btn g sm" id="loginBtn" onClick={() => sheet({ title: '登录', body: <AuthForm onDone={() => sheet(null)} /> })}>登录</button>}
+      <button className="who" id="whoBtn" aria-label="切换身份和账号" onClick={whoSheet} disabled={!session}>{session ? `${session.user ? `${session.user.name} · ` : ''}${session.persona.n}` : '…'}</button>
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>
     </header>
     <nav className="tbar" aria-label="主导航（手机）">

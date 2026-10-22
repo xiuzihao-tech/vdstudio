@@ -22,7 +22,7 @@ export function defaultPositioning(p: Persona): Positioning {
 }
 
 /** 新工作区：人设自带选题、热门选题、示例素材、两个发布账号 */
-export function seedWorkspace(db: DB, repo: Repo, owner: string, persona: PersonaId): Workspace {
+export function seedWorkspace(db: DB, repo: Repo, owner: string, persona: PersonaId): Workspace & { ownerId: string } {
   return tx(db, () => {
     const p = personaOf(persona), c = catIndex(persona);
     const ws = repo.insertWs(owner, persona, defaultPositioning(p));

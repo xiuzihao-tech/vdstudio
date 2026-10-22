@@ -4,6 +4,7 @@ import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from
 import { extname, join, normalize, resolve } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
+import { makeAuth, type User } from './auth.ts';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
@@ -20,7 +21,7 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
 const ASSET_TYPE = (mime: string) => mime.startsWith('video/') ? '视频' : mime.startsWith('audio/') ? '音频' : '照片';
 
-export interface AppOptions { dbFile: string; dataDir: string; webDir: string }
+export interface AppOptions { dbFile: string; dataDir: string; webDir: string; authRequired?: boolean; secureCookies?: boolean }
 
 export function createApp(o: AppOptions) {
   const db = openDb(o.dbFile);
@@ -31,37 +32,67 @@ export function createApp(o: AppOptions) {
   mkdirSync(filesDir, { recursive: true });
   for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
 
-  /** 每个请求找到当前用户和工作区；第一次访问自动建一个（M6 换成登录） */
-  const ctxMap = new WeakMap<Req, { owner: string; ws: Workspace; setCookie?: string }>();
+  const auth = makeAuth(db);
+  auth.purgeExpired();
+  const cookie = (k: string, v: string, maxAge: number) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${o.secureCookies ? '; Secure' : ''}`;
+
+  /**
+   * 每个请求找到当前用户和工作区。
+   * 已登录：用账号的数据；未登录：AUTH_REQUIRED 时拒绝，否则用匿名 Cookie（第一次访问自动建），注册时匿名数据原样带进账号。
+   */
+  const ctxMap = new WeakMap<Req, { owner: string; ws: Workspace; user: User | null; setCookie?: string }>();
   function ctx(req: Req) {
     const hit = ctxMap.get(req); if (hit) return hit;
-    let owner = req.cookies.fid, setCookie: string | undefined;
-    if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(); setCookie = `fid=${owner}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`; }
-    let wsId = repo.currentWsId(owner);
-    let ws = wsId ? repo.ws(wsId) : null;
-    if (!ws) { ws = repo.wsByPersona(owner, 'designer') ?? seedWorkspace(db, repo, owner, 'designer'); repo.setCurrentWs(owner, ws.id); wsId = ws.id; }
-    const c = { owner, ws, setCookie }; ctxMap.set(req, c); return c;
+    const user = auth.userBySession(req.cookies.sid);
+    let owner: string, setCookie: string | undefined;
+    if (user) owner = user.ownerId;
+    else {
+      if (o.authRequired) throw new HttpError(401, '请先登录');
+      owner = req.cookies.fid;
+      if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(); setCookie = cookie('fid', owner, 31536000); }
+    }
+    let ws = (() => { const id = repo.currentWsId(owner); const w = id ? repo.ws(id) : null; return w && w.ownerId === owner ? w : null; })();
+    if (!ws) { ws = repo.wsByPersona(owner, 'designer') ?? seedWorkspace(db, repo, owner, 'designer'); repo.setCurrentWs(owner, ws.id); }
+    const c = { owner, ws, user, setCookie }; ctxMap.set(req, c); return c;
   }
   const W = (req: Req) => repo.ws(ctx(req).ws.id)!;
   const aiCtx = (ws: Workspace) => ({ persona: personaOf(ws.persona), positioning: ws.positioning });
   const topicOr404 = (ws: Workspace, id: string) => { const t = repo.topic(ws.id, id); if (!t) throw new HttpError(404, '选题不存在'); return t; };
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
-  const session = (ws: Workspace) => ({ workspace: ws, persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
+  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, authRequired: !!o.authRequired, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
 
   const r = new Router();
 
   /* ---------- 会话与工作区 ---------- */
-  r.get('/api/session', req => session(W(req)));
+  r.get('/api/session', req => session(W(req), req));
   r.post('/api/session/persona', async req => {
     const { persona } = await body(req, z.object({ persona: S.personaSchema }));
     const { owner } = ctx(req);
     const ws = repo.wsByPersona(owner, persona) ?? seedWorkspace(db, repo, owner, persona);
     repo.setCurrentWs(owner, ws.id);
-    return session(ws);
+    return session(ws, req);
   });
-  r.put('/api/workspace/positioning', async req => { const p = await body(req, S.positioningSchema); repo.setPositioning(W(req).id, p); return session(W(req)); });
+  r.put('/api/workspace/positioning', async req => { const p = await body(req, S.positioningSchema); repo.setPositioning(W(req).id, p); return session(W(req), req); });
   r.put('/api/workspace/theme', async req => { const { theme } = await body(req, z.object({ theme: z.enum(['studio', 'cinema', 'glass', 'poster']) })); repo.setTheme(W(req).id, theme); return { ok: true }; });
+
+  /* ---------- 账号 ---------- */
+  const credSchema = z.object({ email: z.string().trim().toLowerCase().email('邮箱格式不对').max(120), password: z.string().min(8, '密码至少 8 位').max(128) });
+  r.post('/api/auth/register', async (req, res) => {
+    const d = await body(req, credSchema.extend({ name: z.string().trim().min(1, '填一下名字').max(40) }));
+    const out = await auth.register(d.email, d.password, d.name, req.cookies.fid);
+    if (!out.ok) throw new HttpError(409, out.error);
+    res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
+    return { user: { email: out.user.email, name: out.user.name }, message: out.kept ? '注册好了，之前做的选题、文案、素材都在' : '注册好了' };
+  });
+  r.post('/api/auth/login', async (req, res) => {
+    const d = await body(req, credSchema);
+    const out = await auth.login(d.email, d.password, req.cookies.fid);
+    if (!out.ok) throw new HttpError(401, out.error);
+    res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
+    return { user: { email: out.user.email, name: out.user.name }, message: out.merged ? `登录了，未登录时做的 ${out.merged} 个身份的内容已并进账号` : '登录了' };
+  });
+  r.post('/api/auth/logout', (req, res) => { auth.logout(req.cookies.sid); res.setHeader('set-cookie', cookie('sid', '', 0)); return { ok: true }; });
 
   /* ---------- 选题 ---------- */
   r.get('/api/topics', req => {
@@ -239,15 +270,15 @@ export function createApp(o: AppOptions) {
         const m = r.match(req.method, req.path);
         if (!m) throw new HttpError(404, '接口不存在');
         req.params = m.params;
-        const c = ctx(req);
-        if (c.setCookie) res.setHeader('set-cookie', c.setCookie);
+        if (!req.path.startsWith('/api/auth/')) { const c = ctx(req); if (c.setCookie) res.setHeader('set-cookie', c.setCookie); }
         const out = await m.h(req, res);
         send(res, res.statusCode && res.statusCode !== 200 ? res.statusCode : 200, out);
         return;
       }
       if (req.path.startsWith('/files/')) {
-        const c = ctx(req), rel = req.path.slice(7);
-        if (!rel.startsWith(c.ws.id + '/') && !repo.ws(rel.split('/')[0])) throw new HttpError(404, '文件不存在');
+        // 只能访问自己账号（owner）名下工作区的文件
+        const c = ctx(req), rel = req.path.slice(7), fileWs = repo.ws(rel.split('/')[0]);
+        if (!fileWs || fileWs.ownerId !== c.owner) throw new HttpError(404, '文件不存在');
         return serveFile(res, resolve(filesDir), rel);
       }
       serveFile(res, webRoot, req.path === '/' ? 'index.html' : req.path.slice(1), 'index.html');
