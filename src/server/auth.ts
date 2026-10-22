@@ -65,14 +65,21 @@ export function makeAuth(db: DB) {
       return r ? toUser(r) : null;
     },
     /** 注册：如果当前是匿名用户且有数据，直接把这个匿名 owner 升级成账号的 owner，数据原样保留 */
-    async register(email: string, password: string, name: string, anonOwner: string | undefined) {
+    /** needInvite：邀请制下必须带有效邀请码（管理员邮箱除外，由调用方决定） */
+    async register(email: string, password: string, name: string, anonOwner: string | undefined, initialPoints: number, invite: string | null = null, needInvite = false) {
       if (userByEmail(email)) return { ok: false as const, error: '这个邮箱已经注册过了，直接登录' };
       const hash = await hashPassword(password);
       return tx(db, () => {
+        if (needInvite) {
+          const code = (invite ?? '').trim().toUpperCase();
+          if (!code || !db.prepare('UPDATE invites SET used = used + 1 WHERE code=? AND used < max_uses').run(code).changes)
+            return { ok: false as const, error: invite ? '邀请码无效或已用完' : '现在是邀请制，需要邀请码' };
+          invite = code;
+        }
         let owner = anonOwner && ownerHasData(anonOwner) && !db.prepare('SELECT 1 FROM users WHERE owner_id=?').get(anonOwner) ? anonOwner : null;
-        if (!owner) { owner = newId('own'); db.prepare('INSERT INTO owners (id, created_at) VALUES (?,?)').run(owner, now()); }
+        if (!owner) { owner = newId('own'); db.prepare('INSERT INTO owners (id, created_at, balance) VALUES (?,?,?)').run(owner, now(), initialPoints); }
         const id = newId('usr');
-        db.prepare('INSERT INTO users (id, email, name, pass_hash, owner_id, created_at) VALUES (?,?,?,?,?,?)').run(id, email, name, hash, owner, now());
+        db.prepare('INSERT INTO users (id, email, name, pass_hash, owner_id, created_at, invite) VALUES (?,?,?,?,?,?,?)').run(id, email, name, hash, owner, now(), invite);
         return { ok: true as const, user: { id, email, name, ownerId: owner }, session: newSession(id), kept: owner === anonOwner };
       });
     },

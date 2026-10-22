@@ -3,7 +3,9 @@ import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
 import { GEN_STEPS, genCost, isDraft, planShots } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
 import { WEEKDAYS } from '../shared/catalog.ts';
-import type { Asset, GenSettings, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
+import { composeVideo, hasFfmpeg } from './compose.ts';
+import { join } from 'node:path';
+import type { Asset, GenSettings, Job, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
 import { tx, type DB } from './db.ts';
@@ -128,9 +130,11 @@ export function published(repo: Repo, ws: Workspace, today = todayIso()) {
 }
 
 /* ================= 生成任务 ================= */
+export interface RunnerOpts { compose?: 'auto' | 'off'; font?: string; filesDir?: string; onDone?: (ws: string, job: Job, ok: boolean) => void }
+
 export class JobRunner {
   /** frameUrl：把素材变成视频服务能访问的公网地址（签名、限时）；没配公网地址时返回 null，只用文字生成 */
-  constructor(private repo: Repo, private providers: Providers, private frameUrl: (a: Asset) => string | null = () => null) {}
+  constructor(private repo: Repo, private providers: Providers, private opts: RunnerOpts = {}, private frameUrl: (a: Asset) => string | null = () => null) {}
 
   /** 校验、扣点、建任务，然后在后台跑；返回任务或错误 */
   startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
@@ -149,8 +153,23 @@ export class JobRunner {
     const output: VideoOutput = { draft: !final && isDraft(g), shots, title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
     const frames = shots.map((_, i) => assets.length ? this.frameUrl(assets[i % assets.length]) : null);
     this.providers.video.run({ settings: g, shots, final, frames }, step => this.repo.updateJob(job.id, { step }))
-      .then(r => { if (r?.shotVideos) output.shots = output.shots.map((s, i) => ({ ...s, videoUrl: r.shotVideos![i] ?? null })); this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output }); })
-      .catch(err => { this.repo.updateJob(job.id, { status: 'failed', error: String(err?.message ?? err) }); this.repo.refund(ws.id, cost, '生成失败退点', job.id); });
+      .then(async r => {
+        if (r?.shotVideos) {
+          output.shots = output.shots.map((s, i) => ({ ...s, videoUrl: r.shotVideos![i] ?? null }));
+          // 合成整条并存到自己的存储（方舟视频链接 24 小时过期）。合成失败不影响任务成功，各镜还能单独播
+          const urls = r.shotVideos.filter((u): u is string => !!u);
+          if (urls.length && this.opts.compose !== 'off' && this.opts.filesDir && hasFfmpeg()) {
+            const rel = `${ws.id}/${job.id}.mp4`;
+            try {
+              await composeVideo({ urls, lines: output.shots.filter(s => s.videoUrl).map(s => s.line), ratio: g.ratio, res: output.res, outFile: join(this.opts.filesDir, rel), font: this.opts.font, subtitles: g.subs });
+              output.videoUrl = `/files/${rel}`;
+            } catch (e) { output.composeError = String((e as Error).message ?? e).slice(0, 200); }
+          }
+        }
+        this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output });
+        this.opts.onDone?.(ws.id, job, true);
+      })
+      .catch(err => { this.repo.updateJob(job.id, { status: 'failed', error: String(err?.message ?? err) }); this.repo.refund(ws.id, cost, '生成失败退点', job.id); this.opts.onDone?.(ws.id, job, false); });
     return { ok: true, job: this.repo.job(ws.id, job.id)! };
   }
 

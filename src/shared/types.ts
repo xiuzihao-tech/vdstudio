@@ -73,7 +73,7 @@ export interface Job {
   input: GenSettings | Record<string, unknown>; output: VideoOutput | Record<string, unknown> | null;
   error: string | null; createdAt: string; updatedAt: string;
 }
-export interface VideoOutput { draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string }
+export interface VideoOutput { draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */
 export interface Plan {

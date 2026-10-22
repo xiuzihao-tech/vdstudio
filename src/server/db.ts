@@ -36,6 +36,16 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, pass_hash TEXT NOT NULL, owner_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
    CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
    CREATE INDEX sessions_user ON sessions(user_id);`,
+  // 2：小规模线上验证：点数归账号（不再按身份各算一份）、邀请码、埋点、反馈、运营开关
+  `ALTER TABLE owners ADD COLUMN balance REAL;
+   UPDATE owners SET balance = COALESCE((SELECT MAX(balance) FROM workspaces w WHERE w.owner_id = owners.id), 1280);
+   CREATE TABLE invites (code TEXT PRIMARY KEY, note TEXT NOT NULL DEFAULT '', max_uses INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+   ALTER TABLE users ADD COLUMN invite TEXT;
+   CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, ws TEXT, name TEXT NOT NULL, props TEXT, created_at TEXT NOT NULL);
+   CREATE INDEX events_name_time ON events(name, created_at);
+   CREATE INDEX events_owner ON events(owner_id, created_at);
+   CREATE TABLE feedback (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, page TEXT NOT NULL, text TEXT NOT NULL, contact TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL);
+   CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT NOT NULL);`,
 ];
 
 export type DB = DatabaseSync;

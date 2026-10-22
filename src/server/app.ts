@@ -5,6 +5,8 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
 import { makeAuth, type User } from './auth.ts';
+import { configFromEnv, type Config } from './config.ts';
+import { CLIENT_EVENTS, makeOps } from './ops.ts';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
@@ -22,11 +24,13 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
 const ASSET_TYPE = (mime: string) => mime.startsWith('video/') ? '视频' : mime.startsWith('audio/') ? '音频' : '照片';
 
-export interface AppOptions { dbFile: string; dataDir: string; webDir: string; authRequired?: boolean; secureCookies?: boolean; publicBaseUrl?: string; fileSignSecret?: string }
+export type AppOptions = { dbFile: string; dataDir: string; webDir: string } & Partial<Config>;
 
-export function createApp(o: AppOptions) {
+export function createApp(opts: AppOptions) {
+  const o: Config & AppOptions = { ...configFromEnv({}), ...opts };
   const db = openDb(o.dbFile);
   const repo = makeRepo(db);
+  const ops = makeOps(db);
   const { providers, info: providerInfo } = loadProviders();
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
   /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
@@ -38,7 +42,7 @@ export function createApp(o: AppOptions) {
     const a = Buffer.from(sign(rel, Number(exp))), b = Buffer.from(sig);
     return a.length === b.length && timingSafeEqual(a, b);
   };
-  const runner = new JobRunner(repo, providers, a => (o.publicBaseUrl && a.url && a.mime?.startsWith('image/')) ? `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}` : null);
+  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, filesDir: join(o.dataDir, 'files'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, a => (o.publicBaseUrl && a.url && a.mime?.startsWith('image/')) ? `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}` : null);
   const filesDir = join(o.dataDir, 'files');
   mkdirSync(filesDir, { recursive: true });
   for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
@@ -60,7 +64,7 @@ export function createApp(o: AppOptions) {
     else {
       if (o.authRequired) throw new HttpError(401, '请先登录');
       owner = req.cookies.fid;
-      if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(); setCookie = cookie('fid', owner, 31536000); }
+      if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(o.initialPoints); setCookie = cookie('fid', owner, 31536000); }
     }
     let ws = (() => { const id = repo.currentWsId(owner); const w = id ? repo.ws(id) : null; return w && w.ownerId === owner ? w : null; })();
     if (!ws) { ws = repo.wsByPersona(owner, 'designer') ?? seedWorkspace(db, repo, owner, 'designer'); repo.setCurrentWs(owner, ws.id); }
@@ -70,13 +74,15 @@ export function createApp(o: AppOptions) {
   const aiCtx = (ws: Workspace) => ({ persona: personaOf(ws.persona), positioning: ws.positioning });
   const topicOr404 = (ws: Workspace, id: string) => { const t = repo.topic(ws.id, id); if (!t) throw new HttpError(404, '选题不存在'); return t; };
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
-  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, authRequired: !!o.authRequired, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
+  const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
+  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
+    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
 
   const r = new Router();
 
   /* ---------- 会话与工作区 ---------- */
-  r.get('/api/session', req => session(W(req), req));
+  r.get('/api/session', req => { ops.track(ctx(req).owner, ctx(req).ws.id, 'session'); return session(W(req), req); });
   r.post('/api/session/persona', async req => {
     const { persona } = await body(req, z.object({ persona: S.personaSchema }));
     const { owner } = ctx(req);
@@ -90,9 +96,10 @@ export function createApp(o: AppOptions) {
   /* ---------- 账号 ---------- */
   const credSchema = z.object({ email: z.string().trim().toLowerCase().email('邮箱格式不对').max(120), password: z.string().min(8, '密码至少 8 位').max(128) });
   r.post('/api/auth/register', async (req, res) => {
-    const d = await body(req, credSchema.extend({ name: z.string().trim().min(1, '填一下名字').max(40) }));
-    const out = await auth.register(d.email, d.password, d.name, req.cookies.fid);
+    const d = await body(req, credSchema.extend({ name: z.string().trim().min(1, '填一下名字').max(40), invite: z.string().max(40).optional() }));
+    const out = await auth.register(d.email, d.password, d.name, req.cookies.fid, o.initialPoints, d.invite ?? null, o.inviteRequired && !o.adminEmails.includes(d.email));
     if (!out.ok) throw new HttpError(409, out.error);
+    ops.track(out.user.ownerId, null, 'register', { invite: d.invite ?? null });
     res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
     return { user: { email: out.user.email, name: out.user.name }, message: out.kept ? '注册好了，之前做的选题、文案、素材都在' : '注册好了' };
   });
@@ -100,9 +107,11 @@ export function createApp(o: AppOptions) {
     const d = await body(req, credSchema);
     const out = await auth.login(d.email, d.password, req.cookies.fid);
     if (!out.ok) throw new HttpError(401, out.error);
+    ops.track(out.user.ownerId, null, 'login');
     res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
     return { user: { email: out.user.email, name: out.user.name }, message: out.merged ? `登录了，未登录时做的 ${out.merged} 个身份的内容已并进账号` : '登录了' };
   });
+  r.get('/api/auth/config', () => ({ authRequired: !!o.authRequired, inviteRequired: o.inviteRequired }));
   r.post('/api/auth/logout', (req, res) => { auth.logout(req.cookies.sid); res.setHeader('set-cookie', cookie('sid', '', 0)); return { ok: true }; });
 
   /* ---------- 选题 ---------- */
@@ -115,6 +124,7 @@ export function createApp(o: AppOptions) {
   r.get('/api/topics/all', req => { const ws = W(req); return { topics: repo.topics(ws.id), scheduled: scheduleIndex(repo, ws) }; });
   r.post('/api/topics', async req => {
     const ws = W(req), d = await body(req, S.newTopicSchema);
+    ops.track(ctx(req).owner, ws.id, 'topic_created', { source: d.source });
     return repo.insertTopic(ws.id, { ...d, cat: catIndex(ws.persona), k: d.k ?? personaOf(ws.persona).att[0], ageMonths: 0 });
   });
   r.post('/api/topics/:id/fav', async req => { const ws = W(req), { fav } = await body(req, z.object({ fav: z.boolean() })); topicOr404(ws, req.params.id); repo.setFav(ws.id, req.params.id, fav); return repo.topic(ws.id, req.params.id); });
@@ -122,6 +132,7 @@ export function createApp(o: AppOptions) {
   r.post('/api/topics/from-case', async req => {
     const ws = W(req), d = await body(req, S.caseGenSchema), c = catIndex(ws.persona);
     const drafts = await providers.topics.fromCase(aiCtx(ws), d);
+    ops.track(ctx(req).owner, ws.id, 'topics_generated', { from: 'case' });
     return { topics: drafts.reverse().map(t => repo.insertTopic(ws.id, { ...t, cat: c, ageMonths: 0, source: 'ai' })).reverse() };
   });
   r.post('/api/topics/benchmark', async req => { const ws = W(req), d = await body(req, S.benchSchema); return providers.topics.analyzeBenchmark(aiCtx(ws), d); });
@@ -137,6 +148,7 @@ export function createApp(o: AppOptions) {
     const ws = W(req), d = await body(req, S.copyGenSchema), t = topicOr404(ws, d.topicId);
     const gen = await providers.copy.generate(aiCtx(ws), t, { kind: d.kind, len: d.len, tone: d.tone ?? ws.positioning.tone, version: d.version });
     const draft: CopyDraft = { ...gen, id: '', updatedAt: '', assetIds: repo.draftByTopic(ws.id, t.id)?.assetIds ?? [] };
+    ops.track(ctx(req).owner, ws.id, 'copy_generated', { kind: d.kind, len: d.len, version: d.version });
     return { draft, check: checkCopy(draft) };
   });
   r.post('/api/copy/rewrite', async req => {
@@ -148,7 +160,7 @@ export function createApp(o: AppOptions) {
   r.post('/api/copy/check', async req => { const d = await body(req, S.copyDraftSchema); return checkCopy(d as CopyDraft); });
   r.get('/api/drafts', req => ({ drafts: repo.drafts(W(req).id) }));
   r.get('/api/drafts/:topicId', req => ({ draft: repo.draftByTopic(W(req).id, req.params.topicId) }));
-  r.put('/api/drafts', async req => { const ws = W(req), d = await body(req, S.copyDraftSchema); topicOr404(ws, d.topicId); return repo.upsertDraft(ws.id, d); });
+  r.put('/api/drafts', async req => { const ws = W(req), d = await body(req, S.copyDraftSchema); topicOr404(ws, d.topicId); ops.track(ctx(req).owner, ws.id, 'draft_saved'); return repo.upsertDraft(ws.id, d); });
 
   /* ---------- 工具 ---------- */
   r.post('/api/tools/banned', async req => { const { text } = await body(req, z.object({ text: z.string().max(5000) })); return { hits: findBanned(text) }; });
@@ -178,6 +190,7 @@ export function createApp(o: AppOptions) {
     mkdirSync(join(filesDir, ws.id), { recursive: true });
     writeFileSync(join(filesDir, file), buf);
     const keys = ['entry', 'live', 'kit', 'bed', 'stone', 'site', 'soft', 'store', 'hotel', 'new'];
+    ops.track(ctx(req).owner, ws.id, 'asset_uploaded', { mime, size: buf.length });
     return repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: keys[repo.assets(ws.id).length % keys.length], file, mime, size: buf.length, source: String(req.raw.headers['x-source'] ?? '上传').slice(0, 20) });
   });
   r.delete('/api/assets/:id', req => { if (!repo.deleteAsset(W(req).id, req.params.id)) throw new HttpError(404, '素材不存在'); return { ok: true }; });
@@ -190,11 +203,16 @@ export function createApp(o: AppOptions) {
   });
   r.post('/api/gen', async (req, res) => {
     const ws = W(req), d = await body(req, z.object({ settings: S.genSettingsSchema, final: z.boolean().default(false), title: z.string().max(80).default('') }));
+    const owner = ctx(req).owner;
+    if (ops.genPaused()) throw new HttpError(503, '生成功能暂时关闭了，管理员打开后就能用');
+    if (o.dailyJobsPerUser && ops.jobsToday(owner) >= o.dailyJobsPerUser) throw new HttpError(429, `今天的生成次数用完了（每天 ${o.dailyJobsPerUser} 次），明天再来`);
+    if (o.dailyBudget && ops.spentToday() >= o.dailyBudget) throw new HttpError(503, '今天的试用额度已经用完，明天再来');
     const blocking = genIssues(d.settings, ws.voiceClone).filter(i => i.blocking);
     if (blocking.length) throw new HttpError(422, blocking.map(i => i.text).join('；'));
     const title = d.title || d.settings.title || d.settings.copy.split('\n')[0]?.slice(0, 20) || '未命名';
     const out = runner.startVideo(ws, d.settings, d.final, title);
     if (!out.ok) throw new HttpError(402, out.error);
+    ops.track(owner, ws.id, d.final ? 'final_started' : 'gen_started', { model: d.settings.model, len: d.settings.len, cost: out.job.cost });
     res.statusCode = 201; return out.job;
   });
   r.get('/api/jobs', req => ({ jobs: repo.jobs(W(req).id) }));
@@ -219,7 +237,7 @@ export function createApp(o: AppOptions) {
     let message = '';
     const slot = () => repo.slots(p.id).find(s => s.date === date);
     if ((d.action === 'approve' || d.action === 'next' || d.action === 'unpin') && date <= today) throw new HttpError(400, '已经过了审核时间');
-    if (d.action === 'approve') { const s = slot(); if (!s) throw new HttpError(404, '这天没有选题'); repo.upsertSlot({ ...s, pin: 'fixed', why: s.why.replace(/^AI /, '') }); message = '已固定'; }
+    if (d.action === 'approve') { const s = slot(); if (!s) throw new HttpError(404, '这天没有选题'); repo.upsertSlot({ ...s, pin: 'fixed', why: s.why.replace(/^AI /, '') }); ops.track(ctx(req).owner, ws.id, 'slot_approved'); message = '已固定'; }
     if (d.action === 'unpin') { const s = slot(); if (s) repo.upsertSlot({ ...s, pin: 'cand' }); message = '已取消固定'; }
     if (d.action === 'next') { const t = replaceWithNext(repo, ws, p, date); message = t ? `换了一个：${t.title}` : '选题库里没有更多选题了'; }
     if (d.action === 'skip') { p.skipped = [...new Set([...p.skipped, date])]; repo.savePlan(ws.id, p); message = '跳过了这一天'; }
@@ -229,6 +247,7 @@ export function createApp(o: AppOptions) {
       if (date < today) throw new HttpError(400, '不能排到过去的日期');
       const t = topicOr404(ws, d.topicId);
       const from = setDay(repo, ws, p, date, t);
+      ops.track(ctx(req).owner, ws.id, 'slot_set', { moved: !!from });
       message = from ? `已从 ${from.slice(5).replace('-', '/')} 挪到这天，原来那天由 AI 补了一个预选` : '已固定到这天';
     }
     return { message, plans: planPayload(ws) };
@@ -262,6 +281,27 @@ export function createApp(o: AppOptions) {
   });
   void CADENCE;
 
+  /* ---------- 埋点与反馈 ---------- */
+  r.post('/api/events', async req => {
+    const d = await body(req, z.object({ name: z.enum(CLIENT_EVENTS), props: z.record(z.union([z.string().max(200), z.number(), z.boolean()])).optional() }));
+    ops.track(ctx(req).owner, ctx(req).ws.id, d.name, d.props); return { ok: true };
+  });
+  r.post('/api/feedback', async req => {
+    const d = await body(req, z.object({ text: z.string().trim().min(2, '多写几个字').max(2000), page: z.string().max(80), contact: z.string().trim().max(80).default('') }));
+    ops.feedback(ctx(req).owner, d.page, d.text, d.contact); ops.track(ctx(req).owner, ctx(req).ws.id, 'feedback'); return { ok: true };
+  });
+
+  /* ---------- 管理后台（ADMIN_EMAILS 里的账号） ---------- */
+  const admin = (req: Req) => { if (!isAdmin(ctx(req).user)) throw new HttpError(403, '只有管理员能看'); };
+  r.get('/api/admin/overview', req => { admin(req); const days = Math.min(90, Math.max(1, Number(req.query.get('days') ?? 7))); return { ...ops.overview(days), settings: { genPaused: ops.genPaused() }, config: { inviteRequired: o.inviteRequired, authRequired: !!o.authRequired, initialPoints: o.initialPoints, dailyJobsPerUser: o.dailyJobsPerUser, dailyBudget: o.dailyBudget }, ai: providerInfo }; });
+  r.get('/api/admin/users', req => { admin(req); return { users: ops.users() }; });
+  r.post('/api/admin/users/:id/points', async req => { admin(req); const { delta } = await body(req, z.object({ delta: z.number().int().min(-100000).max(100000) })); if (!ops.addPoints(req.params.id, delta)) throw new HttpError(404, '没有这个用户'); return { users: ops.users() }; });
+  r.get('/api/admin/invites', req => { admin(req); return { invites: ops.listInvites() }; });
+  r.post('/api/admin/invites', async req => { admin(req); const d = await body(req, z.object({ count: z.number().int().min(1).max(100), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') })); const codes = ops.createInvites(d.count, d.maxUses, d.note); return { codes, invites: ops.listInvites() }; });
+  r.get('/api/admin/feedback', req => { admin(req); return { feedback: ops.listFeedback() }; });
+  r.post('/api/admin/feedback/:id', async req => { admin(req); const { status } = await body(req, z.object({ status: z.enum(['new', 'read', 'done']) })); ops.setFeedback(req.params.id, status); return { feedback: ops.listFeedback() }; });
+  r.put('/api/admin/settings', async req => { admin(req); const d = await body(req, z.object({ genPaused: z.boolean() })); ops.setGenPaused(d.genPaused); return { settings: { genPaused: ops.genPaused() } }; });
+
   /* ---------- 静态文件 ---------- */
   const webRoot = resolve(o.webDir);
   function serveFile(res: ServerResponse, base: string, rel: string, fallback?: string) {
@@ -273,10 +313,16 @@ export function createApp(o: AppOptions) {
     createReadStream(f).pipe(res);
   }
 
+  /** 简单限流：每个 IP 每分钟最多 120 次写请求（单进程内存） */
+  const hits = new Map<string, number[]>();
+  const limited = (ip: string) => { const t = Date.now(), L = (hits.get(ip) ?? []).filter(x => t - x < 60e3); L.push(t); hits.set(ip, L); if (hits.size > 5000) hits.clear(); return L.length > (o.rateLimit ?? 120); };
+
   async function handle(raw: IncomingMessage, res: ServerResponse) {
     const url = new URL(raw.url ?? '/', 'http://x');
     const req: Req = { raw, method: raw.method ?? 'GET', path: url.pathname, query: url.searchParams, params: {}, cookies: parseCookies(raw.headers.cookie) };
     try {
+      if (req.path === '/healthz') { db.prepare('SELECT 1').get(); return send(res, 200, { ok: true, ai: providerInfo }); }
+      if (req.path.startsWith('/api/') && req.method !== 'GET' && limited(String(raw.headers['x-forwarded-for'] ?? raw.socket.remoteAddress ?? '').split(',')[0].trim())) throw new HttpError(429, '操作太频繁了，歇一下再试');
       if (req.path.startsWith('/api/')) {
         const m = r.match(req.method, req.path);
         if (!m) throw new HttpError(404, '接口不存在');
@@ -299,5 +345,5 @@ export function createApp(o: AppOptions) {
     } catch (e) { sendError(res, e); }
   }
 
-  return { server: createServer((q, s) => { void handle(q, s); }), db, repo, signedUrl, providerInfo };
+  return { server: createServer((q, s) => { void handle(q, s); }), db, repo, ops, signedUrl, providerInfo };
 }
