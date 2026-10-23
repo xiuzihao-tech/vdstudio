@@ -6,11 +6,23 @@
 
 需要 Node.js 22.13 以上（用到内置的 `node:sqlite`）。
 
+**本地试用（推荐）：**
+
+```bash
+npm run local        # 第一次会自动装依赖、生成 .env、构建，然后启动并打开浏览器
+```
+
+用 `admin@local.test` 注册的账号是管理员，顶栏会出现“后台”。不填 AI 密钥时一切走模拟。
+
+**手动：**
+
 ```bash
 npm install
 npm run build        # 打包前端到 dist/web、服务端到 dist/server.js
 npm start            # http://localhost:5173
 ```
+
+上线部署见 `docs/DEPLOY.md`，小规模验证怎么做见 `docs/VALIDATION.md`。
 
 开发时：`npm run dev`（前端 esbuild 监听 + 服务端 tsx 热重载）。
 

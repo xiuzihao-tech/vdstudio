@@ -1,0 +1,9 @@
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 210MB
+	}
+	reverse_proxy app:5173 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

@@ -1,0 +1,45 @@
+# 一台云服务器上跑：应用 + Caddy（自动申请 HTTPS 证书）+ 每日备份
+# 用法见 docs/DEPLOY.md
+services:
+  app:
+    build: ..
+    image: findai-studio:latest
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATA_DIR: /data
+      SECURE_COOKIES: "1"
+    volumes:
+      - findai-data:/data
+    expose:
+      - "5173"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?请在 deploy/.env 里设置 DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - app
+
+  backup:
+    image: findai-studio:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "while true; do node --no-warnings deploy/backup.mjs; sleep 86400; done"]
+    environment:
+      DATA_DIR: /data
+      BACKUP_KEEP: "14"
+    volumes:
+      - findai-data:/data
+    depends_on:
+      - app
+
+volumes:
+  findai-data:
+  caddy-data:
