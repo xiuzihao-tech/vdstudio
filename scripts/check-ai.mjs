@@ -17,7 +17,7 @@ const j = async (url, key, init = {}) => {
 const ids = b => (b?.data ?? []).map(m => m.id).sort();
 
 // 中文写作好、性价比高的优先
-const PREFER = [/^deepseek-v\d/i, /deepseek-chat/i, /^qwen3?-max/i, /^qwen/i, /gpt-5\.\d-terra/i, /^gpt-5/i, /claude-sonnet/i, /gemini/i];
+const PREFER = [/^deepseek-v4(\.\d)?-flash$/i, /^deepseek-v\d/i, /deepseek-chat/i, /^qwen3?-max/i, /^qwen/i, /gpt-5\.\d-terra/i, /^gpt-5/i, /claude-sonnet/i, /gemini/i];
 const NOT_TEXT = /(seedance|wan\d|video|image|embedding|tts|whisper|dall|veo|kling|sora|minimax-h|rerank|audio|vision-only)/i;
 
 if (env.LLM_BASE_URL && env.LLM_API_KEY) {
@@ -47,17 +47,23 @@ if (env.VIDEO_BASE_URL && env.VIDEO_API_KEY) {
     out.video = { base, modelsStatus: m.status, models: all.filter(x => /(seedance|wan|video|kling|veo|sora|hailuo|minimax|vidu|jimeng)/i.test(x)) };
     if (args.has('--video')) {
       const model = out.video.models.find(x => x === 'seedance-2.0-fast') ?? out.video.models.find(x => /seedance/.test(x));
+      const createPath = '/' + (env.VIDEO_CREATE_PATH || 'videos/generations').replace(/^\/+|\/+$/g, '');
       const t0 = Date.now();
-      const c = await j(`${base}/video/generations`, env.VIDEO_API_KEY, { method: 'POST', body: JSON.stringify({ model, prompt: '清晨的玄关，暖光，一个人推门进来换鞋，镜头缓慢推进，真实自然光', duration: 4, width: 480, height: 854, metadata: { resolution: '480p', ratio: '9:16', aspect_ratio: '9:16', generate_audio: false, watermark: false } }) });
-      const id = c.body?.task_id ?? c.body?.id ?? c.body?.data?.task_id;
-      out.video.test = { model, createStatus: c.status, createBody: c.body, taskId: id ?? null };
+      const r = 'resolution', ratio = '9:16';
+      const c = await j(`${base}${createPath}`, env.VIDEO_API_KEY, { method: 'POST', body: JSON.stringify({ model, prompt: '清晨的玄关，暖光，一个人推门进来换鞋，镜头缓慢推进，真实自然光', duration: 4, seconds: '4', width: 720, height: 1280, size: '720x1280', [r]: '720p', ratio, aspect_ratio: ratio, generate_audio: false, watermark: false, metadata: { [r]: '720p', ratio, aspect_ratio: ratio, generate_audio: false, watermark: false } }) });
+      const id = c.body?.task_id ?? c.body?.id ?? c.body?.data?.task_id ?? c.body?.data?.id;
+      out.video.test = { model, createPath, createStatus: c.status, createBody: c.body, taskId: id ?? null };
       if (id) {
-        for (let i = 0; i < 60; i++) {
+        let qp = null;
+        for (let i = 0; i < 90; i++) {
           await t(10000);
-          const q = await j(`${base}/video/generations/${id}`, env.VIDEO_API_KEY);
+          let q;
+          for (const p of qp ? [qp] : [createPath, '/video/generations', '/videos']) { q = await j(`${base}${p}/${id}`, env.VIDEO_API_KEY); if (q.ok) { qp = p; break; } }
           const st = String(q.body?.status ?? q.body?.data?.status ?? '').toLowerCase();
-          out.video.test.last = q.body; out.video.test.status = st; out.video.test.seconds = Math.round((Date.now() - t0) / 1000);
-          process.stdout.write(`  视频任务 ${id}：${st || '?'}（${out.video.test.seconds}s）\n`);
+          Object.assign(out.video.test, { queryPath: qp, last: q.body, queryStatus: q.status, status: st, seconds: Math.round((Date.now() - t0) / 1000) });
+          writeFileSync('ai-check.json', JSON.stringify(out, null, 2));
+          process.stdout.write(`  视频任务 ${id}：${st || q.status}（${out.video.test.seconds}s）\n`);
+          if (!qp && i > 2) break;
           if (/(completed|succeed|success|finished|done|fail|error|expired|cancel)/.test(st)) break;
         }
       }

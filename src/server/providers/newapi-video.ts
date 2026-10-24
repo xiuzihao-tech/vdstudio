@@ -1,6 +1,7 @@
 // 视频生成适配器：new-api / one-api 类网关的「异步视频端点」（如 土豆 API https://api.ai-tudou.net）。
-//   建任务：POST {base}/video/generations   → { task_id, status }
-//   查任务：GET  {base}/video/generations/{task_id} → { status: queued|in_progress|completed|failed, url, error }
+//   建任务：POST {base}/videos/generations（土豆「异步视频端点」；老版 new-api 是 /video/generations，可用 VIDEO_CREATE_PATH 改）
+//   查任务：GET  {建任务路径}/{task_id}，查不到再试 /video/generations/{id}、/videos/{id}
+//   请求体同时带常见的几种写法（duration/seconds、ratio/aspect_ratio、image/images），网关各取所需。
 // 各家网关返回字段略有出入，这里对任务 ID、状态、视频地址做兼容解析。
 // 环境变量：VIDEO_BASE_URL、VIDEO_API_KEY；档位到模型名的映射可在后台「AI 服务」里改。
 import { isDraft, modelOf } from '../../shared/gen.ts';
@@ -12,6 +13,8 @@ export interface NewApiVideoConfig {
   /** 档位 → 网关模型名；传函数时每次生成都现取（后台改了立刻生效） */
   models: Record<string, string> | (() => Record<string, string>);
   pollMs?: number; concurrency?: number; timeoutMs?: number; fetch?: typeof fetch;
+  /** 建任务路径，默认 /videos/generations */
+  createPath?: string;
 }
 
 /** 土豆 API 上可用的视频模型（来自其公开价格页，以后台实时拉取为准） */
@@ -49,18 +52,27 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const models = () => (typeof cfg.models === 'function' ? cfg.models() : cfg.models);
 
+  const createPath = '/' + (cfg.createPath ?? '/videos/generations').replace(/^\/+|\/+$/g, '');
+  const queryPaths = [...new Set([createPath, '/video/generations', '/videos'])];
+  let goodQuery: string | null = null;
+
   async function create(body: unknown): Promise<string> {
-    const res = await f(`${base}/video/generations`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const res = await f(`${base}${createPath}`, { method: 'POST', headers, body: JSON.stringify(body) });
     const j = await res.json().catch(() => ({})) as J;
     const id = pickTaskId(j);
     if (!res.ok || !id) throw new Error(`视频任务创建失败（${res.status}）${errText(j) ? `：${errText(j)}` : ''}`);
     return id;
   }
   async function get(id: string): Promise<J> {
-    const res = await f(`${base}/video/generations/${encodeURIComponent(id)}`, { headers });
-    const j = await res.json().catch(() => ({})) as J;
-    if (!res.ok) throw new Error(`查询视频任务失败（${res.status}）${errText(j) ? `：${errText(j)}` : ''}`);
-    return j;
+    let last = { status: 0, j: {} as J };
+    for (const p of goodQuery ? [goodQuery] : queryPaths) {
+      const res = await f(`${base}${p}/${encodeURIComponent(id)}`, { headers });
+      const j = await res.json().catch(() => ({})) as J;
+      if (res.ok) { goodQuery = p; return j; }
+      last = { status: res.status, j };
+      if (res.status !== 404 && res.status !== 405) break;
+    }
+    throw new Error(`查询视频任务失败（${last.status}）${errText(last.j) ? `：${errText(last.j)}` : ''}`);
   }
 
   return {
@@ -78,8 +90,9 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
         const prompt = [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
         const duration = Math.min(m.max, Math.max(m.min, Math.round(s.dur)));
         const id = await create({
-          model, prompt, duration, width, height,
-          ...(frames[i] ? { image: frames[i] } : {}),
+          model, prompt, duration, seconds: String(duration), width, height, size: `${width}x${height}`,
+          resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false,
+          ...(frames[i] ? { image: frames[i], images: [frames[i]], first_frame_image: frames[i] } : {}),
           metadata: { resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false },
         });
         for (;;) {

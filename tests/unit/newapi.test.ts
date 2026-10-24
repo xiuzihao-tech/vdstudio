@@ -24,7 +24,7 @@ const gw = createServer(async (q, s) => {
   const send = (code: number, j: unknown) => { s.writeHead(code, { 'content-type': 'application/json' }); s.end(JSON.stringify(j)); };
   if (q.url === '/v1/models') return send(200, { data: [{ id: 'seedance-2.5' }, { id: 'gpt-5.6-terra' }, { id: 'deepseek-v4' }] });
   if (q.url === '/v1/chat/completions') return send(200, { choices: [{ message: { content: body.model === 'deepseek-v4' ? '我是测试模型' : 'hi' } }] });
-  if (q.method === 'POST' && q.url === '/v1/video/generations') {
+  if (q.method === 'POST' && q.url === '/v1/videos/generations') {
     if (!body.model) return send(400, { error: { message: 'model required' } });
     const id = `t${++n}`; tasks.set(id, { polls: 0, bad: String(body.prompt).includes('坏镜头'), style: n % 3 });
     return send(200, n % 2 ? { task_id: id, status: 'queued' } : { id, object: 'video' });

@@ -38,7 +38,7 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
     }
     if (env.VIDEO_API_KEY && env.VIDEO_BASE_URL) {
       videoMap = videoModels({ ...TUDOU_DEFAULT_MODELS, ...envModels(env) });
-      p.video = makeNewApiVideo({ baseUrl: env.VIDEO_BASE_URL, apiKey: env.VIDEO_API_KEY, models: videoMap, pollMs: env.VIDEO_POLL_MS ? Number(env.VIDEO_POLL_MS) : undefined });
+      p.video = makeNewApiVideo({ baseUrl: env.VIDEO_BASE_URL, apiKey: env.VIDEO_API_KEY, models: videoMap, pollMs: env.VIDEO_POLL_MS ? Number(env.VIDEO_POLL_MS) : undefined, createPath: env.VIDEO_CREATE_PATH || undefined });
       info.video = 'newapi';
     } else if (env.ARK_API_KEY) {
       videoMap = videoModels({ s25: env.SEEDANCE_MODEL_S25 ?? DEFAULT_MODELS.s25, s20: env.SEEDANCE_MODEL_S20 ?? DEFAULT_MODELS.s20, s20f: env.SEEDANCE_MODEL_S20F ?? DEFAULT_MODELS.s20f });
