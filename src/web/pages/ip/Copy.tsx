@@ -49,7 +49,7 @@ function Editor({ topicId }: { topicId: string }) {
         }
         if (!live) return;
         setTopic(t); setSched(all.scheduled[t.id]); setD(draft); setAssets(as.assets); setBusy(null);
-      } catch (e) { fail(e); setBusy(null); }
+      } catch (e) { if (live) { fail(e); setBusy(null); } }
     })();
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

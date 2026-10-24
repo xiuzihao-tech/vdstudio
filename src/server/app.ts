@@ -1,6 +1,6 @@
 // 应用：组装数据库、供应方、路由，处理静态文件。createApp 便于测试时用内存库启动。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
@@ -24,14 +24,15 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
 const ASSET_TYPE = (mime: string) => mime.startsWith('video/') ? '视频' : mime.startsWith('audio/') ? '音频' : '照片';
 
-export type AppOptions = { dbFile: string; dataDir: string; webDir: string } & Partial<Config>;
+export type AppOptions = { dbFile: string; dataDir: string; webDir: string; env?: NodeJS.ProcessEnv } & Partial<Config>;
 
 export function createApp(opts: AppOptions) {
   const o: Config & AppOptions = { ...configFromEnv({}), ...opts };
   const db = openDb(o.dbFile);
   const repo = makeRepo(db);
   const ops = makeOps(db);
-  const { providers, info: providerInfo } = loadProviders();
+  const ai = loadProviders(o.env ?? process.env, { get: k => ops.getSetting(k) });
+  const { providers, info: providerInfo } = ai;
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
   /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
   const signKey = o.fileSignSecret ?? randomBytes(32).toString('hex');
@@ -42,7 +43,12 @@ export function createApp(opts: AppOptions) {
     const a = Buffer.from(sign(rel, Number(exp))), b = Buffer.from(sig);
     return a.length === b.length && timingSafeEqual(a, b);
   };
-  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, filesDir: join(o.dataDir, 'files'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, a => (o.publicBaseUrl && a.url && a.mime?.startsWith('image/')) ? `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}` : null);
+  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, filesDir: join(o.dataDir, 'files'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, a => {
+    if (!a.url || !a.mime?.startsWith('image/')) return null;
+    // 有公网地址：给签名链接；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务（8MB 以内）
+    if (o.publicBaseUrl) return `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}`;
+    try { const p = join(o.dataDir, 'files', a.url.slice(7)); return statSync(p).size <= 8 * 1024 * 1024 ? `data:${a.mime};base64,${readFileSync(p).toString('base64')}` : null; } catch { return null; }
+  });
   const filesDir = join(o.dataDir, 'files');
   mkdirSync(filesDir, { recursive: true });
   for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
@@ -301,6 +307,40 @@ export function createApp(opts: AppOptions) {
   r.get('/api/admin/feedback', req => { admin(req); return { feedback: ops.listFeedback() }; });
   r.post('/api/admin/feedback/:id', async req => { admin(req); const { status } = await body(req, z.object({ status: z.enum(['new', 'read', 'done']) })); ops.setFeedback(req.params.id, status); return { feedback: ops.listFeedback() }; });
   r.put('/api/admin/settings', async req => { admin(req); const d = await body(req, z.object({ genPaused: z.boolean() })); ops.setGenPaused(d.genPaused); return { settings: { genPaused: ops.genPaused() } }; });
+
+  /* ---------- 后台：AI 服务（查看接入、拉取模型、切换模型、连通测试） ---------- */
+  const listModels = async (ep: { baseUrl: string; apiKey: string } | null) => {
+    if (!ep) return { ok: false, error: '没有配置', models: [] as string[] };
+    try {
+      const r = await fetch(`${ep.baseUrl.replace(/\/$/, '')}/models`, { headers: { authorization: `Bearer ${ep.apiKey}` }, signal: AbortSignal.timeout(20000) });
+      const j = await r.json().catch(() => ({})) as { data?: { id: string }[]; error?: { message?: string } };
+      if (!r.ok) return { ok: false, error: `${r.status}${j.error?.message ? `：${j.error.message}` : ''}`, models: [] };
+      return { ok: true, error: null, models: (j.data ?? []).map(m => m.id).sort() };
+    } catch (e) { return { ok: false, error: (e as Error).name === 'TimeoutError' ? '超时' : '连不上', models: [] }; }
+  };
+  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: MODELS.filter(m => !m.off).map(m => ({ id: m.id, n: m.n })) }; });
+  r.post('/api/admin/ai/models', async req => { admin(req); const [llm, video] = await Promise.all([listModels(ai.endpoints.llm), listModels(ai.endpoints.video)]); return { llm, video }; });
+  r.put('/api/admin/ai', async req => {
+    admin(req);
+    const d = await body(req, z.object({ llmModel: z.string().trim().max(120).nullable().optional(), videoModels: z.record(z.string().trim().max(120)).optional() }));
+    if (d.llmModel !== undefined) ops.setSetting('llm_model', d.llmModel || null);
+    if (d.videoModels) ops.setSetting('video_models', JSON.stringify(Object.fromEntries(Object.entries(d.videoModels).filter(([, v]) => v))));
+    return { status: ai.status() };
+  });
+  r.post('/api/admin/ai/test', async req => {
+    admin(req);
+    const ep = ai.endpoints.llm, model = ai.llmModel();
+    if (!ep) throw new HttpError(400, '文案模型还没配置密钥');
+    if (!model) throw new HttpError(400, '还没选文案模型');
+    const t0 = Date.now();
+    try {
+      const r2 = await fetch(`${ep.baseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${ep.apiKey}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(60000),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: '用一句话（不超过 20 字）介绍你自己。' }], max_tokens: 60 }) });
+      const j = await r2.json().catch(() => ({})) as any;
+      if (!r2.ok) return { ok: false, ms: Date.now() - t0, model, reply: null, error: `${r2.status}${j?.error?.message ? `：${j.error.message}` : ''}` };
+      return { ok: true, ms: Date.now() - t0, model, reply: String(j?.choices?.[0]?.message?.content ?? '').slice(0, 200), error: null };
+    } catch (e) { return { ok: false, ms: Date.now() - t0, model, reply: null, error: (e as Error).name === 'TimeoutError' ? '超时' : '连不上' }; }
+  });
 
   /* ---------- 静态文件 ---------- */
   const webRoot = resolve(o.webDir);

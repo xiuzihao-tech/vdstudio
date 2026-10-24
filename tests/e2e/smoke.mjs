@@ -15,6 +15,7 @@ const base = `http://localhost:${PORT}`;
 for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/session'); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
 
 const errors = [];
+let closing = false;
 let failed = 0;
 const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
 async function run(name, fn) {
@@ -24,7 +25,7 @@ async function run(name, fn) {
 
 const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
-page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+page.on('console', m => { if (m.type() === 'error' && !closing) errors.push(`console: ${m.text()}`); });
 page.on('response', r => { if (r.status() >= 400) errors.push(`http ${r.status()}: ${r.request().method()} ${r.url()}`); });
 const $ = (s, o) => page.locator(s, o);
 const shot = n => page.screenshot({ path: join(shots, `${n}.png`), fullPage: true });
@@ -197,6 +198,7 @@ await run('手机宽度无横向滚动', async () => {
   }
 });
 
+closing = true; // 关浏览器时还在进行的请求会报 Failed to fetch，不算页面错误
 await browser.close();
 srv.kill();
 console.log(`\n页面错误：${errors.length}`); errors.slice(0, 20).forEach(e => console.log('  ', e));

@@ -2,6 +2,12 @@
 import type { Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 
+export interface AiStatus {
+  copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string };
+  video: { kind: 'mock' | 'seedance' | 'newapi'; baseUrl?: string; models?: Record<string, string> };
+}
+export interface ModelList { ok: boolean; error: string | null; models: string[] }
+
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message); } }
 
 async function call<T>(method: string, path: string, data?: unknown, headers: Record<string, string> = {}): Promise<T> {
@@ -17,7 +23,7 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi' }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }
@@ -50,6 +56,10 @@ export const api = {
     createInvites: (count: number, maxUses: number, note: string) => call<{ codes: string[]; invites: Invite[] }>('POST', '/api/admin/invites', { count, maxUses, note }),
     feedback: () => call<{ feedback: Feedback[] }>('GET', '/api/admin/feedback'),
     setFeedback: (id: string, status: string) => call<{ feedback: Feedback[] }>('POST', `/api/admin/feedback/${id}`, { status }),
+    ai: () => call<{ status: AiStatus; tiers: { id: string; n: string }[] }>('GET', '/api/admin/ai'),
+    aiModels: () => call<{ llm: ModelList; video: ModelList }>('POST', '/api/admin/ai/models'),
+    aiSave: (p: { llmModel?: string | null; videoModels?: Record<string, string> }) => call<{ status: AiStatus }>('PUT', '/api/admin/ai', p),
+    aiTest: () => call<{ ok: boolean; ms: number; model: string; reply: string | null; error: string | null }>('POST', '/api/admin/ai/test'),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
   },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),

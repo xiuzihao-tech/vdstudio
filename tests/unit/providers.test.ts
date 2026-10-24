@@ -94,5 +94,6 @@ test('Seedance：某一镜失败，整条报错并说明是哪一镜', async () 
 test('按环境变量切换供应方', () => {
   assert.deepEqual(loadProviders({}).info, { copy: 'mock', video: 'mock' });
   assert.deepEqual(loadProviders({ LLM_API_KEY: 'a', LLM_BASE_URL: 'b', LLM_MODEL: 'c', ARK_API_KEY: 'd' }).info, { copy: 'llm', video: 'seedance' });
+  assert.deepEqual(loadProviders({ VIDEO_API_KEY: 'a', VIDEO_BASE_URL: 'b', ARK_API_KEY: 'd' }).info, { copy: 'mock', video: 'newapi' });
   assert.deepEqual(loadProviders({ AI_PROVIDER: 'mock', ARK_API_KEY: 'd' }).info, { copy: 'mock', video: 'mock' });
 });

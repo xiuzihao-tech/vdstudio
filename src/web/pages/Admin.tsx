@@ -1,11 +1,11 @@
 // 管理后台：概览（漏斗、每日活跃、花费）、用户、邀请码、反馈、开关。只有 ADMIN_EMAILS 里的账号能进。
 import { useState } from 'react';
-import { api } from '../api.ts';
+import { api, type ModelList } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Empty, Seg, Skel, Src } from '../ui/kit.tsx';
 
-type Tab = 'overview' | 'users' | 'invites' | 'feedback';
-const TABN: Record<Tab, string> = { overview: '概览', users: '用户', invites: '邀请码', feedback: '反馈' };
+type Tab = 'overview' | 'users' | 'invites' | 'feedback' | 'ai';
+const TABN: Record<Tab, string> = { overview: '概览', users: '用户', invites: '邀请码', feedback: '反馈', ai: 'AI 服务' };
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function AdminPage() {
@@ -15,7 +15,7 @@ export function AdminPage() {
   return <section className="view on" id="v-admin"><div className="vb wrap" style={{ paddingTop: 40 }}>
     <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>后台</h1>
       <Seg value={tab} options={Object.keys(TABN) as Tab[]} render={t => TABN[t]} onChange={t => nav({ view: 'admin', sub: t }, true)} /></div>
-    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : <FeedbackList />}</div>
+    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : tab === 'ai' ? <AiServices /> : <FeedbackList />}</div>
   </div></section>;
 }
 
@@ -117,4 +117,56 @@ function FeedbackList() {
     {f.status !== 'read' && f.status !== 'done' && <button className="btn g sm" onClick={() => set(f.id, 'read')}>已读</button>}
     {f.status !== 'done' && <button className="btn g sm" onClick={() => set(f.id, 'done')}>处理完</button>}
   </div>)}</div>;
+}
+
+/** AI 服务：看接入状态、拉取两个站的可用模型、切换默认文案模型和各视频档位用的模型、连通测试 */
+const PREFER_LLM = [/deepseek-v\d/i, /deepseek-chat/i, /qwen3?-max/i, /qwen/i, /gpt-5/i, /claude-sonnet/i, /gemini/i];
+function AiServices() {
+  const { fail, toast } = useApp();
+  const d = useData(() => api.admin.ai(), []);
+  const [lists, setLists] = useState<{ llm: ModelList; video: ModelList } | null>(null);
+  const [busy, setBusy] = useState('');
+  const [llm, setLlm] = useState<string | null>(null);
+  const [vm, setVm] = useState<Record<string, string> | null>(null);
+  const [test, setTest] = useState<Awaited<ReturnType<typeof api.admin.aiTest>> | null>(null);
+  if (!d.data) return <Skel h={200} />;
+  const st = d.data.status, curLlm = llm ?? st.copy.model ?? '', curVm = vm ?? st.video.models ?? {};
+  const pull = async () => { setBusy('pull'); try { const r = await api.admin.aiModels(); setLists(r); if (!r.llm.ok && !r.video.ok) toast('两个站都没连上，看下面的错误'); } catch (e) { fail(e); } finally { setBusy(''); } };
+  const save = async () => { setBusy('save'); try { const r = await api.admin.aiSave({ llmModel: curLlm, videoModels: curVm }); d.set({ ...d.data!, status: r.status }); setLlm(null); setVm(null); toast('已保存，马上生效'); } catch (e) { fail(e); } finally { setBusy(''); } };
+  const runTest = async () => { setBusy('test'); setTest(null); try { setTest(await api.admin.aiTest()); } catch (e) { fail(e); } finally { setBusy(''); } };
+  const llmOptions = lists?.llm.models.filter(m => !/(seedance|wan|video|image|embedding|tts|whisper|dall|veo|kling|sora|minimax-h)/i.test(m)) ?? [];
+  const suggested = PREFER_LLM.map(re => llmOptions.find(m => re.test(m))).find(Boolean);
+  const videoOptions = lists?.video.models.filter(m => /(seedance|wan|video|kling|veo|sora|hailuo|minimax|vidu|jimeng|sd-)/i.test(m)) ?? [];
+  const kind = { mock: <Src>模拟</Src>, llm: <Src k="real">已接入</Src>, seedance: <Src k="real">方舟直连</Src>, newapi: <Src k="real">已接入</Src> } as const;
+  return <div id="aiSvc">
+    <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+      <button className="btn g" id="aiPull" disabled={!!busy} onClick={pull}>{busy === 'pull' ? '拉取中…' : '拉取可用模型'}</button>
+      <button className="btn g" id="aiTest" disabled={!!busy || st.copy.kind === 'mock'} onClick={runTest}>{busy === 'test' ? '测试中…' : '测试文案模型'}</button>
+      <button className="btn y" id="aiSave" disabled={!!busy || (llm === null && vm === null)} onClick={save}>保存</button>
+    </div>
+    {test && <p className="s" style={{ marginTop: 12, color: test.ok ? 'var(--real)' : 'var(--err)' }}>{test.ok ? `✓ ${test.model} 通了，${test.ms} 毫秒：${test.reply}` : `✗ ${test.model}：${test.error}`}</p>}
+    <div className="gctl" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 16 }}>
+      <div className="gbox"><div className="hd">文案模型 {kind[st.copy.kind]}<span>{st.copy.baseUrl ?? '没配密钥，用模拟结果'}</span></div>
+        {st.copy.kind === 'mock' ? <p className="s m">在服务器的 .env 里填 LLM_BASE_URL 和 LLM_API_KEY 后重启。</p> : <>
+          <label className="lb" htmlFor="aiLlm">默认模型</label>
+          <input className="fld" id="aiLlm" list="aiLlmList" value={curLlm} onChange={e => setLlm(e.target.value)} placeholder="比如 deepseek-v4、gpt-5.6-terra" />
+          <datalist id="aiLlmList">{llmOptions.map(m => <option key={m} value={m} />)}</datalist>
+          {suggested && suggested !== curLlm && <p className="xs" style={{ marginTop: 8 }}>建议用 <button className="lnk xs" onClick={() => setLlm(suggested)}>{suggested}</button>（中文写作好、价格低）</p>}
+          {lists && <p className="xs m3" style={{ marginTop: 8 }}>{lists.llm.ok ? `这个站有 ${llmOptions.length} 个文本模型可选` : `拉取失败：${lists.llm.error}`}</p>}
+        </>}
+      </div>
+      <div className="gbox"><div className="hd">视频模型 {kind[st.video.kind]}<span>{st.video.baseUrl ?? '没配密钥，用模拟结果'}</span></div>
+        {st.video.kind === 'mock' ? <p className="s m">在服务器的 .env 里填 VIDEO_BASE_URL 和 VIDEO_API_KEY 后重启。</p> : <>
+          <p className="xs m3" style={{ marginBottom: 8 }}>页面上的每个档位，实际调用哪个模型：</p>
+          {d.data.tiers.map(t => <div key={t.id} className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'nowrap' }}>
+            <span className="s" style={{ width: 130, flex: 'none' }}>{t.n}</span>
+            <input className="fld" list="aiVidList" data-tier={t.id} value={curVm[t.id] ?? ''} placeholder="不填 = 这个档位不可用" onChange={e => setVm({ ...curVm, [t.id]: e.target.value })} />
+          </div>)}
+          <datalist id="aiVidList">{videoOptions.map(m => <option key={m} value={m} />)}</datalist>
+          {lists && <p className="xs m3">{lists.video.ok ? `这个站有 ${videoOptions.length} 个视频模型` : `拉取失败：${lists.video.error}`}</p>}
+        </>}
+      </div>
+    </div>
+    <p className="note">密钥只在服务器的 .env 里，这里看不到也改不了。改模型不用重启，保存后下一次调用就生效。</p>
+  </div>;
 }

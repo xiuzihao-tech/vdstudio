@@ -68,7 +68,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRoute(next); setSheet(null); window.scrollTo(0, 0);
   }, []);
   const toast = useCallback((m: string) => setToast({ m, n: Date.now() }), []);
-  const fail = useCallback((e: unknown) => { console.error(e); setToast({ m: e instanceof ApiError ? e.message : '出错了，稍后再试', n: Date.now() }); }, []);
+  const fail = useCallback((e: unknown) => {
+    const net = e instanceof TypeError && /fetch|network|load failed/i.test(e.message);
+    if (net && unloading) return; // 跳页/刷新时被浏览器中断的请求，不算错
+    if (!net) console.error(e);
+    setToast({ m: e instanceof ApiError ? e.message : net ? '网络不太稳，稍后再试' : '出错了，稍后再试', n: Date.now() });
+  }, []);
   const sheet = useCallback((s: SheetSpec | null) => {
     if (s && !sheetSpec) lastFocus.current = document.activeElement as HTMLElement;
     setSheet(s);
@@ -99,6 +104,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 }
 
 /** 拉数据的小钩子：依赖变化或全局 version 变化时重拉 */
+let unloading = false;
+if (typeof window !== 'undefined') { window.addEventListener('pagehide', () => { unloading = true; }); window.addEventListener('beforeunload', () => { unloading = true; }); }
+
 export function useData<T>(load: () => Promise<T>, deps: unknown[]): { data: T | null; reload: () => void; loading: boolean; error: string | null; set: (t: T) => void } {
   const { version, fail } = useApp();
   const [data, setData] = useState<T | null>(null);

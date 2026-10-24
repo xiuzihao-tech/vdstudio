@@ -37,6 +37,11 @@ export function makeOps(db: DB) {
     },
     setFeedback(id: string, status: string) { return db.prepare('UPDATE feedback SET status=? WHERE id=?').run(status, id).changes > 0; },
 
+    getSetting: get,
+    setSetting(k: string, v: string | null) {
+      if (v === null) db.prepare('DELETE FROM settings WHERE k=?').run(k);
+      else db.prepare('INSERT INTO settings (k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').run(k, v);
+    },
     genPaused: () => get('gen_paused') === '1',
     setGenPaused(v: boolean) { db.prepare('INSERT INTO settings (k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').run('gen_paused', v ? '1' : '0'); },
 

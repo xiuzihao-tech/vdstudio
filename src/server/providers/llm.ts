@@ -5,7 +5,7 @@ import { CATS, FAMILIES } from '../../shared/catalog.ts';
 import type { CopyProvider, Ctx, TopicDraft, TopicProvider } from './types.ts';
 import { HttpError } from '../http.ts';
 
-export interface LlmConfig { baseUrl: string; apiKey: string; model: string; timeoutMs?: number; fetch?: typeof fetch }
+export interface LlmConfig { baseUrl: string; apiKey: string; /** 传函数时每次调用现取（后台切换模型立即生效） */ model: string | (() => string); timeoutMs?: number; fetch?: typeof fetch }
 
 const catOf = (ctx: Ctx) => ['designer', 'deco', 'custom', 'material', 'soft', 'agent', 'dev', 'stay'].indexOf(ctx.persona.id);
 const PARA: Record<number, number> = { 30: 3, 45: 4, 60: 5, 90: 6 };
@@ -33,17 +33,26 @@ export function extractJson(text: string): unknown {
 export function makeLlm(cfg: LlmConfig) {
   const f = cfg.fetch ?? fetch;
   async function chat<T>(ctx: Ctx, user: string, schema: z.ZodType<T>, temperature = 0.8): Promise<T> {
-    const ac = new AbortController(), h = setTimeout(() => ac.abort(), cfg.timeoutMs ?? 60_000);
-    let res: Response;
-    try {
-      res = await f(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST', signal: ac.signal,
-        headers: { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: cfg.model, temperature, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system(ctx) }, { role: 'user', content: user }] }),
-      });
-    } catch (e) { throw new HttpError(502, (e as Error).name === 'AbortError' ? '文案模型超时，稍后再试' : '连不上文案模型'); }
-    finally { clearTimeout(h); }
-    if (!res.ok) throw new HttpError(502, `文案模型出错（${res.status}）`);
+    const model = typeof cfg.model === 'function' ? cfg.model() : cfg.model;
+    if (!model) throw new HttpError(503, '还没选文案模型，请在后台「AI 服务」里选一个');
+    const send = async (jsonMode: boolean) => {
+      const ac = new AbortController(), h = setTimeout(() => ac.abort(), cfg.timeoutMs ?? 90_000);
+      try {
+        return await f(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST', signal: ac.signal,
+          headers: { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ model, temperature, ...(jsonMode ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system(ctx) }, { role: 'user', content: user }] }),
+        });
+      } catch (e) { throw new HttpError(502, (e as Error).name === 'AbortError' ? '文案模型超时，稍后再试' : '连不上文案模型'); }
+      finally { clearTimeout(h); }
+    };
+    // 先要求 JSON 输出；部分模型 / 网关不支持 response_format 会回 400，就去掉再试一次（提示词里已要求只输出 JSON）
+    let res = await send(true);
+    if (res.status === 400) res = await send(false);
+    if (!res.ok) {
+      const msg = await res.json().then((j: any) => j?.error?.message ?? '').catch(() => '');
+      throw new HttpError(502, `文案模型出错（${res.status}）${msg ? `：${String(msg).slice(0, 120)}` : ''}`);
+    }
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     const text = data.choices?.[0]?.message?.content ?? '';
     try { return schema.parse(extractJson(text)); } catch { throw new HttpError(502, '文案模型返回的格式不对，再试一次'); }
