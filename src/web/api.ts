@@ -3,7 +3,7 @@ import type { Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, 
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 
 export interface AiStatus {
-  copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string };
+  copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
   video: { kind: 'mock' | 'seedance' | 'newapi'; baseUrl?: string; models?: Record<string, string> };
 }
 export interface ModelList { ok: boolean; error: string | null; models: string[] }
@@ -56,9 +56,9 @@ export const api = {
     createInvites: (count: number, maxUses: number, note: string) => call<{ codes: string[]; invites: Invite[] }>('POST', '/api/admin/invites', { count, maxUses, note }),
     feedback: () => call<{ feedback: Feedback[] }>('GET', '/api/admin/feedback'),
     setFeedback: (id: string, status: string) => call<{ feedback: Feedback[] }>('POST', `/api/admin/feedback/${id}`, { status }),
-    ai: () => call<{ status: AiStatus; tiers: { id: string; n: string }[] }>('GET', '/api/admin/ai'),
+    ai: () => call<{ status: AiStatus; tiers: { id: string; n: string; d?: string }[] }>('GET', '/api/admin/ai'),
     aiModels: () => call<{ llm: ModelList; video: ModelList }>('POST', '/api/admin/ai/models'),
-    aiSave: (p: { llmModel?: string | null; videoModels?: Record<string, string> }) => call<{ status: AiStatus }>('PUT', '/api/admin/ai', p),
+    aiSave: (p: { llmModel?: string | null; llmModelFine?: string | null; llmFallbacks?: string[]; videoModels?: Record<string, string> }) => call<{ status: AiStatus }>('PUT', '/api/admin/ai', p),
     aiTest: () => call<{ ok: boolean; ms: number; model: string; reply: string | null; error: string | null }>('POST', '/api/admin/ai/test'),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
   },
@@ -77,7 +77,7 @@ export const api = {
   benchmark: (url: string, learn: string[]) => call<{ platform: string; rows: [string, string][]; topic: Omit<Topic, 'id' | 'cat' | 'ageMonths' | 'source' | 'fav' | 'createdAt'> }>('POST', '/api/topics/benchmark', { url, learn }),
   fromMaterials: (assetIds: string[], note: string) => call<Topic>('POST', '/api/topics/from-materials', { assetIds, note }),
 
-  genCopy: (topicId: string, o: { kind?: string; len?: number; tone?: string; version?: number }) => call<{ draft: CopyDraft; check: CopyCheck }>('POST', '/api/copy/generate', { topicId, ...o }),
+  genCopy: (topicId: string, o: { kind?: string; len?: number; tone?: string; version?: number; quality?: 'fast' | 'fine' }) => call<{ draft: CopyDraft; check: CopyCheck }>('POST', '/api/copy/generate', { topicId, ...o }),
   rewrite: (draft: CopyDraft, how: Rewrite) => call<{ draft: CopyDraft; changed: number; check: CopyCheck }>('POST', '/api/copy/rewrite', { draft, how }),
   drafts: () => call<{ drafts: CopyDraft[] }>('GET', '/api/drafts'),
   draft: (topicId: string) => call<{ draft: CopyDraft | null }>('GET', `/api/drafts/${topicId}`),

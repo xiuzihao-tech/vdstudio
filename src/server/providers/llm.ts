@@ -5,7 +5,19 @@ import { CATS, FAMILIES } from '../../shared/catalog.ts';
 import type { CopyProvider, Ctx, TopicDraft, TopicProvider } from './types.ts';
 import { HttpError } from '../http.ts';
 
-export interface LlmConfig { baseUrl: string; apiKey: string; /** 传函数时每次调用现取（后台切换模型立即生效） */ model: string | (() => string); timeoutMs?: number; fetch?: typeof fetch }
+export interface LlmConfig {
+  baseUrl: string; apiKey: string;
+  /** 默认模型；传函数时每次调用现取（后台切换模型立即生效） */
+  model: string | (() => string);
+  /** 「精写」用的模型（不设就用默认模型） */
+  fineModel?: () => string;
+  /** 主模型出错（服务端错误、模型不存在、超时）时依次改用的备用模型 */
+  fallbacks?: () => string[];
+  timeoutMs?: number; fetch?: typeof fetch;
+}
+export type Quality = 'fast' | 'fine';
+/** 换一个模型可能就好了的错误：网关 / 上游故障、模型下线、限流 */
+const RETRYABLE = (status: number, msg: string) => status >= 500 || status === 404 || status === 429 || (status >= 400 && /model|模型|channel|渠道|分组/i.test(msg));
 
 const catOf = (ctx: Ctx) => ['designer', 'deco', 'custom', 'material', 'soft', 'agent', 'dev', 'stay'].indexOf(ctx.persona.id);
 const PARA: Record<number, number> = { 30: 3, 45: 4, 60: 5, 90: 6 };
@@ -32,9 +44,28 @@ export function extractJson(text: string): unknown {
 
 export function makeLlm(cfg: LlmConfig) {
   const f = cfg.fetch ?? fetch;
-  async function chat<T>(ctx: Ctx, user: string, schema: z.ZodType<T>, temperature = 0.8): Promise<T> {
-    const model = typeof cfg.model === 'function' ? cfg.model() : cfg.model;
-    if (!model) throw new HttpError(503, '还没选文案模型，请在后台「AI 服务」里选一个');
+  const primary = () => (typeof cfg.model === 'function' ? cfg.model() : cfg.model);
+  /** 这次调用依次尝试的模型：精写先用精写模型，不行再退回默认模型，最后是备用模型 */
+  const chain = (q: Quality) => [...new Set([q === 'fine' ? cfg.fineModel?.() ?? '' : '', primary(), ...(cfg.fallbacks?.() ?? [])].filter(Boolean))];
+  let lastUsed = '';
+
+  async function chat<T>(ctx: Ctx, user: string, schema: z.ZodType<T>, temperature = 0.8, quality: Quality = 'fast'): Promise<T> {
+    const models = chain(quality);
+    if (!models.length) throw new HttpError(503, '还没选文案模型，请在后台「AI 服务」里选一个');
+    let lastErr: HttpError | null = null;
+    for (const model of models) {
+      try { const out = await once(model, ctx, user, schema, temperature); lastUsed = model; return out; }
+      catch (e) {
+        lastErr = e instanceof HttpError ? e : new HttpError(502, String((e as Error).message));
+        if (!(lastErr as HttpError & { retry?: boolean }).retry) throw lastErr;
+        console.warn(`文案模型 ${model} 出错，换下一个：${lastErr.message}`);
+      }
+    }
+    throw lastErr!;
+  }
+
+  async function once<T>(model: string, ctx: Ctx, user: string, schema: z.ZodType<T>, temperature: number): Promise<T> {
+    const fail = (status: number, msg: string, retry: boolean) => Object.assign(new HttpError(status, msg), { retry });
     const send = async (jsonMode: boolean) => {
       const ac = new AbortController(), h = setTimeout(() => ac.abort(), cfg.timeoutMs ?? 90_000);
       try {
@@ -43,19 +74,20 @@ export function makeLlm(cfg: LlmConfig) {
           headers: { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify({ model, temperature, ...(jsonMode ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system(ctx) }, { role: 'user', content: user }] }),
         });
-      } catch (e) { throw new HttpError(502, (e as Error).name === 'AbortError' ? '文案模型超时，稍后再试' : '连不上文案模型'); }
+      } catch (e) { throw fail(502, (e as Error).name === 'AbortError' ? '文案模型超时，稍后再试' : '连不上文案模型', true); }
       finally { clearTimeout(h); }
     };
     // 先要求 JSON 输出；部分模型 / 网关不支持 response_format 会回 400，就去掉再试一次（提示词里已要求只输出 JSON）
     let res = await send(true);
     if (res.status === 400) res = await send(false);
     if (!res.ok) {
-      const msg = await res.json().then((j: any) => j?.error?.message ?? '').catch(() => '');
-      throw new HttpError(502, `文案模型出错（${res.status}）${msg ? `：${String(msg).slice(0, 120)}` : ''}`);
+      const msg = String(await res.json().then((j: any) => j?.error?.message ?? '').catch(() => ''));
+      throw fail(502, `文案模型出错（${res.status}）${msg ? `：${msg.slice(0, 120)}` : ''}`, RETRYABLE(res.status, msg));
     }
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     const text = data.choices?.[0]?.message?.content ?? '';
-    try { return schema.parse(extractJson(text)); } catch { throw new HttpError(502, '文案模型返回的格式不对，再试一次'); }
+    // 格式不对也换个模型再试（有备用模型时）
+    try { return schema.parse(extractJson(text)); } catch { throw fail(502, '文案模型返回的格式不对，再试一次', true); }
   }
 
   const topicSchema = z.object({ topics: z.array(z.object({ title: z.string().min(1).max(60), hook: z.string().max(120), dir: z.string(), type: z.number().int().min(0).max(2) })).min(1).max(5) });
@@ -77,14 +109,14 @@ ${imageKeys.length ? `附了 ${imageKeys.length} 张现场图。` : ''}
   };
 
   const copy: CopyProvider = {
-    async generate(ctx, t, { kind, len, tone, version }) {
+    async generate(ctx, t, { kind, len, tone, version, quality }) {
       const n = PARA[len] ?? 4, biz = ctx.persona.biz[0], fam = FAMILIES[biz.tpl];
       const r = await chat(ctx, `为选题写一条${kind}，目标时长 ${len} 秒（口播约每秒 4.5 字）。语气：${tone}。这是第 ${version} 版，和之前的写法要有区别。
 选题：${t.title}
 开头参考：${t.hook}
 方向：${t.dir}
 要求：标题 3 个；开头钩子 3 个（一句话）；正文 ${n} 段，每段对应一个镜头；结尾引导落到「${ctx.persona.goal}」；话题标签 5 个（带 #）。
-输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9);
+${quality === 'fine' ? '这是「精写」：多花心思在开头钩子和细节画面感上，句子要有节奏，少用套话。\n' : ''}输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9, quality ?? 'fast');
       return {
         topicId: t.id, kind, len, tone, titles: r.titles, title: r.titles[0], hooks: r.hooks, hook: r.hooks[0],
         body: r.body, shots: r.body.map((_, i) => fam[Math.min(i + 1, fam.length - 1)].d), cta: r.cta, tags: r.tags, live: 70, version,
@@ -101,5 +133,5 @@ ${imageKeys.length ? `附了 ${imageKeys.length} 张现场图。` : ''}
       return r.text;
     },
   };
-  return { topics, copy, chat };
+  return { topics, copy, chat, chain, lastUsed: () => lastUsed };
 }

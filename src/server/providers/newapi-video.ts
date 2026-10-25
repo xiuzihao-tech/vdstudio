@@ -18,7 +18,8 @@ export interface NewApiVideoConfig {
 }
 
 /** 土豆 API 上可用的视频模型（来自其公开价格页，以后台实时拉取为准） */
-export const TUDOU_DEFAULT_MODELS: Record<string, string> = { s25: 'seedance-2.5', s20: 'seedance-2.0', s20f: 'seedance-2.0-fast', wan: 'wan3.0' };
+// draft：开了「样片模式」时统一用这个最便宜的模型先出 480p 预览（土豆 0.15/秒），满意再按所选档位出成片
+export const TUDOU_DEFAULT_MODELS: Record<string, string> = { s25: 'seedance-2.5', s20: 'seedance-2.0', s20f: 'seedance-2.0-fast', wan: 'wan3.0', draft: 'seedance-2.0-mini' };
 
 const DONE = ['completed', 'succeeded', 'success', 'succeed', 'finished', 'done'];
 const FAIL = ['failed', 'failure', 'fail', 'error', 'expired', 'cancelled', 'canceled', 'timeout'];
@@ -76,10 +77,11 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   }
 
   return {
-    async run({ settings: g, shots, frames }, onStep) {
-      const m = modelOf(g.model), model = models()[g.model];
+    async run({ settings: g, shots, frames, final }, onStep) {
+      const m = modelOf(g.model), map = models(), draft = !final && isDraft(g);
+      const model = (draft && map.draft) || map[g.model];
       if (!model) throw new Error(`没有为「${m.n}」配置视频模型，请在后台「AI 服务」里设置`);
-      const resolution = isDraft(g) ? '480p' : g.res === '4K' ? '1080p' : g.res;
+      const resolution = draft ? '480p' : g.res === '4K' ? '1080p' : g.res;
       const [width, height] = frameSize(g.ratio, resolution);
       onStep(1);
       const urls: (string | null)[] = shots.map(() => null);

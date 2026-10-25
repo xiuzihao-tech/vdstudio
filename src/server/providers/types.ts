@@ -15,7 +15,7 @@ export interface TopicProvider {
 
 /** 文案大模型 */
 export interface CopyProvider {
-  generate(ctx: Ctx, t: Topic, o: { kind: CopyKind; len: CopyLen; tone: Tone; version: number }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
+  generate(ctx: Ctx, t: Topic, o: { kind: CopyKind; len: CopyLen; tone: Tone; version: number; quality?: 'fast' | 'fine' }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
   rewrite(ctx: Ctx, d: CopyDraft, how: Rewrite, hook: string): Promise<{ draft: CopyDraft; changed: number }>;
   humanize(ctx: Ctx, text: string): Promise<string>;
 }

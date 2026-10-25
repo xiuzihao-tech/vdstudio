@@ -5,8 +5,8 @@ import { useApp, useData } from '../store.tsx';
 import { Ph, Pills, Seg, Src, Steps, Toggle, usePay } from '../ui/kit.tsx';
 import { useAssetPicker, useScheduleTopic } from '../ui/pickers.tsx';
 import { useCloneVoice } from './ip/More.tsx';
-import { BGMS, MODELS, STYLES, VOICES } from '../../shared/catalog.ts';
-import { genCost, genIssues, genLines, isDraft, modelOf, planShots, trimCopyToLen } from '../../shared/gen.ts';
+import { BGMS, STYLES, VOICES } from '../../shared/catalog.ts';
+import { clampRes, genCost, genIssues, genLines, isDraft, modelOf, planShots, trimCopyToLen, videoModels } from '../../shared/gen.ts';
 import { copyText, secs } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job, VideoOutput } from '../../shared/types.ts';
 
@@ -34,6 +34,8 @@ export function GenPage() {
   const topics = useData(() => api.allTopics(), []);
 
   useEffect(() => { if (genSeed) setGenSeed(null); /* 交接数据只用一次 */ }, [genSeed, setGenSeed]);
+  // 换了档位（或中转站的档位最高只到 720p）时，清晰度自动退到这个档位支持的最高一档
+  useEffect(() => { const r = clampRes(g.model, g.res); if (r !== g.res) setG(x => ({ ...x, res: r })); }, [g.model, g.res]);
   useEffect(() => { try { sessionStorage.setItem(KEY, JSON.stringify(g)); } catch { /* 隐私模式 */ } }, [g]);
   // 第一次进来、还没放素材：默认带上项目素材（不含人物）
   useEffect(() => { if (assets.data && !g.assetIds.length && !sessionStorage.getItem(`${KEY}.touched`)) setG(x => ({ ...x, assetIds: assets.data!.assets.filter(a => a.type !== '人物').slice(0, 4).map(a => a.id) })); }, [assets.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -134,7 +136,7 @@ export function GenPage() {
 
       <div className="gctl" id="gCtl">
         <div className="gbox w2"><div className="hd">模型<span>价格为示意，以实际接入为准</span></div>
-          <div className="gm">{MODELS.map(x => <button key={x.id} data-gk="model" data-v={x.id} aria-pressed={g.model === x.id} aria-disabled={x.off || undefined} onClick={() => x.off ? toast('这个模型还没接入') : set({ model: x.id, draft: x.draft })}>
+          <div className="gm">{videoModels().map(x => <button key={x.id} data-gk="model" data-v={x.id} aria-pressed={g.model === x.id} aria-disabled={x.off || undefined} onClick={() => x.off ? toast('这个模型还没接入') : set({ model: x.id, draft: x.draft })}>
             <span className="row" style={{ justifyContent: 'space-between', gap: 6 }}><b>{x.n}</b><i>{x.off ? '待接入' : `${x.draft ? `样片 ${x.pd} · ` : ''}${x.pf} 点/秒`}</i></span><span>{x.d}</span></button>)}</div></div>
         <div className="gbox"><div className="hd">时长<span>{m.min}–{m.max} 秒一镜，自动拆</span></div>
           <div className="lenv ro" id="gLenV">{g.len}<small>秒</small></div>

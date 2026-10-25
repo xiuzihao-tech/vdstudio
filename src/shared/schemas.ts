@@ -37,6 +37,8 @@ export const copyGenSchema = z.object({
   len: z.union([z.literal(30), z.literal(45), z.literal(60), z.literal(90)]).default(45),
   tone: toneSchema.optional(),
   version: z.number().int().min(1).default(1),
+  /** fast = 默认模型；fine = 精写模型 */
+  quality: z.enum(['fast', 'fine']).default('fast'),
 });
 export const copyDraftSchema = z.object({
   topicId: z.string(), kind: z.enum(['口播', '图文笔记', '分镜脚本']),

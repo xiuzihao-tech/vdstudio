@@ -12,9 +12,9 @@ import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
 import { JobRunner, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
-import { PERSONAS, MODELS, CADENCE } from '../shared/catalog.ts';
+import { PERSONAS, MODELS, CADENCE, TUDOU_CAPS, withCaps } from '../shared/catalog.ts';
 import { checkCopy, findBanned } from '../shared/copy.ts';
-import { genCost, genIssues, planShots } from '../shared/gen.ts';
+import { genCost, genIssues, planShots, setVideoModels, videoModels } from '../shared/gen.ts';
 import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
 import type { CopyDraft, Workspace } from '../shared/types.ts';
@@ -33,6 +33,8 @@ export function createApp(opts: AppOptions) {
   const ops = makeOps(db);
   const ai = loadProviders(o.env ?? process.env, { get: k => ops.getSetting(k) });
   const { providers, info: providerInfo } = ai;
+  // 视频档位按实际接入的服务显示能力（土豆：Seedance 系列最高 720p 等）；没接真实服务时用通用目录
+  setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
   /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
   const signKey = o.fileSignSecret ?? randomBytes(32).toString('hex');
@@ -82,7 +84,7 @@ export function createApp(opts: AppOptions) {
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
   const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
   const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
-    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: MODELS, today: todayIso() });
+    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso() });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
 
   const r = new Router();
@@ -152,7 +154,7 @@ export function createApp(opts: AppOptions) {
   /* ---------- 文案 ---------- */
   r.post('/api/copy/generate', async req => {
     const ws = W(req), d = await body(req, S.copyGenSchema), t = topicOr404(ws, d.topicId);
-    const gen = await providers.copy.generate(aiCtx(ws), t, { kind: d.kind, len: d.len, tone: d.tone ?? ws.positioning.tone, version: d.version });
+    const gen = await providers.copy.generate(aiCtx(ws), t, { kind: d.kind, len: d.len, tone: d.tone ?? ws.positioning.tone, version: d.version, quality: d.quality });
     const draft: CopyDraft = { ...gen, id: '', updatedAt: '', assetIds: repo.draftByTopic(ws.id, t.id)?.assetIds ?? [] };
     ops.track(ctx(req).owner, ws.id, 'copy_generated', { kind: d.kind, len: d.len, version: d.version });
     return { draft, check: checkCopy(draft) };
@@ -318,12 +320,14 @@ export function createApp(opts: AppOptions) {
       return { ok: true, error: null, models: (j.data ?? []).map(m => m.id).sort() };
     } catch (e) { return { ok: false, error: (e as Error).name === 'TimeoutError' ? '超时' : '连不上', models: [] }; }
   };
-  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: MODELS.filter(m => !m.off).map(m => ({ id: m.id, n: m.n })) }; });
+  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: [...videoModels().filter(m => !m.off).map(m => ({ id: m.id, n: m.n, d: m.d })), { id: 'draft', n: '样片（低价预览）', d: '开了样片模式时所有档位都先用它出 480p' }] }; });
   r.post('/api/admin/ai/models', async req => { admin(req); const [llm, video] = await Promise.all([listModels(ai.endpoints.llm), listModels(ai.endpoints.video)]); return { llm, video }; });
   r.put('/api/admin/ai', async req => {
     admin(req);
-    const d = await body(req, z.object({ llmModel: z.string().trim().max(120).nullable().optional(), videoModels: z.record(z.string().trim().max(120)).optional() }));
+    const d = await body(req, z.object({ llmModel: z.string().trim().max(120).nullable().optional(), llmModelFine: z.string().trim().max(120).nullable().optional(), llmFallbacks: z.array(z.string().trim().min(1).max(120)).max(5).optional(), videoModels: z.record(z.string().trim().max(120)).optional() }));
     if (d.llmModel !== undefined) ops.setSetting('llm_model', d.llmModel || null);
+    if (d.llmModelFine !== undefined) ops.setSetting('llm_model_fine', d.llmModelFine || null);
+    if (d.llmFallbacks) ops.setSetting('llm_fallbacks', d.llmFallbacks.join(','));
     if (d.videoModels) ops.setSetting('video_models', JSON.stringify(Object.fromEntries(Object.entries(d.videoModels).filter(([, v]) => v))));
     return { status: ai.status() };
   });

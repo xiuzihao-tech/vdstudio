@@ -3,7 +3,16 @@ import { MODELS } from './catalog.ts';
 import { secs } from './copy.ts';
 import type { GenIssue, GenSettings, PlannedShot, SceneKey, VideoModel, VoiceCloneState } from './types.ts';
 
-export const modelOf = (id: string): VideoModel => MODELS.find(m => m.id === id) ?? MODELS[0];
+/**
+ * 当前生效的视频档位目录。默认是通用目录；接了具体中转站后（服务端启动时、前端拿到会话后）
+ * 换成该站的实际能力，这样前后端的校验、价格、时长范围都一致。
+ */
+let catalog: VideoModel[] = MODELS;
+export const videoModels = () => catalog;
+export function setVideoModels(list: VideoModel[]) { catalog = list.length ? list : MODELS; }
+export const modelOf = (id: string): VideoModel => catalog.find(m => m.id === id) ?? catalog[0];
+/** 清晰度不支持时退到该档位最高的一档 */
+export const clampRes = <R extends string>(id: string, res: R): R => { const m = modelOf(id); return (m.res.includes(res) ? res : m.res[m.res.length - 1]) as R; };
 export const genLines = (copy: string) => copy.split(/\n+/).map(s => s.trim()).filter(Boolean);
 export const isDraft = (g: Pick<GenSettings, 'draft' | 'model'>) => g.draft && modelOf(g.model).draft;
 

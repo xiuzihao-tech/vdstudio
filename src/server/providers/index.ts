@@ -11,12 +11,13 @@ import type { Providers } from './types.ts';
 export type ProviderInfo = { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi' };
 
 /** 运行时可改的 AI 设置（存在 settings 表，后台「AI 服务」页修改，不用重启） */
-export interface AiRuntime { get(k: 'llm_model' | 'video_models'): string | undefined }
+export type AiKey = 'llm_model' | 'llm_model_fine' | 'llm_fallbacks' | 'video_models';
+export interface AiRuntime { get(k: AiKey): string | undefined }
 const noRuntime: AiRuntime = { get: () => undefined };
 
 /** 给后台看的接入详情（不含密钥） */
 export interface AiStatus {
-  copy: { kind: ProviderInfo['copy']; baseUrl?: string; model?: string; envModel?: string };
+  copy: { kind: ProviderInfo['copy']; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
   video: { kind: ProviderInfo['video']; baseUrl?: string; models?: Record<string, string> };
 }
 
@@ -24,6 +25,8 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
   const p: Providers = { ...mockProviders, topics: { ...mockProviders.topics }, copy: { ...mockProviders.copy } };
   const info: ProviderInfo = { copy: 'mock', video: 'mock' };
   const llmModel = () => rt.get('llm_model') || env.LLM_MODEL || '';
+  const llmFine = () => rt.get('llm_model_fine') || env.LLM_MODEL_FINE || '';
+  const llmFallbacks = () => (rt.get('llm_fallbacks') ?? env.LLM_FALLBACK_MODELS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   const videoModels = (defaults: Record<string, string>) => () => {
     try { return { ...defaults, ...JSON.parse(rt.get('video_models') || '{}') }; } catch { return defaults; }
   };
@@ -31,7 +34,7 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
 
   if (env.AI_PROVIDER !== 'mock') {
     if (env.LLM_API_KEY && env.LLM_BASE_URL) {
-      const llm = makeLlm({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: llmModel });
+      const llm = makeLlm({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: llmModel, fineModel: llmFine, fallbacks: llmFallbacks });
       p.copy = llm.copy;
       p.topics = { ...p.topics, fromCase: llm.topics.fromCase, angles: llm.topics.angles };
       info.copy = 'llm';
@@ -51,7 +54,7 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
   }
 
   const status = (): AiStatus => ({
-    copy: { kind: info.copy, baseUrl: info.copy === 'llm' ? env.LLM_BASE_URL : undefined, model: info.copy === 'llm' ? llmModel() : undefined, envModel: env.LLM_MODEL },
+    copy: { kind: info.copy, baseUrl: info.copy === 'llm' ? env.LLM_BASE_URL : undefined, model: info.copy === 'llm' ? llmModel() : undefined, envModel: env.LLM_MODEL, fineModel: info.copy === 'llm' ? llmFine() : undefined, fallbacks: info.copy === 'llm' ? llmFallbacks() : undefined },
     video: { kind: info.video, baseUrl: info.video === 'newapi' ? env.VIDEO_BASE_URL : info.video === 'seedance' ? env.ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3' : undefined, models: videoMap?.() },
   });
   /** 后台用：调供应方的 /models 列出可用模型、做连通测试 */
@@ -65,6 +68,6 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
 /** .env 里单独指定的档位模型：VIDEO_MODEL_S25=seedance-2.5 … */
 function envModels(env: NodeJS.ProcessEnv): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of ['s25', 's20', 's20f', 'wan']) { const v = env[`VIDEO_MODEL_${k.toUpperCase()}`]; if (v) out[k] = v; }
+  for (const k of ['s25', 's20', 's20f', 'wan', 'draft']) { const v = env[`VIDEO_MODEL_${k.toUpperCase()}`]; if (v) out[k] = v; }
   return out;
 }

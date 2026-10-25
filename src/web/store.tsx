@@ -1,6 +1,7 @@
 // 全局状态：会话、导航、提示、弹层、跨页交接（文案 → 生成 / 制作台，素材 → 各处，排期 → 选题库）。
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, type Session } from './api.ts';
+import { setVideoModels } from '../shared/gen.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
 export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'lib' | 'admin';
@@ -38,7 +39,9 @@ const C = createContext<Ctx | null>(null);
 export const useApp = () => { const c = useContext(C); if (!c) throw new Error('useApp 必须在 AppProvider 里用'); return c; };
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSessionRaw] = useState<Session | null>(null);
+  /** 换会话时同步视频档位目录（服务端按接入的中转站给出实际能力），保证前后端校验一致 */
+  const setSession = useCallback((s: Session | null) => { if (s?.models) setVideoModels(s.models); setSessionRaw(s); }, []);
   const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
   const [toastMsg, setToast] = useState<{ m: string; n: number } | null>(null);
   const [sheetSpec, setSheet] = useState<SheetSpec | null>(null);
@@ -54,7 +57,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const reloadSession = useCallback(async () => {
     try { setSession(await api.session()); setNeedLogin(false); }
     catch (e) { if (e instanceof ApiError && e.status === 401) { setSession(null); setNeedLogin(true); } else throw e; }
-  }, []);
+  }, [setSession]);
   useEffect(() => { void reloadSession(); }, [reloadSession]);
   useEffect(() => { if (session) document.body.dataset.theme = session.workspace.theme; }, [session]);
   useEffect(() => { const f = () => setRoute(parseRoute(location.pathname)); addEventListener('popstate', f); return () => removeEventListener('popstate', f); }, []);

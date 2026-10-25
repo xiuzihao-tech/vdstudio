@@ -120,7 +120,12 @@ function FeedbackList() {
 }
 
 /** AI 服务：看接入状态、拉取两个站的可用模型、切换默认文案模型和各视频档位用的模型、连通测试 */
-const PREFER_LLM = [/deepseek-v\d/i, /deepseek-chat/i, /qwen3?-max/i, /qwen/i, /gpt-5/i, /claude-sonnet/i, /gemini/i];
+const PREFER_LLM = [/^deepseek-v4\.1-flash$/i, /^deepseek-v4-flash$/i, /deepseek-v\d/i, /deepseek-chat/i, /qwen3?-max/i, /qwen/i, /gpt-5/i, /claude-sonnet/i, /gemini/i];
+/** 推荐配置（2026-10 按两站价格表选：中文写作好、便宜、稳定） */
+const RECOMMENDED = {
+  llm: 'deepseek-v4.1-flash', fine: 'deepseek-v4-pro', fallbacks: ['deepseek-v4-flash'],
+  video: { s25: 'seedance-2.5', s20: 'seedance-2.0', s20f: 'seedance-2.0-fast', wan: 'wan3.0', draft: 'seedance-2.0-mini' } as Record<string, string>,
+};
 function AiServices() {
   const { fail, toast } = useApp();
   const d = useData(() => api.admin.ai(), []);
@@ -128,11 +133,16 @@ function AiServices() {
   const [busy, setBusy] = useState('');
   const [llm, setLlm] = useState<string | null>(null);
   const [vm, setVm] = useState<Record<string, string> | null>(null);
+  const [fine, setFine] = useState<string | null>(null);
+  const [fb, setFb] = useState<string | null>(null);
   const [test, setTest] = useState<Awaited<ReturnType<typeof api.admin.aiTest>> | null>(null);
   if (!d.data) return <Skel h={200} />;
   const st = d.data.status, curLlm = llm ?? st.copy.model ?? '', curVm = vm ?? st.video.models ?? {};
+  const curFine = fine ?? st.copy.fineModel ?? '', curFb = fb ?? (st.copy.fallbacks ?? []).join(', ');
+  const dirty = llm !== null || vm !== null || fine !== null || fb !== null;
+  const useRecommended = () => { setLlm(RECOMMENDED.llm); setFine(RECOMMENDED.fine); setFb(RECOMMENDED.fallbacks.join(', ')); if (st.video.kind === 'newapi') setVm({ ...curVm, ...RECOMMENDED.video }); toast('已填入推荐配置，点「保存」生效'); };
   const pull = async () => { setBusy('pull'); try { const r = await api.admin.aiModels(); setLists(r); if (!r.llm.ok && !r.video.ok) toast('两个站都没连上，看下面的错误'); } catch (e) { fail(e); } finally { setBusy(''); } };
-  const save = async () => { setBusy('save'); try { const r = await api.admin.aiSave({ llmModel: curLlm, videoModels: curVm }); d.set({ ...d.data!, status: r.status }); setLlm(null); setVm(null); toast('已保存，马上生效'); } catch (e) { fail(e); } finally { setBusy(''); } };
+  const save = async () => { setBusy('save'); try { const r = await api.admin.aiSave({ llmModel: curLlm, llmModelFine: curFine, llmFallbacks: curFb.split(/[,，\s]+/).filter(Boolean), videoModels: curVm }); d.set({ ...d.data!, status: r.status }); setLlm(null); setVm(null); setFine(null); setFb(null); toast('已保存，马上生效'); } catch (e) { fail(e); } finally { setBusy(''); } };
   const runTest = async () => { setBusy('test'); setTest(null); try { setTest(await api.admin.aiTest()); } catch (e) { fail(e); } finally { setBusy(''); } };
   const llmOptions = lists?.llm.models.filter(m => !/(seedance|wan|video|image|embedding|tts|whisper|dall|veo|kling|sora|minimax-h)/i.test(m)) ?? [];
   const suggested = PREFER_LLM.map(re => llmOptions.find(m => re.test(m))).find(Boolean);
@@ -142,7 +152,8 @@ function AiServices() {
     <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
       <button className="btn g" id="aiPull" disabled={!!busy} onClick={pull}>{busy === 'pull' ? '拉取中…' : '拉取可用模型'}</button>
       <button className="btn g" id="aiTest" disabled={!!busy || st.copy.kind === 'mock'} onClick={runTest}>{busy === 'test' ? '测试中…' : '测试文案模型'}</button>
-      <button className="btn y" id="aiSave" disabled={!!busy || (llm === null && vm === null)} onClick={save}>保存</button>
+      <button className="btn g" id="aiRec" disabled={!!busy || st.copy.kind === 'mock'} onClick={useRecommended}>用推荐配置</button>
+      <button className="btn y" id="aiSave" disabled={!!busy || !dirty} onClick={save}>保存</button>
     </div>
     {test && <p className="s" style={{ marginTop: 12, color: test.ok ? 'var(--real)' : 'var(--err)' }}>{test.ok ? `✓ ${test.model} 通了，${test.ms} 毫秒：${test.reply}` : `✗ ${test.model}：${test.error}`}</p>}
     <div className="gctl" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 16 }}>
@@ -152,6 +163,10 @@ function AiServices() {
           <input className="fld" id="aiLlm" list="aiLlmList" value={curLlm} onChange={e => setLlm(e.target.value)} placeholder="比如 deepseek-v4、gpt-5.6-terra" />
           <datalist id="aiLlmList">{llmOptions.map(m => <option key={m} value={m} />)}</datalist>
           {suggested && suggested !== curLlm && <p className="xs" style={{ marginTop: 8 }}>建议用 <button className="lnk xs" onClick={() => setLlm(suggested)}>{suggested}</button>（中文写作好、价格低）</p>}
+          <label className="lb" htmlFor="aiFine" style={{ marginTop: 14 }}>精写模型 <span className="m3">文案页「✦ 精写一版」用，不填就用默认模型</span></label>
+          <input className="fld" id="aiFine" list="aiLlmList" value={curFine} onChange={e => setFine(e.target.value)} placeholder="比如 deepseek-v4-pro" />
+          <label className="lb" htmlFor="aiFb" style={{ marginTop: 14 }}>备用模型 <span className="m3">主模型出错时依次改用，逗号分隔</span></label>
+          <input className="fld" id="aiFb" value={curFb} onChange={e => setFb(e.target.value)} placeholder="比如 deepseek-v4-flash" />
           {lists && <p className="xs m3" style={{ marginTop: 8 }}>{lists.llm.ok ? `这个站有 ${llmOptions.length} 个文本模型可选` : `拉取失败：${lists.llm.error}`}</p>}
         </>}
       </div>
@@ -159,7 +174,7 @@ function AiServices() {
         {st.video.kind === 'mock' ? <p className="s m">在服务器的 .env 里填 VIDEO_BASE_URL 和 VIDEO_API_KEY 后重启。</p> : <>
           <p className="xs m3" style={{ marginBottom: 8 }}>页面上的每个档位，实际调用哪个模型：</p>
           {d.data.tiers.map(t => <div key={t.id} className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'nowrap' }}>
-            <span className="s" style={{ width: 130, flex: 'none' }}>{t.n}</span>
+            <span className="s" style={{ width: 130, flex: 'none' }} title={t.d}>{t.n}</span>
             <input className="fld" list="aiVidList" data-tier={t.id} value={curVm[t.id] ?? ''} placeholder="不填 = 这个档位不可用" onChange={e => setVm({ ...curVm, [t.id]: e.target.value })} />
           </div>)}
           <datalist id="aiVidList">{videoOptions.map(m => <option key={m} value={m} />)}</datalist>

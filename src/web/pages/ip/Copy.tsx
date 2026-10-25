@@ -31,6 +31,7 @@ function Editor({ topicId }: { topicId: string }) {
   const [d, setD] = useState<CopyDraft | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [busy, setBusy] = useState<string | null>('load');
+  const [quality, setQuality] = useState<'fast' | 'fine'>('fast');
   const [dirty, setDirty] = useState(false);
   const edited = useRef(false);
 
@@ -59,10 +60,10 @@ function Editor({ topicId }: { topicId: string }) {
 
   const ck = checkCopy(d);
   const upd = (p: Partial<CopyDraft>) => { setD({ ...d, ...p }); setDirty(true); edited.current = true; };
-  const regen = async (o: { kind?: CopyKind; len?: CopyLen; tone?: Tone; version?: number }, keepTitle = true) => {
-    setBusy('regen');
+  const regen = async (o: { kind?: CopyKind; len?: CopyLen; tone?: Tone; version?: number; quality?: 'fast' | 'fine' }, keepTitle = true) => {
+    setBusy('regen'); if (o.quality) setQuality(o.quality);
     try {
-      const r = await api.genCopy(topic.id, { kind: o.kind ?? d.kind, len: o.len ?? d.len, tone: o.tone ?? d.tone, version: o.version ?? d.version });
+      const r = await api.genCopy(topic.id, { kind: o.kind ?? d.kind, len: o.len ?? d.len, tone: o.tone ?? d.tone, version: o.version ?? d.version, quality: o.quality ?? quality });
       const keep = keepTitle ? { title: d.title, hook: d.hook } : {};
       const body = o.kind && edited.current ? { body: d.body, cta: d.cta } : {};
       setD({ ...r.draft, ...keep, ...body, assetIds: d.assetIds }); setDirty(true);
@@ -86,7 +87,7 @@ function Editor({ topicId }: { topicId: string }) {
           <h2 className="d3" style={{ marginTop: 4 }}>{topic.title}</h2>
           <div className="row" style={{ gap: 6, marginTop: 8 }}><Src>{topic.dir}</Src><Src>{TOPIC_TYPES[topic.type]}</Src>{sched && <Src k="real">已排期 {sched}</Src>}{dirty && <Src k="warn">未保存</Src>}</div>
         </div>
-        <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => nav({ view: 'ip', sub: 'find' })}>换选题</button><button className="btn g sm" id="cpRe" disabled={!!busy} onClick={() => { void regen({ version: d.version + 1 }, false).then(() => toast(`第 ${d.version + 1} 版`)); }}>重新生成</button></div>
+        <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => nav({ view: 'ip', sub: 'find' })}>换选题</button><button className="btn g sm" id="cpRe" disabled={!!busy} onClick={() => { void regen({ version: d.version + 1, quality: 'fast' }, false).then(() => toast(`第 ${d.version + 1} 版`)); }}>重新生成</button><button className="btn g sm" id="cpFine" disabled={!!busy} title="用更强的模型重写一版，慢一点" onClick={() => { void regen({ version: d.version + 1, quality: 'fine' }, false).then(() => toast('精写好了')); }}>{busy === 'regen' && quality === 'fine' ? '精写中…' : '✦ 精写一版'}</button></div>
       </div>
       <div className="cpset">
         <span>类型 <Seg value={d.kind} options={['口播', '图文笔记', '分镜脚本'] as const} onChange={k => regen({ kind: k })} /></span>
