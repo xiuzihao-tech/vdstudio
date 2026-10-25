@@ -46,6 +46,8 @@ const MIGRATIONS: string[] = [
    CREATE INDEX events_owner ON events(owner_id, created_at);
    CREATE TABLE feedback (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, page TEXT NOT NULL, text TEXT NOT NULL, contact TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL);
    CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT NOT NULL);`,
+  // 3：记录每镜在视频服务里的任务 ID，服务重启后接着查，不重复提交、不白花钱
+  `ALTER TABLE jobs ADD COLUMN external TEXT;`,
 ];
 
 export type DB = DatabaseSync;

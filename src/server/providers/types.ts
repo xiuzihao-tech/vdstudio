@@ -23,7 +23,15 @@ export interface CopyProvider {
 /** 视频生成（Seedance 等）。run 内部负责提交、轮询，并逐步回报进度 */
 export interface VideoProvider {
   /** frames：每镜首帧图片的公网地址（没有则为 null）。返回每镜生成好的视频地址（Mock 不返回） */
-  run(input: { settings: GenSettings; shots: PlannedShot[]; final: boolean; frames: (string | null)[] }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[] } | void>;
+  run(input: {
+    settings: GenSettings; shots: PlannedShot[]; final: boolean; frames: (string | null)[];
+    /** 服务重启前已经提交过的各镜任务 ID：有就不再提交（不重复花钱），直接接着查 */
+    known?: (string | null)[];
+    /** 每镜任务提交成功时回调，用来把任务 ID 存进数据库 */
+    onTask?: (i: number, taskId: string) => void;
+  }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[] } | void>;
+  /** 能否在服务重启后接着查任务（Mock 不能） */
+  resumable?: boolean;
 }
 
 /** 声音克隆与配音 */

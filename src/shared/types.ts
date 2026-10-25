@@ -73,6 +73,8 @@ export interface Job {
   input: GenSettings | Record<string, unknown>; output: VideoOutput | Record<string, unknown> | null;
   error: string | null; createdAt: string; updatedAt: string;
 }
+/** 生成任务在视频服务那边的记录：每镜的任务 ID（没提交为 null）和当时的分镜，重启后靠它接着查 */
+export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; final: boolean }
 export interface VideoOutput { draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */

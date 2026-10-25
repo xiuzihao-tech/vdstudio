@@ -1,7 +1,7 @@
 // 数据访问层：只做读写和行映射，不放业务规则。
 import type { DB } from './db.ts';
 import { newId, now } from './db.ts';
-import type { Asset, CopyDraft, Job, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
+import type { Asset, CopyDraft, Job, JobExternal, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
 
 type Row = Record<string, any>;
 const j = (s: string | null) => (s == null ? null : JSON.parse(s));
@@ -94,11 +94,22 @@ export function makeRepo(db: DB) {
       db.prepare('UPDATE jobs SET status=?, step=?, output=?, error=?, updated_at=? WHERE id=?')
         .run(p.status ?? cur.status, p.step ?? cur.step, p.output !== undefined ? JSON.stringify(p.output) : cur.output, p.error !== undefined ? p.error : cur.error, now(), id);
     },
-    /** 进程重启后，未完成的任务标记失败并退点（Mock 任务在内存里跑，不可恢复） */
-    failStaleJobs(): Job[] {
+    /** 视频服务那边的任务信息（各镜任务 ID、分镜） */
+    setJobExternal(id: string, ext: JobExternal) { db.prepare('UPDATE jobs SET external=?, updated_at=? WHERE id=?').run(JSON.stringify(ext), now(), id); },
+    jobExternal(id: string): JobExternal | null { return j((db.prepare('SELECT external FROM jobs WHERE id=?').get(id) as Row | undefined)?.external ?? null); },
+    /**
+     * 进程重启时处理没跑完的任务：已经在视频服务提交过的（canResume 返回 true）留着接着查，
+     * 其余标记失败并退点（Mock 任务、还没提交出去的）。
+     */
+    staleJobs(canResume: (job: Job, ext: JobExternal | null) => boolean): { resume: (Job & { ws: string })[]; failed: (Job & { ws: string })[] } {
       const rows = (db.prepare("SELECT * FROM jobs WHERE status IN ('queued','running')").all() as Row[]);
-      rows.forEach(r => this.updateJob(r.id, { status: 'failed', error: '服务重启，任务中断，点数已退回' }));
-      return rows.map(r => ({ ...toJob(r), ws: r.ws } as Job & { ws: string }));
+      const out = { resume: [] as (Job & { ws: string })[], failed: [] as (Job & { ws: string })[] };
+      for (const r of rows) {
+        const job = { ...toJob(r), ws: r.ws as string };
+        if (canResume(job, j(r.external))) out.resume.push(job);
+        else { this.updateJob(r.id, { status: 'failed', error: '服务重启，任务中断，点数已退回' }); out.failed.push(job); }
+      }
+      return out;
     },
 
     /* ---------- 排期 ---------- */

@@ -50,7 +50,8 @@ const errText = (j: J) => j?.error?.message ?? j?.fail_reason ?? j?.data?.fail_r
 export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   const f = cfg.fetch ?? fetch, base = cfg.baseUrl.replace(/\/$/, '');
   const headers = { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' };
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  // unref：轮询等待不拦着进程退出（服务本身由 HTTP 服务器保持运行）
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms).unref());
   const models = () => (typeof cfg.models === 'function' ? cfg.models() : cfg.models);
 
   const createPath = '/' + (cfg.createPath ?? '/videos/generations').replace(/^\/+|\/+$/g, '');
@@ -77,7 +78,8 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   }
 
   return {
-    async run({ settings: g, shots, frames, final }, onStep) {
+    resumable: true,
+    async run({ settings: g, shots, frames, final, known, onTask }, onStep) {
       const m = modelOf(g.model), map = models(), draft = !final && isDraft(g);
       const model = (draft && map.draft) || map[g.model];
       if (!model) throw new Error(`没有为「${m.n}」配置视频模型，请在后台「AI 服务」里设置`);
@@ -91,12 +93,13 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
         const s = shots[i];
         const prompt = [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
         const duration = Math.min(m.max, Math.max(m.min, Math.round(s.dur)));
-        const id = await create({
+        const id = known?.[i] || await create({
           model, prompt, duration, seconds: String(duration), width, height, size: `${width}x${height}`,
           resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false,
           ...(frames[i] ? { image: frames[i], images: [frames[i]], first_frame_image: frames[i] } : {}),
           metadata: { resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false },
         });
+        if (!known?.[i]) onTask?.(i, id);
         for (;;) {
           if (Date.now() > deadline) throw new Error('视频生成超时');
           await sleep(cfg.pollMs ?? 8000);

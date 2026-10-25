@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Storage } from './storage/index.ts';
-import type { Asset, GenSettings, Job, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
+import type { Asset, GenSettings, Job, PlannedShot, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
 import { tx, type DB } from './db.ts';
@@ -159,19 +159,37 @@ export class JobRunner {
     }
     this.repo.markAssetsUsed(ws.id, g.assetIds);
     this.repo.updateJob(job.id, { status: 'running' });
-    const output: VideoOutput = { draft: !final && isDraft(g), shots, title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
-    const run = async () => {
-      const frames = await Promise.all(shots.map((_, i) => (assets.length ? this.frameUrl(assets[i % assets.length]) : null)));
-      return this.providers.video.run({ settings: g, shots, final, frames }, step => this.repo.updateJob(job.id, { step }));
-    };
-    run()
-      .then(async r => {
-        if (r?.shotVideos) await this.saveOutputs(ws.id, job.id, g, output, r.shotVideos);
-        this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output });
-        this.opts.onDone?.(ws.id, job, true);
-      })
-      .catch(err => { this.repo.updateJob(job.id, { status: 'failed', error: String(err?.message ?? err) }); this.repo.refund(ws.id, cost, '生成失败退点', job.id); this.opts.onDone?.(ws.id, job, false); });
+    this.repo.setJobExternal(job.id, { tasks: shots.map(() => null), shots, final });
+    void this.execute(ws.id, job, g, final, shots, assets, []);
     return { ok: true, job: this.repo.job(ws.id, job.id)! };
+  }
+
+  /** 服务重启后接着跑：已提交的镜头只查不再提交 */
+  resume(wsId: string, job: Job) {
+    const ext = this.repo.jobExternal(job.id);
+    if (!ext) return;
+    const g = job.input as GenSettings;
+    console.log(`接着查重启前的任务 ${job.id}（已提交 ${ext.tasks.filter(Boolean).length}/${ext.shots.length} 镜）`);
+    void this.execute(wsId, job, g, ext.final, ext.shots, this.repo.assetsByIds(wsId, g.assetIds), ext.tasks);
+  }
+
+  private async execute(wsId: string, job: Job, g: GenSettings, final: boolean, shots: PlannedShot[], assets: Asset[], known: (string | null)[]) {
+    const output: VideoOutput = { draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
+    const tasks = shots.map((_, i) => known[i] ?? null);
+    try {
+      const frames = await Promise.all(shots.map((_, i) => (known[i] || !assets.length ? null : this.frameUrl(assets[i % assets.length]))));
+      const r = await this.providers.video.run({
+        settings: g, shots, final, frames, known,
+        onTask: (i, id) => { tasks[i] = id; this.repo.setJobExternal(job.id, { tasks, shots, final }); },
+      }, step => this.repo.updateJob(job.id, { step }));
+      if (r?.shotVideos) await this.saveOutputs(wsId, job.id, g, output, r.shotVideos);
+      this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output });
+      this.opts.onDone?.(wsId, job, true);
+    } catch (err) {
+      this.repo.updateJob(job.id, { status: 'failed', error: String((err as Error)?.message ?? err) });
+      this.repo.refund(wsId, job.cost, '生成失败退点', job.id);
+      this.opts.onDone?.(wsId, job, false);
+    }
   }
 
   /**

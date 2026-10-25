@@ -61,7 +61,13 @@ export function createApp(opts: AppOptions) {
     const small = buf.length <= FRAME_INLINE_LIMIT ? buf : await shrinkImage(buf);
     return small ? `data:${small === buf ? a.mime : 'image/jpeg'};base64,${small.toString('base64')}` : null;
   });
-  for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
+  // 重启前没跑完的任务：已经在视频服务提交过的接着查（不重复花钱），其余标失败并退点
+  {
+    const canResume = (j: { kind: string }, ext: { tasks: (string | null)[] } | null) => !!providers.video.resumable && j.kind.startsWith('video') && !!ext?.tasks.some(Boolean);
+    const { resume, failed } = repo.staleJobs(canResume);
+    for (const j of failed) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
+    for (const j of resume) runner.resume(j.ws, j);
+  }
 
   const auth = makeAuth(db);
   auth.purgeExpired();

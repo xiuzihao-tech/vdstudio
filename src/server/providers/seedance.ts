@@ -16,7 +16,8 @@ type Task = { id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' 
 export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
   const f = cfg.fetch ?? fetch, base = cfg.baseUrl.replace(/\/$/, '');
   const headers = { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' };
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  // unref：轮询等待不拦着进程退出（服务本身由 HTTP 服务器保持运行）
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms).unref());
 
   async function create(body: unknown): Promise<string> {
     const res = await f(`${base}/contents/generations/tasks`, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -31,7 +32,8 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
   }
 
   return {
-    async run({ settings: g, shots, frames }, onStep) {
+    resumable: true,
+    async run({ settings: g, shots, frames, known, onTask }, onStep) {
       const m = modelOf(g.model), model = cfg.models[g.model];
       if (!model) throw new Error(`没有为 ${m.n} 配置方舟模型 ID`);
       const resolution = isDraft(g) ? '480p' : g.res === '4K' ? '1080p' : g.res; // 方舟文档目前最高 1080p
@@ -44,10 +46,11 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
         const text = [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净'].filter(Boolean).join('。');
         const content: unknown[] = [{ type: 'text', text }];
         if (frames[i]) content.push({ type: 'image_url', image_url: { url: frames[i] }, role: 'first_frame' });
-        const id = await create({
+        const id = known?.[i] || await create({
           model, content, resolution, ratio: g.ratio, duration: Math.min(m.max, Math.max(m.min, Math.round(s.dur))),
           generate_audio: false, watermark: !!cfg.watermark,
         });
+        if (!known?.[i]) onTask?.(i, id);
         for (;;) {
           if (Date.now() > deadline) throw new Error('视频生成超时');
           await sleep(cfg.pollMs ?? 10_000);
