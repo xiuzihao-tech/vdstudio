@@ -1,6 +1,6 @@
 // 业务服务：新建工作区种子、排期补齐与调整、生成任务。路由只调用这里和 repo。
 import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
-import { GEN_STEPS, genCost, isDraft, planShots } from '../shared/gen.ts';
+import { draftResOf, GEN_STEPS, genCost, isDraft, planShots } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
 import { WEEKDAYS } from '../shared/catalog.ts';
 import { composeVideo, hasFfmpeg } from './compose.ts';
@@ -174,7 +174,7 @@ export class JobRunner {
   }
 
   private async execute(wsId: string, job: Job, g: GenSettings, final: boolean, shots: PlannedShot[], assets: Asset[], known: (string | null)[]) {
-    const output: VideoOutput = { draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
+    const output: VideoOutput = { draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? draftResOf(g.model) : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
     const tasks = shots.map((_, i) => known[i] ?? null);
     try {
       const frames = await Promise.all(shots.map((_, i) => (known[i] || !assets.length ? null : this.frameUrl(assets[i % assets.length]))));

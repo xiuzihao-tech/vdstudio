@@ -19,7 +19,7 @@ export interface ShotTemplate {
 
 export interface VideoModel {
   id: string; n: string; d: string; min: number; max: number; res: string[];
-  draft: boolean; pd: number; pf: number; off?: boolean;
+  draft: boolean; /** 样片用的清晰度（默认 480p；土豆的样片模型最低 720p） */ draftRes?: string; pd: number; pf: number; off?: boolean;
 }
 
 /* ---------- IP 与选题 ---------- */

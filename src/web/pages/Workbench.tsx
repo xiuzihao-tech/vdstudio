@@ -6,7 +6,7 @@ import { useApp, useData, type WbSeed } from '../store.tsx';
 import { Empty, Ph, Pills, usePay } from '../ui/kit.tsx';
 import { useAssetPicker } from '../ui/pickers.tsx';
 import { VOICES } from '../../shared/catalog.ts';
-import { genCost, modelOf, videoModels } from '../../shared/gen.ts';
+import { draftResOf, genCost, modelOf, videoModels } from '../../shared/gen.ts';
 import { secs } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job } from '../../shared/types.ts';
 
@@ -77,7 +77,7 @@ export function Workbench() {
     const g = settings();
     if (!g.copy) { toast('至少一镜要有台词'); return; }
     const c = genCost(g);
-    pay({ title: `生成整条 · ${st.shots.length} 镜`, lines: [[`${st.shots.length} 镜 · ${g.len} 秒 · ${m.n} · ${g.draft ? '样片 480p' : g.res}`, c]], ok: '生成', then: async () => {
+    pay({ title: `生成整条 · ${st.shots.length} 镜`, lines: [[`${st.shots.length} 镜 · ${g.len} 秒 · ${m.n} · ${g.draft ? `样片 ${draftResOf(g.model)}` : g.res}`, c]], ok: '生成', then: async () => {
       try { const j = await api.generate(g, false, st.title); setJob(j); bumpJobs(); } catch (e) { fail(e); }
     } });
   };

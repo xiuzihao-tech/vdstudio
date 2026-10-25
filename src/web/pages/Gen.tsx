@@ -6,7 +6,7 @@ import { Ph, Pills, Seg, Src, Steps, Toggle, usePay } from '../ui/kit.tsx';
 import { useAssetPicker, useScheduleTopic } from '../ui/pickers.tsx';
 import { useCloneVoice } from './ip/More.tsx';
 import { BGMS, STYLES, VOICES } from '../../shared/catalog.ts';
-import { clampRes, genCost, genIssues, genLines, isDraft, modelOf, planShots, trimCopyToLen, videoModels } from '../../shared/gen.ts';
+import { clampRes, draftResOf, genCost, genIssues, genLines, isDraft, modelOf, planShots, trimCopyToLen, videoModels } from '../../shared/gen.ts';
 import { copyText, secs } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job, VideoOutput } from '../../shared/types.ts';
 import { fileUrl } from '../config.ts';
@@ -93,7 +93,7 @@ export function GenPage() {
     const c = final ? genCost(g, true) : cost;
     pay({
       title: final ? '转成片' : `生成视频${isDraft(g) ? ' · 样片' : ''}`,
-      lines: final ? [[`${shots.length} 镜 · ${g.res} · ${g.len} 秒`, c]] : [[`${shots.length} 镜 · ${g.len} 秒 · ${m.n} · ${isDraft(g) ? '480p' : g.res}`, c - (g.cover ? 4 : 0)], [`配音 · ${VOICES.find(v => v.id === g.voice)!.n}`, 0], ['音乐、字幕、混音与剪辑', 0], ...(g.cover ? [['封面', 4] as [string, number]] : [])],
+      lines: final ? [[`${shots.length} 镜 · ${g.res} · ${g.len} 秒`, c]] : [[`${shots.length} 镜 · ${g.len} 秒 · ${m.n} · ${isDraft(g) ? `样片 ${draftResOf(g.model)}` : g.res}`, c - (g.cover ? 4 : 0)], [`配音 · ${VOICES.find(v => v.id === g.voice)!.n}`, 0], ['音乐、字幕、混音与剪辑', 0], ...(g.cover ? [['封面', 4] as [string, number]] : [])],
       note: !final && isDraft(g) ? '样片满意后一键转成片，沿用同样的文案、素材和设置。' : undefined,
       ok: final ? '转成片' : '生成',
       then: async () => {
@@ -146,7 +146,7 @@ export function GenPage() {
         <div className="gbox"><div className="hd">画面</div>
           <p className="lb">比例</p><Pills value={g.ratio} options={['9:16', '16:9', '1:1', '3:4'] as const} onChange={v => set({ ratio: v })} />
           <p className="lb" style={{ marginTop: 12 }}>成片清晰度</p><Pills value={g.res} options={['720p', '1080p', '4K'] as const} disabled={v => !m.res.includes(v)} onChange={v => m.res.includes(v) ? set({ res: v }) : toast('当前模型不支持，换个模型或清晰度')} />
-          <Toggle checked={g.draft && m.draft} disabled={!m.draft} onChange={v => set({ draft: v })} label="样片模式" hint={m.draft ? '先出 480p 看效果，约正式价 6 折' : '这个模型没有样片模式'} /></div>
+          <Toggle checked={g.draft && m.draft} disabled={!m.draft} onChange={v => set({ draft: v })} label="样片模式" hint={m.draft ? `先用便宜的模型出 ${draftResOf(g.model)} 看效果，满意再出成片` : '这个模型没有样片模式'} /></div>
         <div className="gbox"><div className="hd">声音<button className="lnk xs" id="gClone" onClick={clone}>{vc === 'ready' ? '重新克隆' : '克隆我的声音'}</button></div>
           <div className="vlist">{VOICES.map(v => <button key={v.id} data-gk="voice" data-v={v.id} aria-pressed={g.voice === v.id} onClick={() => set({ voice: v.id })}>
             <span className="av">{v.k ? <Ph k={v.k} /> : '—'}</span><span><b>{v.n}</b><span>{v.id === 'me' ? (vc === 'ready' ? '克隆 · 已授权' : vc === 'busy' ? '克隆中…' : '还没克隆') : v.d}</span></span></button>)}</div>
@@ -166,7 +166,7 @@ export function GenPage() {
       </details>
 
       <div className="gfoot" id="gFoot">
-        <div><p className="t2">{shots.length} 镜 · {g.len} 秒 · {g.ratio} · {isDraft(g) ? '样片 480p' : g.res}</p><p className="xs m3">{m.n} · {VOICES.find(v => v.id === g.voice)!.n} · 余额 {Math.round(session!.workspace.balance).toLocaleString()} 点{session!.limits.dailyJobs ? ` · 今天还能生成 ${Math.max(0, session!.limits.dailyJobs - session!.limits.jobsToday)} 次` : ''}</p>
+        <div><p className="t2">{shots.length} 镜 · {g.len} 秒 · {g.ratio} · {isDraft(g) ? `样片 ${draftResOf(g.model)}` : g.res}</p><p className="xs m3">{m.n} · {VOICES.find(v => v.id === g.voice)!.n} · 余额 {Math.round(session!.workspace.balance).toLocaleString()} 点{session!.limits.dailyJobs ? ` · 今天还能生成 ${Math.max(0, session!.limits.dailyJobs - session!.limits.jobsToday)} 次` : ''}</p>
           {session!.limits.genPaused && <p className="xs" style={{ color: 'var(--err)' }}>生成功能暂时关闭，管理员打开后就能用</p>}</div>
         <span className="sp" />
         <button className="btn g" onClick={toWb}>进制作台</button>
@@ -196,7 +196,7 @@ function JobView({ job, onFinal, onAgain, onWb, onSch }: { job: Job | null; onFi
       ? <ShotPlayer urls={o.shots.map(s => fileUrl(s.videoUrl) ?? null)} />
       : <><Ph k={first.k} tag="gen" /><p className="cap2">{first.line}</p></>}</div>
     <div>
-      <p className="xs m3">{o.draft ? '样片 · 480p' : `成片 · ${o.res}`} · AI 生成内容已标识</p><h2 className="d3" style={{ marginTop: 6 }}>{o.title}</h2>
+      <p className="xs m3">{o.draft ? `样片 · ${o.res}` : `成片 · ${o.res}`} · AI 生成内容已标识</p><h2 className="d3" style={{ marginTop: 6 }}>{o.title}</h2>
       <div className="list" style={{ marginTop: 14 }}><div><span>规格</span><span className="v">{o.ratio} · {o.len} 秒 · {o.shots.length} 镜</span></div><div><span>声音</span><span className="v">{VOICES.find(v => v.id === o.voice)?.n}</span></div><div><span>模型</span><span className="v">{modelOf(o.model).n}</span></div><div><span>花费</span><span className="v">{job.cost} 点</span></div></div>
       <div className="row" style={{ marginTop: 16, gap: 8 }}>
         {o.draft ? <button className="btn y" id="goFinal" onClick={onFinal}>转成片</button> : o.videoUrl ? <a className="btn y" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`} onClick={() => void api.track('download')}>下载</a> : <button className="btn y" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}

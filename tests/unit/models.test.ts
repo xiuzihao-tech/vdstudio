@@ -49,14 +49,14 @@ test('接土豆时：Seedance 档位最高 720p，1080p 会被拦下；万相可
   assert.ok(modelOf('s20').res.includes('4K'), '没接中转站时用通用目录');
 });
 
-test('样片模式统一走最便宜的 seedance-2.0-mini、480p；成片用所选档位的模型', async () => {
+test('样片模式统一走最便宜的 seedance-2.0-mini（720p）；成片用所选档位的模型', async () => {
   setVideoModels(withCaps(MODELS, TUDOU_CAPS));
   const v = makeNewApiVideo({ baseUrl: base, apiKey: 'k', models: TUDOU_DEFAULT_MODELS, pollMs: 2 });
   const shots = [{ dur: 5, line: '一', k: 'a', generated: true }];
   seen.length = 0;
   const draft = await v.run({ settings: g, shots, frames: [null], final: false }, () => {});
   const c1 = seen.find(r => r.path === '/v1/videos/generations')!;
-  assert.equal(c1.body.model, 'seedance-2.0-mini'); assert.equal(c1.body.resolution, '480p');
+  assert.equal(c1.body.model, 'seedance-2.0-mini'); assert.equal(c1.body.resolution, '720p', '土豆的样片模型最低 720p');
   assert.match(String(draft && draft.shotVideos![0]), /^https:\/\/seedance\.ai-tudou\.net\/generated\//, '能从 metadata.url 取到地址');
   seen.length = 0;
   await v.run({ settings: g, shots, frames: [null], final: true }, () => {});
@@ -95,4 +95,35 @@ test('精写：用精写模型，提示词更讲究；没设精写模型就用�
   assert.equal(seen.find(x => x.path === '/v1/chat/completions')!.body.model, 'deepseek-v4.1-flash');
   const plain = makeLlm({ baseUrl: base, apiKey: 'k', model: () => 'deepseek-v4.1-flash' });
   assert.deepEqual(plain.chain('fine'), ['deepseek-v4.1-flash']);
+});
+
+test('口播只留要说的话：去掉模型混进来的镜头说明', async () => {
+  const { spokenOnly } = await import('../../src/server/providers/llm.ts');
+  assert.equal(spokenOnly('第一段镜头：开门入户，镜头跟着手放钥匙。口播：我进门第一件事不是换鞋。'), '我进门第一件事不是换鞋。');
+  assert.equal(spokenOnly('第2段：鞋柜我只分两层用。'), '鞋柜我只分两层用。');
+  assert.equal(spokenOnly('“推开门，就是海。”'), '推开门，就是海。');
+  assert.equal(spokenOnly('我把第一段时间花在了选材上。'), '我把第一段时间花在了选材上。', '正常句子不动');
+});
+
+test('清晰度不被支持时，按网关列出的可选值换最低一档重交一次', async () => {
+  const { lowestOption } = await import('../../src/server/providers/newapi-video.ts');
+  assert.equal(lowestOption('dreamina_seedance_40_mini 没有分辨率 480p，可选：720p, 1080p, 2k, 4k'), '720p');
+  assert.equal(lowestOption('resolution not supported, allowed: ["1080p","720p"]'), '720p');
+  assert.equal(lowestOption('内容审核未通过'), null);
+  // 假网关：480p 一律拒绝并列出可选值
+  const reqs: any[] = [];
+  const srv = createServer(async (q, s) => {
+    const b = await read(q); reqs.push(b);
+    const send = (c: number, j: unknown) => { s.writeHead(c, { 'content-type': 'application/json' }); s.end(JSON.stringify(j)); };
+    if (q.method === 'POST') return b.resolution === '480p' ? send(400, { error: { message: 'x 没有分辨率 480p，可选：720p, 1080p, 2k, 4k' } }) : send(200, { id: 'task_9' });
+    send(200, { id: 'task_9', status: 'completed', metadata: { url: 'https://x/y.mp4' } });
+  });
+  await new Promise<void>(r => srv.listen(0, r));
+  try {
+    setVideoModels(MODELS); // 通用目录：样片 480p
+    const v = makeNewApiVideo({ baseUrl: `http://127.0.0.1:${(srv.address() as AddressInfo).port}/v1`, apiKey: 'k', models: TUDOU_DEFAULT_MODELS, pollMs: 2 });
+    const out = await v.run({ settings: { ...g, model: 's25', draft: true }, shots: [{ dur: 5, line: '一', k: 'a', generated: true }], frames: [null], final: false }, () => {});
+    assert.deepEqual(reqs.filter(r => r).map(r => r.resolution), ['480p', '720p']);
+    assert.equal(out && out.shotVideos![0], 'https://x/y.mp4');
+  } finally { srv.close(); }
 });

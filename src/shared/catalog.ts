@@ -14,9 +14,9 @@ export const MODELS: VideoModel[] = [{"id": "s25", "n": "Seedance 2.5", "d": "4�
  * 点数按「中转站每秒价格 × 10」换算（示意）。接了土豆时，页面上的档位按这里显示和校验。
  */
 export const TUDOU_CAPS: Record<string, Partial<VideoModel>> = {
-  s25: { d: '4–30 秒 · 最高 720p · 画质最好，适合成片', min: 4, max: 30, res: ['480p', '720p'], draft: true, pd: 1.5, pf: 6 },
-  s20: { d: '4–15 秒 · 最高 720p · 支持真人脸', min: 4, max: 15, res: ['480p', '720p'], draft: true, pd: 1.5, pf: 3.3 },
-  s20f: { d: '4–15 秒 · 最高 720p · 更快更便宜', min: 4, max: 15, res: ['480p', '720p'], draft: true, pd: 1.5, pf: 2.5 },
+  s25: { d: '4–30 秒 · 最高 720p · 画质最好，适合成片', min: 4, max: 30, res: ['480p', '720p'], draft: true, draftRes: '720p', pd: 1.5, pf: 6 },
+  s20: { d: '4–15 秒 · 最高 720p · 支持真人脸', min: 4, max: 15, res: ['480p', '720p'], draft: true, draftRes: '720p', pd: 1.5, pf: 3.3 },
+  s20f: { d: '4–15 秒 · 最高 720p · 更快更便宜', min: 4, max: 15, res: ['480p', '720p'], draft: true, draftRes: '720p', pd: 1.5, pf: 2.5 },
   wan: { d: '2–30 秒 · 最高 1080p · 画面质感好、价格低', min: 2, max: 30, res: ['720p', '1080p'], draft: false, pd: 2.5, pf: 2.5 },
 };
 export const withCaps = (list: VideoModel[], caps: Record<string, Partial<VideoModel>>): VideoModel[] => list.map(m => (caps[m.id] ? { ...m, ...caps[m.id] } : m));

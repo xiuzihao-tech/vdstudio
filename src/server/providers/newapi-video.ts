@@ -4,7 +4,7 @@
 //   请求体同时带常见的几种写法（duration/seconds、ratio/aspect_ratio、image/images），网关各取所需。
 // 各家网关返回字段略有出入，这里对任务 ID、状态、视频地址做兼容解析。
 // 环境变量：VIDEO_BASE_URL、VIDEO_API_KEY；档位到模型名的映射可在后台「AI 服务」里改。
-import { isDraft, modelOf } from '../../shared/gen.ts';
+import { draftResOf, isDraft, modelOf } from '../../shared/gen.ts';
 import { frameSize } from '../compose.ts';
 import type { VideoProvider } from './types.ts';
 
@@ -18,7 +18,7 @@ export interface NewApiVideoConfig {
 }
 
 /** 土豆 API 上可用的视频模型（来自其公开价格页，以后台实时拉取为准） */
-// draft：开了「样片模式」时统一用这个最便宜的模型先出 480p 预览（土豆 0.15/秒），满意再按所选档位出成片
+// draft：开了「样片模式」时统一用这个最便宜的模型先出预览（土豆 seedance-2.0-mini，0.15/秒，最低 720p），满意再按所选档位出成片
 export const TUDOU_DEFAULT_MODELS: Record<string, string> = { s25: 'seedance-2.5', s20: 'seedance-2.0', s20f: 'seedance-2.0-fast', wan: 'wan3.0', draft: 'seedance-2.0-mini' };
 
 const DONE = ['completed', 'succeeded', 'success', 'succeed', 'finished', 'done'];
@@ -45,7 +45,18 @@ export function pickVideoUrl(j: J): string | null {
   walk(j);
   return found;
 }
-const errText = (j: J) => j?.error?.message ?? j?.fail_reason ?? j?.data?.fail_reason ?? j?.message ?? j?.data?.error ?? '';
+/** 从「可选：720p, 1080p, 2k」这类错误里挑最低的清晰度 */
+export function lowestOption(msg: string): string | null {
+  const text = String(msg);
+  // 取最后一个「可选 / allowed / supported / options」后面的部分，避免把「没有 480p」里的 480p 当成可选值
+  const kws = [...text.matchAll(/可选|allowed|supported|options?|available/gi)];
+  if (!kws.length) return null;
+  const tail = text.slice(kws[kws.length - 1].index!);
+  const opts = [...tail.matchAll(/\b(\d{3,4}p|\d+k)\b/gi)].map(m => m[1]);
+  const px = (s: string) => (/k$/i.test(s) ? Number(s.slice(0, -1)) * 1000 : Number(s.slice(0, -1)));
+  return opts.sort((a, b) => px(a) - px(b))[0] ?? null;
+}
+const errText = (j: J): string => String(j?.error?.message ?? j?.fail_reason ?? j?.data?.fail_reason ?? j?.message ?? j?.data?.error ?? '');
 
 export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   const f = cfg.fetch ?? fetch, base = cfg.baseUrl.replace(/\/$/, '');
@@ -58,12 +69,18 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   const queryPaths = [...new Set([createPath, '/video/generations', '/videos'])];
   let goodQuery: string | null = null;
 
-  async function create(body: unknown): Promise<string> {
+  async function create(body: J, retried = false): Promise<string> {
     const res = await f(`${base}${createPath}`, { method: 'POST', headers, body: JSON.stringify(body) });
     const j = await res.json().catch(() => ({})) as J;
     const id = pickTaskId(j);
-    if (!res.ok || !id) throw new Error(`视频任务创建失败（${res.status}）${errText(j) ? `：${errText(j)}` : ''}`);
-    return id;
+    if (res.ok && id) return id;
+    // 清晰度不被这个模型支持时，网关会列出可选值（如「没有分辨率 480p，可选：720p, 1080p」）：换成可选里最低的一档再交一次
+    const alt = !retried && res.status === 400 ? lowestOption(errText(j)) : null;
+    if (alt && alt !== body.resolution) {
+      console.warn(`视频模型不支持 ${body.resolution}，改用 ${alt} 重新提交`);
+      return create({ ...body, resolution: alt, metadata: { ...(body.metadata ?? {}), resolution: alt } }, true);
+    }
+    throw new Error(`视频任务创建失败（${res.status}）${errText(j) ? `：${errText(j)}` : ''}`);
   }
   async function get(id: string): Promise<J> {
     let last = { status: 0, j: {} as J };
@@ -83,7 +100,7 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
       const m = modelOf(g.model), map = models(), draft = !final && isDraft(g);
       const model = (draft && map.draft) || map[g.model];
       if (!model) throw new Error(`没有为「${m.n}」配置视频模型，请在后台「AI 服务」里设置`);
-      const resolution = draft ? '480p' : g.res === '4K' ? '1080p' : g.res;
+      const resolution = draft ? draftResOf(g.model) : g.res === '4K' ? '1080p' : g.res;
       const [width, height] = frameSize(g.ratio, resolution);
       onStep(1);
       const urls: (string | null)[] = shots.map(() => null);

@@ -338,7 +338,7 @@ export function createApp(opts: AppOptions) {
       return { ok: true, error: null, models: (j.data ?? []).map(m => m.id).sort() };
     } catch (e) { return { ok: false, error: (e as Error).name === 'TimeoutError' ? '超时' : '连不上', models: [] }; }
   };
-  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: [...videoModels().filter(m => !m.off).map(m => ({ id: m.id, n: m.n, d: m.d })), { id: 'draft', n: '样片（低价预览）', d: '开了样片模式时所有档位都先用它出 480p' }] }; });
+  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: [...videoModels().filter(m => !m.off).map(m => ({ id: m.id, n: m.n, d: m.d })), { id: 'draft', n: '样片（低价预览）', d: '开了样片模式时所有档位都先用它出低清预览' }] }; });
   r.post('/api/admin/ai/models', async req => { admin(req); const [llm, video] = await Promise.all([listModels(ai.endpoints.llm), listModels(ai.endpoints.video)]); return { llm, video }; });
   r.put('/api/admin/ai', async req => {
     admin(req);

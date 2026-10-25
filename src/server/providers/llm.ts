@@ -42,6 +42,17 @@ export function extractJson(text: string): unknown {
   throw new Error('没有 JSON');
 }
 
+/**
+ * 模型偶尔会把镜头说明混进口播（「第一段镜头：开门入户……口播：我进门……」），这里只留要说出口的话。
+ */
+export function spokenOnly(s: string): string {
+  let t = String(s ?? '').trim();
+  const m = t.match(/(?:口播|台词|旁白|画外音)\s*[:：]\s*([\s\S]+)$/);
+  if (m) t = m[1];
+  t = t.replace(/^(?:第\s*[一二三四五六七八九十\d]+\s*(?:段|镜|镜头|个镜头)[^:：]{0,12}[:：]\s*)/, '');
+  return t.replace(/^[「“"]|[」”"]$/g, '').trim();
+}
+
 export function makeLlm(cfg: LlmConfig) {
   const f = cfg.fetch ?? fetch;
   const primary = () => (typeof cfg.model === 'function' ? cfg.model() : cfg.model);
@@ -115,11 +126,11 @@ ${imageKeys.length ? `附了 ${imageKeys.length} 张现场图。` : ''}
 选题：${t.title}
 开头参考：${t.hook}
 方向：${t.dir}
-要求：标题 3 个；开头钩子 3 个（一句话）；正文 ${n} 段，每段对应一个镜头；结尾引导落到「${ctx.persona.goal}」；话题标签 5 个（带 #）。
+要求：标题 3 个；开头钩子 3 个（一句话）；正文 ${n} 段，每段对应一个镜头，**只写这一镜要说出口的话**，不要写镜头说明、不要写「口播：」「第几段」；开头 + 正文 + 结尾合计约 ${Math.round(len * 4.5)} 字（每段不超过 ${Math.round((len * 4.5) / (n + 1))} 字）；结尾引导落到「${ctx.persona.goal}」；话题标签 5 个（带 #）。
 ${quality === 'fine' ? '这是「精写」：多花心思在开头钩子和细节画面感上，句子要有节奏，少用套话。\n' : ''}输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9, quality ?? 'fast');
       return {
-        topicId: t.id, kind, len, tone, titles: r.titles, title: r.titles[0], hooks: r.hooks, hook: r.hooks[0],
-        body: r.body, shots: r.body.map((_, i) => fam[Math.min(i + 1, fam.length - 1)].d), cta: r.cta, tags: r.tags, live: 70, version,
+        topicId: t.id, kind, len, tone, titles: r.titles, title: r.titles[0], hooks: r.hooks.map(spokenOnly), hook: spokenOnly(r.hooks[0]),
+        body: r.body.map(spokenOnly).filter(Boolean), shots: r.body.map((_, i) => fam[Math.min(i + 1, fam.length - 1)].d), cta: r.cta, tags: r.tags, live: 70, version,
       };
     },
     async rewrite(ctx, d, how) {

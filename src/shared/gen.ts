@@ -11,6 +11,8 @@ let catalog: VideoModel[] = MODELS;
 export const videoModels = () => catalog;
 export function setVideoModels(list: VideoModel[]) { catalog = list.length ? list : MODELS; }
 export const modelOf = (id: string): VideoModel => catalog.find(m => m.id === id) ?? catalog[0];
+/** 样片模式出片的清晰度 */
+export const draftResOf = (id: string) => modelOf(id).draftRes ?? '480p';
 /** 清晰度不支持时退到该档位最高的一档 */
 export const clampRes = <R extends string>(id: string, res: R): R => { const m = modelOf(id); return (m.res.includes(res) ? res : m.res[m.res.length - 1]) as R; };
 export const genLines = (copy: string) => copy.split(/\n+/).map(s => s.trim()).filter(Boolean);
