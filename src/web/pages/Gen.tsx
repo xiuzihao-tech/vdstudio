@@ -9,6 +9,7 @@ import { BGMS, STYLES, VOICES } from '../../shared/catalog.ts';
 import { clampRes, genCost, genIssues, genLines, isDraft, modelOf, planShots, trimCopyToLen, videoModels } from '../../shared/gen.ts';
 import { copyText, secs } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job, VideoOutput } from '../../shared/types.ts';
+import { fileUrl } from '../config.ts';
 
 const KEY_BASE = 'findai.gen';
 const DEFAULT: GenSettings = { copy: '', prompt: '', title: '', topicId: null, assetIds: [], model: 's25', len: 45, ratio: '9:16', res: '1080p', draft: true, voice: 'p1', speed: 1, bgm: '温暖钢琴', subs: true, ambience: true, cover: true, style: 'AI 推荐' };
@@ -190,15 +191,15 @@ function JobView({ job, onFinal, onAgain, onWb, onSch }: { job: Job | null; onFi
   const o = job.output as VideoOutput, first = o.shots[0];
   return <div className="gout">
     <div className={`pv ${o.ratio === '16:9' ? 'h' : ''}`}>{o.videoUrl
-      ? <video src={o.videoUrl} controls playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} />
+      ? <video src={fileUrl(o.videoUrl)} controls playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} />
       : first.videoUrl
-      ? <ShotPlayer urls={o.shots.map(s => s.videoUrl ?? null)} />
+      ? <ShotPlayer urls={o.shots.map(s => fileUrl(s.videoUrl) ?? null)} />
       : <><Ph k={first.k} tag="gen" /><p className="cap2">{first.line}</p></>}</div>
     <div>
       <p className="xs m3">{o.draft ? '样片 · 480p' : `成片 · ${o.res}`} · AI 生成内容已标识</p><h2 className="d3" style={{ marginTop: 6 }}>{o.title}</h2>
       <div className="list" style={{ marginTop: 14 }}><div><span>规格</span><span className="v">{o.ratio} · {o.len} 秒 · {o.shots.length} 镜</span></div><div><span>声音</span><span className="v">{VOICES.find(v => v.id === o.voice)?.n}</span></div><div><span>模型</span><span className="v">{modelOf(o.model).n}</span></div><div><span>花费</span><span className="v">{job.cost} 点</span></div></div>
       <div className="row" style={{ marginTop: 16, gap: 8 }}>
-        {o.draft ? <button className="btn y" id="goFinal" onClick={onFinal}>转成片</button> : o.videoUrl ? <a className="btn y" href={o.videoUrl} download={`${o.title}.mp4`} onClick={() => void api.track('download')}>下载</a> : <button className="btn y" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}
+        {o.draft ? <button className="btn y" id="goFinal" onClick={onFinal}>转成片</button> : o.videoUrl ? <a className="btn y" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`} onClick={() => void api.track('download')}>下载</a> : <button className="btn y" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}
         <button className="btn g" onClick={onWb}>进制作台精修</button>
         <button className="btn g" id="goSch" onClick={onSch}>放进排期</button>
       </div>

@@ -2,6 +2,7 @@
 import { useState, type ReactNode } from 'react';
 import { useApp } from '../store.tsx';
 import type { Asset } from '../../shared/types.ts';
+import { fileUrl } from '../config.ts';
 
 const SRCN: Record<string, string> = { real: '实拍', gen: 'AI 生成', demo: '示意' };
 export function Src({ k = '', children }: { k?: string; children?: ReactNode }) {
@@ -10,8 +11,8 @@ export function Src({ k = '', children }: { k?: string; children?: ReactNode }) 
 
 /** 画面：有真实文件显示文件，否则用场景占位 */
 export function Ph({ k, tag, asset, className }: { k: string; tag?: string; asset?: Asset | null; className?: string }) {
-  if (asset?.url && asset.mime?.startsWith('image/')) return <div className={`ph ${className ?? ''}`} data-k="img"><img src={asset.url} alt={asset.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
-  if (asset?.url && asset.mime?.startsWith('video/')) return <div className={`ph ${className ?? ''}`} data-k="img"><video src={asset.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
+  if (asset?.url && asset.mime?.startsWith('image/')) return <div className={`ph ${className ?? ''}`} data-k="img"><img src={fileUrl(asset.url)} alt={asset.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
+  if (asset?.url && asset.mime?.startsWith('video/')) return <div className={`ph ${className ?? ''}`} data-k="img"><video src={fileUrl(asset.url)} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
   return <div className={`ph ${className ?? ''}`} data-k={k}>{k === 'person' && <i />}{tag && <Src k={tag} />}</div>;
 }
 

@@ -6,6 +6,7 @@ import { Empty, Ph, Seg, Skel, Src, pickFiles } from '../ui/kit.tsx';
 import { ACCEPT, uploadFiles } from '../ui/pickers.tsx';
 import { modelOf } from '../../shared/gen.ts';
 import type { Asset, VideoOutput } from '../../shared/types.ts';
+import { fileUrl } from '../config.ts';
 
 export function LibraryPage() {
   const { route, nav } = useApp();
@@ -25,9 +26,9 @@ function Works() {
   if (!done.length) return <Empty title="还没有作品" action={<button className="btn y" onClick={() => nav('gen')}>去生成第一条</button>}>在“生成视频”或“制作台”里出片后，会出现在这里。</Empty>;
   return <div className="wgrid" id="works" style={{ marginTop: 24 }}>{done.map(j => {
     const o = j.output as VideoOutput;
-    return <div className="wk" key={j.id}>{o.videoUrl ? <div className="ph" data-k="img"><video src={o.videoUrl} controls playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} /></div> : <Ph k={o.shots[0]?.k ?? 'live'} tag="gen" />}
+    return <div className="wk" key={j.id}>{o.videoUrl ? <div className="ph" data-k="img"><video src={fileUrl(o.videoUrl)} controls playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} /></div> : <Ph k={o.shots[0]?.k ?? 'live'} tag="gen" />}
       <div className="b"><p className="s" style={{ fontWeight: 500 }}>{o.title}</p><p className="xs m3">{o.draft ? '样片 480p' : `成片 ${o.res}`} · {o.len} 秒 · {modelOf(o.model).n} · {new Date(j.createdAt).toLocaleDateString()}</p>
-        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.videoUrl ? <a className="lnk xs" href={o.videoUrl} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
+        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.videoUrl ? <a className="lnk xs" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
   })}</div>;
 }
 

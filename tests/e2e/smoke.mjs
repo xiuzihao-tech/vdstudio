@@ -56,6 +56,9 @@ await run('文案 → 简易生成 → 冲突修复 → 生成样片 → 转成�
   await $('#gWarn [data-gf="voice:p1"]').waitFor();
   await $('#gWarn [data-gf="voice:p1"]').click();
   await $('[data-gk=model][data-v=s25]').click();
+  // 选 Fast（最高 720p）时清晰度会自动退到 720p；换回 2.5 后手动选回 1080p
+  if (await $('.gbox .pill[aria-pressed=true]', { hasText: '720p' }).count() !== 1) throw new Error('换到 Fast 时清晰度没有自动退到 720p');
+  await $('.gbox .pill', { hasText: '1080p' }).click();
   await shot('03_gen');
   await $('#gGo').click(); await $('#payOk').click();
   await $('#goFinal').waitFor({ timeout: 8000 });

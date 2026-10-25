@@ -1,6 +1,7 @@
 // 前端 API 客户端：所有请求都走这里，错误统一抛 ApiError（message 是可直接给用户看的中文）。
 import type { Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
+import { API_BASE, CREDENTIALS } from './config.ts';
 
 export interface AiStatus {
   copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
@@ -12,8 +13,8 @@ export class ApiError extends Error { constructor(public status: number, message
 
 async function call<T>(method: string, path: string, data?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const isRaw = data instanceof Blob || data instanceof ArrayBuffer;
-  const res = await fetch(path, {
-    method, credentials: 'same-origin',
+  const res = await fetch(API_BASE + path, {
+    method, credentials: CREDENTIALS,
     headers: isRaw ? headers : { 'content-type': 'application/json', ...headers },
     body: data === undefined ? undefined : isRaw ? (data as BodyInit) : JSON.stringify(data),
   });

@@ -71,7 +71,7 @@ export function createApp(opts: AppOptions) {
 
   const auth = makeAuth(db);
   auth.purgeExpired();
-  const cookie = (k: string, v: string, maxAge: number) => `${k}=${v}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${o.secureCookies ? '; Secure' : ''}`;
+  const cookie = (k: string, v: string, maxAge: number) => `${k}=${v}; Path=/; HttpOnly; SameSite=${o.cookieSameSite}; Max-Age=${maxAge}${o.secureCookies ? '; Secure' : ''}`;
 
   /**
    * 每个请求找到当前用户和工作区。
@@ -379,12 +379,29 @@ export function createApp(opts: AppOptions) {
   const hits = new Map<string, number[]>();
   const limited = (ip: string) => { const t = Date.now(), L = (hits.get(ip) ?? []).filter(x => t - x < 60e3); L.push(t); hits.set(ip, L); if (hits.size > 5000) hits.clear(); return L.length > (o.rateLimit ?? 120); };
 
+  const CORS_HEADERS = 'content-type, x-file-name, x-source, x-consent, x-sample, x-request-id';
+  const clientIp = (raw: IncomingMessage) => (o.trustProxy && String(raw.headers['x-forwarded-for'] ?? '').split(',')[0].trim()) || raw.socket.remoteAddress || '';
+
   async function handle(raw: IncomingMessage, res: ServerResponse) {
     const url = new URL(raw.url ?? '/', 'http://x');
     const req: Req = { raw, method: raw.method ?? 'GET', path: url.pathname, query: url.searchParams, params: {}, cookies: parseCookies(raw.headers.cookie) };
+    // 请求 ID：排查问题时用户报错信息里能带上，日志里能对上
+    const rid = String(raw.headers['x-request-id'] ?? '').slice(0, 64) || randomBytes(6).toString('hex');
+    res.setHeader('x-request-id', rid);
+    const t0 = Date.now();
+    if (o.logRequests && req.path.startsWith('/api/')) res.on('finish', () => console.log(JSON.stringify({ t: new Date().toISOString(), rid, ip: clientIp(raw), m: req.method, p: req.path, s: res.statusCode, ms: Date.now() - t0 })));
+    // 跨域（前后端分开部署）：只放行 CORS_ORIGINS 里的前端域名，允许带 Cookie
+    const origin = String(raw.headers.origin ?? '');
+    if (origin && o.corsOrigins.includes(origin)) {
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('access-control-allow-credentials', 'true');
+      res.setHeader('access-control-expose-headers', 'x-request-id');
+      res.setHeader('vary', 'Origin');
+      if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE', 'access-control-allow-headers': CORS_HEADERS, 'access-control-max-age': '600' }).end(); return; }
+    }
     try {
-      if (req.path === '/healthz') { db.prepare('SELECT 1').get(); return send(res, 200, { ok: true, ai: providerInfo }); }
-      if (req.path.startsWith('/api/') && req.method !== 'GET' && limited(String(raw.headers['x-forwarded-for'] ?? raw.socket.remoteAddress ?? '').split(',')[0].trim())) throw new HttpError(429, '操作太频繁了，歇一下再试');
+      if (req.path === '/healthz') { db.prepare('SELECT 1').get(); return send(res, 200, { ok: true, ai: providerInfo, storage: storage.kind }); }
+      if (req.path.startsWith('/api/') && req.method !== 'GET' && limited(clientIp(raw))) throw new HttpError(429, '操作太频繁了，歇一下再试');
       if (req.path.startsWith('/api/')) {
         const m = r.match(req.method, req.path);
         if (!m) throw new HttpError(404, '接口不存在');
@@ -405,7 +422,7 @@ export function createApp(opts: AppOptions) {
         return serveFile(res, resolve(filesDir), rel);
       }
       serveFile(res, webRoot, req.path === '/' ? 'index.html' : req.path.slice(1), 'index.html');
-    } catch (e) { sendError(res, e); }
+    } catch (e) { sendError(res, e, rid); }
   }
 
   return { server: createServer((q, s) => { void handle(q, s); }), db, repo, ops, signedUrl, providerInfo };

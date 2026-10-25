@@ -11,6 +11,14 @@ export interface Config {
   compose: 'auto' | 'off'; subtitleFont?: string;
   /** 每个 IP 每分钟写请求上限 */
   rateLimit: number;
+  /** 前后端分开部署时，允许跨域调用的前端域名（如 https://www.example.com），逗号分隔 */
+  corsOrigins: string[];
+  /** Cookie 的 SameSite：同域部署用 Lax；前后端不同站点时要 None（必须同时开 Secure） */
+  cookieSameSite: 'Lax' | 'Strict' | 'None';
+  /** 每个请求打一行访问日志（JSON）。生产环境默认开 */
+  logRequests: boolean;
+  /** 反向代理后面时信任 X-Forwarded-For 取真实 IP */
+  trustProxy: boolean;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
@@ -28,5 +36,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     compose: env.COMPOSE === 'off' ? 'off' : 'auto',
     subtitleFont: env.SUBTITLE_FONT || undefined,
     rateLimit: num('RATE_LIMIT_PER_MIN', 120),
+    corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
+    cookieSameSite: (['Lax', 'Strict', 'None'] as const).find(v => v.toLowerCase() === (env.COOKIE_SAMESITE ?? '').toLowerCase()) ?? 'Lax',
+    logRequests: env.LOG_REQUESTS ? env.LOG_REQUESTS === '1' : env.NODE_ENV === 'production',
+    trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === '1' : env.NODE_ENV === 'production',
   };
 }

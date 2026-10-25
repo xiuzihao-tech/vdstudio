@@ -60,8 +60,11 @@ npm run start:env           # = node --env-file=.env dist/server.js
 ## 上线前检查
 
 - [ ] `.env` 里 `AUTH_REQUIRED=1`、`INVITE_REQUIRED=1`（`SECURE_COOKIES` 由 compose 自动设为 1）
-- [ ] 设了 `DAILY_BUDGET_POINTS`，并在方舟控制台也设了消费上限（双保险）
-- [ ] 设了 `FILE_SIGN_SECRET`（否则重启后旧的首帧链接失效）
+- [ ] 设了 `DAILY_BUDGET_POINTS`，并在 OpenLux、土豆两个站的后台也设了消费上限（双保险）
+- [ ] 设了 `FILE_SIGN_SECRET`（`openssl rand -hex 32` 生成）和 `ADMIN_EMAILS`——没设的话服务**会拒绝启动**，`docker compose logs app` 里能看到缺什么
+- [ ] 文件存储：建好 OSS / COS 桶，填 `STORAGE=s3` 和 `S3_*`（见 `.env.example`）；先用本机存储也行，但要备份数据卷
+- [ ] 两个 AI 站的密钥换成新生成的（旧的在聊天里出现过）
+- [ ] 后台「AI 服务」点「用推荐配置」→「保存」→「测试文案模型」
 - [ ] 用一个普通账号走一遍：注册 → 出选题 → 写文案 → 生成 → 下载
 - [ ] `/healthz` 正常；`docker compose ps` 三个容器都在运行
 

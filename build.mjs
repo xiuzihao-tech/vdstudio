@@ -15,7 +15,7 @@ const web = {
   jsx: 'automatic',
   sourcemap: true,
   minify: !watch,
-  define: { 'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production') },
+  define: { 'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'), 'process.env.API_BASE': JSON.stringify(process.env.API_BASE ?? '') },
   logLevel: 'info',
 };
 const server = {
