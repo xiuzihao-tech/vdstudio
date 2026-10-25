@@ -47,9 +47,14 @@ export function genCost(g: Pick<GenSettings, 'model' | 'len' | 'draft' | 'cover'
 
 const LENS = [30, 45, 60, 90];
 /** 冲突检查：返回问题和可一键修复的选项。blocking=true 时不能提交。 */
-export function genIssues(g: GenSettings, voiceClone: VoiceCloneState): GenIssue[] {
+/** env.firstFrame=false：素材图没法当首帧发给视频服务（比如本机运行、视频服务只认公网链接） */
+export function genIssues(g: GenSettings, voiceClone: VoiceCloneState, env: { firstFrame?: boolean } = {}): GenIssue[] {
   const m = modelOf(g.model);
   const out: GenIssue[] = [];
+  if (m.ratios && !m.ratios.includes(g.ratio))
+    out.push({ code: 'ratio_unsupported', blocking: true, text: `${m.n}不支持 ${g.ratio}，只能选 ${m.ratios.join(' / ')}`, fixes: m.ratios.slice(0, 2).map(r => ({ id: `ratio:${r}`, label: `改为 ${r}` })) });
+  if (env.firstFrame === false && g.assetIds.length)
+    out.push({ code: 'frame_unusable', blocking: false, text: '素材图暂时用不了首帧：视频服务只认公网图片链接，本机运行时发不过去，这次会按文案和提示词生成画面。配好对象存储或部署上线后就能用', fixes: [] });
   if (m.off) out.push({ code: 'model_off', blocking: true, text: `${m.n}还没接入`, fixes: [{ id: 'model:s25', label: '换 Seedance 2.5' }] });
   if (!m.res.includes(g.res)) {
     const mx = m.res[m.res.length - 1];

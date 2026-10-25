@@ -60,7 +60,7 @@ export function GenPage() {
   const used = g.assetIds.map(id => allAssets.find(a => a.id === id)).filter((a): a is Asset => !!a);
   const m = modelOf(g.model);
   const vc = session!.workspace.voiceClone;
-  const issues = useMemo(() => genIssues({ ...g, assetIds: used.map(a => a.id) }, vc), [g, used.length, vc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const issues = useMemo(() => genIssues({ ...g, assetIds: used.map(a => a.id) }, vc, { firstFrame: session!.ai.firstFrame }), [g, used.length, vc, session!.ai.firstFrame]); // eslint-disable-line react-hooks/exhaustive-deps
   const shots = useMemo(() => planShots(g, used.map(a => a.k), session!.persona.att), [g, used, session]);
   const cost = genCost(g);
   const blocked = issues.some(i => i.blocking);
@@ -69,7 +69,8 @@ export function GenPage() {
   const lines = genLines(g.copy);
 
   const fix = async (id: string) => {
-    const [k, v] = id.split(':');
+    const at = id.indexOf(':'), k = at < 0 ? id : id.slice(0, at), v = at < 0 ? '' : id.slice(at + 1);
+    if (k === 'ratio') set({ ratio: v as GenSettings['ratio'] });
     if (k === 'model') set({ model: v, draft: modelOf(v).draft });
     if (k === 'res') set({ res: v as GenSettings['res'] });
     if (k === 'len') set({ len: Number(v) });
@@ -144,7 +145,7 @@ export function GenPage() {
           <input type="range" className="rg" id="gLen" aria-label="视频时长" min={10} max={120} step={5} value={g.len} onChange={e => set({ len: Number(e.target.value) })} />
           <Pills value={g.len} options={[15, 30, 45, 60, 90].map(v => [v, `${v} 秒`] as [number, string])} onChange={v => set({ len: v })} /></div>
         <div className="gbox"><div className="hd">画面</div>
-          <p className="lb">比例</p><Pills value={g.ratio} options={['9:16', '16:9', '1:1', '3:4'] as const} onChange={v => set({ ratio: v })} />
+          <p className="lb">比例</p><Pills value={g.ratio} options={['9:16', '16:9', '1:1', '3:4'] as const} disabled={v => !!m.ratios && !m.ratios.includes(v)} onChange={v => (!m.ratios || m.ratios.includes(v)) ? set({ ratio: v }) : toast(`${m.n}不支持 ${v}`)} />
           <p className="lb" style={{ marginTop: 12 }}>成片清晰度</p><Pills value={g.res} options={['720p', '1080p', '4K'] as const} disabled={v => !m.res.includes(v)} onChange={v => m.res.includes(v) ? set({ res: v }) : toast('当前模型不支持，换个模型或清晰度')} />
           <Toggle checked={g.draft && m.draft} disabled={!m.draft} onChange={v => set({ draft: v })} label="样片模式" hint={m.draft ? `先用便宜的模型出 ${draftResOf(g.model)} 看效果，满意再出成片` : '这个模型没有样片模式'} /></div>
         <div className="gbox"><div className="hd">声音<button className="lnk xs" id="gClone" onClick={clone}>{vc === 'ready' ? '重新克隆' : '克隆我的声音'}</button></div>

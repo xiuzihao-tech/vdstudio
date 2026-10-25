@@ -32,6 +32,8 @@ export interface VideoProvider {
   }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[] } | void>;
   /** 能否在服务重启后接着查任务（Mock 不能） */
   resumable?: boolean;
+  /** 首帧图能否用 base64 内联发送。false = 只认公网链接（土豆），本机没有公网地址时就发不了首帧 */
+  inlineImages?: boolean;
 }
 
 /** 声音克隆与配音 */

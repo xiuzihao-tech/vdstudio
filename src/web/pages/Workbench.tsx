@@ -124,7 +124,7 @@ export function Workbench() {
       <div className="hd">全片设置</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
         <div><p className="lb">模型</p><Pills value={st.model} options={videoModels().filter(x => !x.off).map(x => [x.id, x.n] as [string, string])} onChange={v => upd({ model: v, draft: modelOf(v).draft })} /></div>
-        <div><p className="lb">比例</p><Pills value={st.ratio} options={['9:16', '16:9', '1:1', '3:4'] as const} onChange={v => upd({ ratio: v })} /></div>
+        <div><p className="lb">比例</p><Pills value={st.ratio} options={['9:16', '16:9', '1:1', '3:4'] as const} disabled={v => !!m.ratios && !m.ratios.includes(v)} onChange={v => (!m.ratios || m.ratios.includes(v)) && upd({ ratio: v })} /></div>
         <div><p className="lb">清晰度</p><Pills value={st.res} options={['720p', '1080p', '4K'] as const} disabled={v => !m.res.includes(v)} onChange={v => m.res.includes(v) && upd({ res: v })} /></div>
         <div><p className="lb">声音</p><Pills value={st.voice} options={VOICES.map(v => [v.id, v.n] as [GenSettings['voice'], string])} onChange={v => upd({ voice: v })} /></div>
       </div>

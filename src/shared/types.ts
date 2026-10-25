@@ -20,6 +20,7 @@ export interface ShotTemplate {
 export interface VideoModel {
   id: string; n: string; d: string; min: number; max: number; res: string[];
   draft: boolean; /** 样片用的清晰度（默认 480p；土豆的样片模型最低 720p） */ draftRes?: string; pd: number; pf: number; off?: boolean;
+  /** 支持的画面比例；不写表示四种都行（土豆只认 9:16 / 16:9 / 1:1） */ ratios?: string[];
 }
 
 /* ---------- IP 与选题 ---------- */
@@ -63,7 +64,7 @@ export interface GenSettings {
 }
 export interface PlannedShot { dur: number; line: string; k: SceneKey; generated: boolean; /** 真实视频服务生成后回填（转存后是本站 /files 地址） */ videoUrl?: string | null; /** 中转站原始链接（会过期，仅留档） */ sourceUrl?: string }
 
-export type IssueCode = 'model_off' | 'res_unsupported' | 'no_copy' | 'copy_too_long' | 'voice_missing' | 'voice_busy' | 'no_assets';
+export type IssueCode = 'model_off' | 'res_unsupported' | 'ratio_unsupported' | 'no_copy' | 'copy_too_long' | 'voice_missing' | 'voice_busy' | 'no_assets' | 'frame_unusable';
 export interface GenIssue { code: IssueCode; blocking: boolean; text: string; fixes: { id: string; label: string }[] }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';

@@ -66,7 +66,8 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
   const models = () => (typeof cfg.models === 'function' ? cfg.models() : cfg.models);
 
   const createPath = '/' + (cfg.createPath ?? '/videos/generations').replace(/^\/+|\/+$/g, '');
-  const queryPaths = [...new Set([createPath, '/video/generations', '/videos'])];
+  // 土豆文档的查询路径是 /v1/tasks/{id}；老版 new-api 用建任务路径 + /{id}
+  const queryPaths = [...new Set(['/tasks', createPath, '/video/generations', '/videos'])];
   let goodQuery: string | null = null;
 
   async function create(body: J, retried = false): Promise<string> {
@@ -78,7 +79,7 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
     const alt = !retried && res.status === 400 ? lowestOption(errText(j)) : null;
     if (alt && alt !== body.resolution) {
       console.warn(`视频模型不支持 ${body.resolution}，改用 ${alt} 重新提交`);
-      return create({ ...body, resolution: alt, metadata: { ...(body.metadata ?? {}), resolution: alt } }, true);
+      return create({ ...body, resolution: alt, extra: { ...(body.extra ?? {}), resolution: alt }, metadata: { ...(body.metadata ?? {}), resolution: alt } }, true);
     }
     throw new Error(`视频任务创建失败（${res.status}）${errText(j) ? `：${errText(j)}` : ''}`);
   }
@@ -96,6 +97,7 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
 
   return {
     resumable: true,
+    inlineImages: false, // 土豆文档：图片必须是公网 URL，不接受本地路径或 base64
     async run({ settings: g, shots, frames, final, known, onTask }, onStep) {
       const m = modelOf(g.model), map = models(), draft = !final && isDraft(g);
       const model = (draft && map.draft) || map[g.model];
@@ -113,7 +115,9 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
         const id = known?.[i] || await create({
           model, prompt, duration, seconds: String(duration), width, height, size: `${width}x${height}`,
           resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false,
-          ...(frames[i] ? { image: frames[i], images: [frames[i]], first_frame_image: frames[i] } : {}),
+          ...(frames[i] ? { input_reference: frames[i], images: [frames[i]], image: frames[i] } : {}),
+          // 土豆文档建议比例、清晰度也放进 extra；其他 new-api 网关读 metadata
+          extra: { aspect_ratio: g.ratio, resolution, ...(frames[i] ? { images: [frames[i]] } : {}) },
           metadata: { resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false },
         });
         if (!known?.[i]) onTask?.(i, id);

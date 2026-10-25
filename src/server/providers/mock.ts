@@ -80,6 +80,7 @@ export const mockProviders: Providers = {
     },
   },
   video: {
+    inlineImages: true,
     async run({ shots }, onStep) {
       const per = Math.max(150, Math.min(700, shots.length * 120));
       for (let i = 1; i <= 5; i++) { await delay(per); onStep(i); }

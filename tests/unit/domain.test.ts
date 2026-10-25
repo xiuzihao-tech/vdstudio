@@ -118,3 +118,18 @@ test('序数“第一段/第一次”不算违禁词，宣传用语“第一品�
   assert.equal(findBanned('第一段先讲背景，第一次来').length, 0);
   assert.deepEqual(findBanned('行业第一品牌').map(x => x[0]), ['第一']);
 });
+
+test('冲突检查：档位不支持的比例要拦；首帧用不了时提醒但不拦', async () => {
+  const { setVideoModels } = await import('../../src/shared/gen.ts');
+  const { MODELS, TUDOU_CAPS, withCaps } = await import('../../src/shared/catalog.ts');
+  setVideoModels(withCaps(MODELS, TUDOU_CAPS));
+  try {
+    const r = genIssues(gen({ model: 's20f', res: '720p', ratio: '3:4' }), 'ready').find(i => i.code === 'ratio_unsupported')!;
+    assert.equal(r.blocking, true);
+    assert.deepEqual(r.fixes.map(f => f.id), ['ratio:9:16', 'ratio:16:9']);
+    assert.equal(genIssues(gen({ model: 's20f', res: '720p', ratio: '9:16' }), 'ready').length, 0);
+    const f = genIssues(gen({ model: 's20f', res: '720p' }), 'ready', { firstFrame: false }).find(i => i.code === 'frame_unusable')!;
+    assert.equal(f.blocking, false);
+    assert.equal(genIssues(gen({ model: 's20f', res: '720p', assetIds: [] }), 'ready', { firstFrame: false }).some(i => i.code === 'frame_unusable'), false, '没放素材就不提醒');
+  } finally { setVideoModels(MODELS); }
+});

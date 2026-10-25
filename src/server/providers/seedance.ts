@@ -33,6 +33,7 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
 
   return {
     resumable: true,
+    inlineImages: true, // 方舟支持 data:image/...;base64 首帧
     async run({ settings: g, shots, frames, known, onTask }, onStep) {
       const m = modelOf(g.model), model = cfg.models[g.model];
       if (!model) throw new Error(`没有为 ${m.n} 配置方舟模型 ID`);

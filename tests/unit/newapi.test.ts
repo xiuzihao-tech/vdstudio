@@ -57,12 +57,12 @@ test('兼容解析：任务 ID 与视频地址的各种返回形态', () => {
   assert.equal(pickVideoUrl({ url: 'not-a-url' }), null);
 });
 
-test('土豆视频：按档位选模型、带首帧（Base64 也行）、尺寸与时长正确、三种返回都能拿到地址', async () => {
+test('土豆视频：按档位选模型、带首帧（按土豆文档的字段）、尺寸与时长正确、三种返回都能拿到地址', async () => {
   reqs.length = 0;
   const v = makeNewApiVideo({ baseUrl: base, apiKey: 'k-tudou', models: { s25: 'seedance-2.5' }, pollMs: 5 });
   const steps: number[] = [];
   const shots = [1, 2, 3].map(i => ({ dur: 5, line: `第${i}镜`, k: 'a', generated: false }));
-  const out = await v.run({ settings: g, final: true, frames: ['data:image/png;base64,AAAA', null, 'https://x/f.png'], shots }, s => steps.push(s));
+  const out = await v.run({ settings: g, final: true, frames: ['https://x/a.png', null, 'https://x/f.png'], shots }, s => steps.push(s));
   const creates = reqs.filter(r => r.method === 'POST');
   assert.equal(creates.length, 3);
   assert.equal(creates[0].auth, 'Bearer k-tudou');
@@ -71,8 +71,11 @@ test('土豆视频：按档位选模型、带首帧（Base64 也行）、尺寸�
   assert.deepEqual([creates[0].body.width, creates[0].body.height], [1080, 1920]);
   assert.equal(creates[0].body.metadata.resolution, '1080p');
   assert.equal(creates[0].body.metadata.ratio, '9:16');
-  assert.equal(creates[0].body.image, 'data:image/png;base64,AAAA');
-  assert.equal(creates[1].body.image, undefined);
+  assert.equal(creates[0].body.input_reference, 'https://x/a.png', '土豆文档：单张首帧用 input_reference 或 images');
+  assert.deepEqual(creates[0].body.images, ['https://x/a.png']);
+  assert.deepEqual(creates[0].body.extra, { aspect_ratio: '9:16', resolution: '1080p', images: ['https://x/a.png'] }, '比例和清晰度也放进 extra');
+  assert.equal(creates[1].body.input_reference, undefined);
+  assert.deepEqual(creates[1].body.extra, { aspect_ratio: '9:16', resolution: '1080p' });
   assert.ok(out && out.shotVideos!.every(u => u?.startsWith('https://cdn.tudou.example/')));
   assert.equal(steps.at(-1), 5);
 });
@@ -117,6 +120,44 @@ test('后台 AI 服务：拉模型列表、切换文案模型、连通测试', a
     assert.equal(t.json.ok, true);
     assert.equal(t.json.reply, '我是测试模型');
     assert.equal((await call('GET', '/api/admin/ai')).json.status.video.models.wan, 'wan3.0-fast');
-    assert.equal((await call('GET', '/api/session')).json.ai.video, 'newapi');
+    const sess = (await call('GET', '/api/session')).json;
+    assert.equal(sess.ai.video, 'newapi');
+    assert.equal(sess.ai.firstFrame, false, '本机没有公网地址、土豆又不收 base64：首帧用不了');
+    const as = (await call('GET', '/api/assets')).json.assets.filter((a: any) => a.type !== '人物').slice(0, 1).map((a: any) => a.id);
+    const chk = await call('POST', '/api/gen/check', { ...g, ratio: '3:4', res: '720p', assetIds: as });
+    const codes = chk.json.issues.map((i: any) => i.code);
+    assert.ok(codes.includes('ratio_unsupported'), '土豆档位不支持 3:4');
+    assert.ok(codes.includes('frame_unusable'));
+    assert.equal((await call('POST', '/api/gen', { settings: { ...g, ratio: '3:4', res: '720p' } })).status, 422);
   } finally { app.server.close(); }
+});
+
+test('土豆文档的返回形态：按 /v1/tasks/{id} 查询，data.result.video_url 取地址；不支持的清晰度按可选值重交', async () => {
+  const seen: { method: string; path: string; body: any }[] = [];
+  let polls = 0;
+  const doc = createServer(async (q, s) => {
+    const body = await read(q); seen.push({ method: q.method!, path: q.url!, body });
+    const send = (code: number, j: unknown) => { s.writeHead(code, { 'content-type': 'application/json' }); s.end(JSON.stringify(j)); };
+    if (q.method === 'POST' && q.url === '/v1/videos/generations') {
+      if (body.resolution === '480p') return send(400, { error: { message: '没有分辨率 480p，可选：720p, 1080p' } });
+      return send(200, { code: 200, message: 'ok', data: { id: 'task_abc', task_id: 'task_abc', status: 'submitted', estimated_time: 120 } });
+    }
+    if (q.url === '/v1/tasks/task_abc') {
+      polls++;
+      return send(200, polls < 2 ? { code: 200, data: { id: 'task_abc', status: 'processing', progress: 30 } }
+        : { code: 200, data: { id: 'task_abc', status: 'completed', progress: 100, result: { video_url: 'https://videos-2.ai-tudou.net/generated/task_abc_0.mp4', videos: [{ url: ['https://videos-2.ai-tudou.net/generated/task_abc_0.mp4'] }] } } });
+    }
+    send(404, { error: { message: 'not found' } });
+  });
+  await new Promise<void>(r => doc.listen(0, r));
+  try {
+    const v = makeNewApiVideo({ baseUrl: `http://127.0.0.1:${(doc.address() as AddressInfo).port}/v1`, apiKey: 'k', models: { s20f: 'seedance-2.0-fast' }, pollMs: 5 });
+    const out = await v.run({ settings: { ...g, model: 's20f', res: '480p' }, final: true, frames: [null], shots: [{ dur: 5, line: '一', k: 'a', generated: true }] }, () => {});
+    assert.deepEqual(out && out.shotVideos, ['https://videos-2.ai-tudou.net/generated/task_abc_0.mp4']);
+    const creates = seen.filter(r => r.method === 'POST');
+    assert.equal(creates.length, 2);
+    assert.equal(creates[1].body.resolution, '720p');
+    assert.equal(creates[1].body.extra.resolution, '720p', '重交时 extra 里的清晰度也要改');
+    assert.ok(seen.filter(r => r.method === 'GET').every(r => r.path === '/v1/tasks/task_abc'), '直接用文档里的查询路径');
+  } finally { doc.close(); }
 });

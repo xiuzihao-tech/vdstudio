@@ -38,6 +38,8 @@ export function createApp(opts: AppOptions) {
   // 视频档位按实际接入的服务显示能力（土豆：Seedance 系列最高 720p 等）；没接真实服务时用通用目录
   setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
+  /** 素材图能不能当首帧发给视频服务：有对象存储签名链接、有公网地址，或视频服务接受 base64 */
+  const firstFrameOk = () => !!storage.directUrl || !!o.publicBaseUrl || !!providers.video.inlineImages;
   /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
   const signKey = o.fileSignSecret ?? randomBytes(32).toString('hex');
   const sign = (rel: string, exp: number) => createHmac('sha256', signKey).update(`${rel}:${exp}`).digest('base64url');
@@ -56,6 +58,7 @@ export function createApp(opts: AppOptions) {
     // 有公网地址：给签名链接（对象存储直接给它的签名链接）；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务
     if (storage.directUrl) return storage.directUrl(key, 7200);
     if (o.publicBaseUrl) return `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(key)}`;
+    if (!providers.video.inlineImages) return null; // 只认公网链接的视频服务：发了也会被忽略，不发
     const buf = await storage.get(key).catch(() => null);
     if (!buf) return null;
     const small = buf.length <= FRAME_INLINE_LIMIT ? buf : await shrinkImage(buf);
@@ -98,7 +101,7 @@ export function createApp(opts: AppOptions) {
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
   const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
   const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
-    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: providerInfo, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso() });
+    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: { ...providerInfo, firstFrame: firstFrameOk() }, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso() });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
 
   const r = new Router();
@@ -225,7 +228,7 @@ export function createApp(opts: AppOptions) {
   r.post('/api/gen/check', async req => {
     const ws = W(req), g = await body(req, S.genSettingsSchema);
     const assets = repo.assetsByIds(ws.id, g.assetIds);
-    return { issues: genIssues(g, ws.voiceClone), shots: planShots(g, assets.map(a => a.k), personaOf(ws.persona).att), cost: genCost(g), finalCost: genCost(g, true) };
+    return { issues: genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk() }), shots: planShots(g, assets.map(a => a.k), personaOf(ws.persona).att), cost: genCost(g), finalCost: genCost(g, true) };
   });
   r.post('/api/gen', async (req, res) => {
     const ws = W(req), d = await body(req, z.object({ settings: S.genSettingsSchema, final: z.boolean().default(false), title: z.string().max(80).default('') }));
@@ -233,7 +236,7 @@ export function createApp(opts: AppOptions) {
     if (ops.genPaused()) throw new HttpError(503, '生成功能暂时关闭了，管理员打开后就能用');
     if (o.dailyJobsPerUser && ops.jobsToday(owner) >= o.dailyJobsPerUser) throw new HttpError(429, `今天的生成次数用完了（每天 ${o.dailyJobsPerUser} 次），明天再来`);
     if (o.dailyBudget && ops.spentToday() >= o.dailyBudget) throw new HttpError(503, '今天的试用额度已经用完，明天再来');
-    const blocking = genIssues(d.settings, ws.voiceClone).filter(i => i.blocking);
+    const blocking = genIssues(d.settings, ws.voiceClone, { firstFrame: firstFrameOk() }).filter(i => i.blocking);
     if (blocking.length) throw new HttpError(422, blocking.map(i => i.text).join('；'));
     const title = d.title || d.settings.title || d.settings.copy.split('\n')[0]?.slice(0, 20) || '未命名';
     const out = runner.startVideo(ws, d.settings, d.final, title);
