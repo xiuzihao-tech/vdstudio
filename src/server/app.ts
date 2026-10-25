@@ -1,11 +1,13 @@
 // 应用：组装数据库、供应方、路由，处理静态文件。createApp 便于测试时用内存库启动。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
 import { makeAuth, type User } from './auth.ts';
 import { configFromEnv, type Config } from './config.ts';
+import { makeStorage } from './storage/index.ts';
+import { shrinkImage, FRAME_INLINE_LIMIT } from './compose.ts';
 import { CLIENT_EVENTS, makeOps } from './ops.ts';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
@@ -45,14 +47,20 @@ export function createApp(opts: AppOptions) {
     const a = Buffer.from(sign(rel, Number(exp))), b = Buffer.from(sig);
     return a.length === b.length && timingSafeEqual(a, b);
   };
-  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, filesDir: join(o.dataDir, 'files'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, a => {
-    if (!a.url || !a.mime?.startsWith('image/')) return null;
-    // 有公网地址：给签名链接；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务（8MB 以内）
-    if (o.publicBaseUrl) return `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(a.url.slice(7))}`;
-    try { const p = join(o.dataDir, 'files', a.url.slice(7)); return statSync(p).size <= 8 * 1024 * 1024 ? `data:${a.mime};base64,${readFileSync(p).toString('base64')}` : null; } catch { return null; }
-  });
   const filesDir = join(o.dataDir, 'files');
-  mkdirSync(filesDir, { recursive: true });
+  const storage = makeStorage(o.env ?? process.env, filesDir);
+  console.log(`文件存储：${storage.kind === 's3' ? `对象存储 ${(o.env ?? process.env).S3_BUCKET}` : filesDir}`);
+  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, async a => {
+    if (!a.url || !a.mime?.startsWith('image/')) return null;
+    const key = a.url.slice(7);
+    // 有公网地址：给签名链接（对象存储直接给它的签名链接）；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务
+    if (storage.directUrl) return storage.directUrl(key, 7200);
+    if (o.publicBaseUrl) return `${o.publicBaseUrl.replace(/\/$/, '')}${signedUrl(key)}`;
+    const buf = await storage.get(key).catch(() => null);
+    if (!buf) return null;
+    const small = buf.length <= FRAME_INLINE_LIMIT ? buf : await shrinkImage(buf);
+    return small ? `data:${small === buf ? a.mime : 'image/jpeg'};base64,${small.toString('base64')}` : null;
+  });
   for (const j of repo.failStaleJobs() as (ReturnType<typeof repo.failStaleJobs>[number] & { ws: string })[]) repo.refund(j.ws, j.cost, '服务重启退点', j.id);
 
   const auth = makeAuth(db);
@@ -195,13 +203,17 @@ export function createApp(opts: AppOptions) {
     const buf = await readBuffer(req.raw, UPLOAD_LIMIT);
     const ext = (extname(name) || '.' + (mime.split('/')[1] ?? 'bin')).toLowerCase().replace(/[^.a-z0-9]/g, '');
     const file = `${ws.id}/${newId('f')}${ext}`;
-    mkdirSync(join(filesDir, ws.id), { recursive: true });
-    writeFileSync(join(filesDir, file), buf);
+    await storage.put(file, buf, mime);
     const keys = ['entry', 'live', 'kit', 'bed', 'stone', 'site', 'soft', 'store', 'hotel', 'new'];
     ops.track(ctx(req).owner, ws.id, 'asset_uploaded', { mime, size: buf.length });
     return repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: keys[repo.assets(ws.id).length % keys.length], file, mime, size: buf.length, source: String(req.raw.headers['x-source'] ?? '上传').slice(0, 20) });
   });
-  r.delete('/api/assets/:id', req => { if (!repo.deleteAsset(W(req).id, req.params.id)) throw new HttpError(404, '素材不存在'); return { ok: true }; });
+  r.delete('/api/assets/:id', async req => {
+    const ws = W(req), a = repo.assetsByIds(ws.id, [req.params.id])[0];
+    if (!a || !repo.deleteAsset(ws.id, a.id)) throw new HttpError(404, '素材不存在');
+    if (a.url) await storage.delete(a.url.slice(7)).catch(e => console.warn('删除素材文件失败：', e.message));
+    return { ok: true };
+  });
 
   /* ---------- 生成 ---------- */
   r.post('/api/gen/check', async req => {
@@ -383,6 +395,7 @@ export function createApp(opts: AppOptions) {
           const c = ctx(req), fileWs = repo.ws(rel.split('/')[0]);
           if (!fileWs || fileWs.ownerId !== c.owner) throw new HttpError(404, '文件不存在');
         }
+        if (storage.directUrl) { res.writeHead(302, { location: storage.directUrl(rel, 600), 'cache-control': 'no-store' }).end(); return; }
         return serveFile(res, resolve(filesDir), rel);
       }
       serveFile(res, webRoot, req.path === '/' ? 'index.html' : req.path.slice(1), 'index.html');

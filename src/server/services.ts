@@ -5,6 +5,9 @@ import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windo
 import { WEEKDAYS } from '../shared/catalog.ts';
 import { composeVideo, hasFfmpeg } from './compose.ts';
 import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import type { Storage } from './storage/index.ts';
 import type { Asset, GenSettings, Job, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
@@ -130,11 +133,17 @@ export function published(repo: Repo, ws: Workspace, today = todayIso()) {
 }
 
 /* ================= 生成任务 ================= */
-export interface RunnerOpts { compose?: 'auto' | 'off'; font?: string; filesDir?: string; onDone?: (ws: string, job: Job, ok: boolean) => void }
+export interface RunnerOpts {
+  compose?: 'auto' | 'off'; font?: string;
+  /** 文件存储：转存每镜视频和合成好的整条（中转站的视频链接会过期） */
+  storage?: Storage;
+  onDone?: (ws: string, job: Job, ok: boolean) => void;
+  fetch?: typeof fetch;
+}
 
 export class JobRunner {
   /** frameUrl：把素材变成视频服务能访问的公网地址（签名、限时）；没配公网地址时返回 null，只用文字生成 */
-  constructor(private repo: Repo, private providers: Providers, private opts: RunnerOpts = {}, private frameUrl: (a: Asset) => string | null = () => null) {}
+  constructor(private repo: Repo, private providers: Providers, private opts: RunnerOpts = {}, private frameUrl: (a: Asset) => Promise<string | null> | string | null = () => null) {}
 
   /** 校验、扣点、建任务，然后在后台跑；返回任务或错误 */
   startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
@@ -151,26 +160,57 @@ export class JobRunner {
     this.repo.markAssetsUsed(ws.id, g.assetIds);
     this.repo.updateJob(job.id, { status: 'running' });
     const output: VideoOutput = { draft: !final && isDraft(g), shots, title, res: !final && isDraft(g) ? '480p' : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
-    const frames = shots.map((_, i) => assets.length ? this.frameUrl(assets[i % assets.length]) : null);
-    this.providers.video.run({ settings: g, shots, final, frames }, step => this.repo.updateJob(job.id, { step }))
+    const run = async () => {
+      const frames = await Promise.all(shots.map((_, i) => (assets.length ? this.frameUrl(assets[i % assets.length]) : null)));
+      return this.providers.video.run({ settings: g, shots, final, frames }, step => this.repo.updateJob(job.id, { step }));
+    };
+    run()
       .then(async r => {
-        if (r?.shotVideos) {
-          output.shots = output.shots.map((s, i) => ({ ...s, videoUrl: r.shotVideos![i] ?? null }));
-          // 合成整条并存到自己的存储（方舟视频链接 24 小时过期）。合成失败不影响任务成功，各镜还能单独播
-          const urls = r.shotVideos.filter((u): u is string => !!u);
-          if (urls.length && this.opts.compose !== 'off' && this.opts.filesDir && hasFfmpeg()) {
-            const rel = `${ws.id}/${job.id}.mp4`;
-            try {
-              await composeVideo({ urls, lines: output.shots.filter(s => s.videoUrl).map(s => s.line), ratio: g.ratio, res: output.res, outFile: join(this.opts.filesDir, rel), font: this.opts.font, subtitles: g.subs });
-              output.videoUrl = `/files/${rel}`;
-            } catch (e) { output.composeError = String((e as Error).message ?? e).slice(0, 200); }
-          }
-        }
+        if (r?.shotVideos) await this.saveOutputs(ws.id, job.id, g, output, r.shotVideos);
         this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output });
         this.opts.onDone?.(ws.id, job, true);
       })
       .catch(err => { this.repo.updateJob(job.id, { status: 'failed', error: String(err?.message ?? err) }); this.repo.refund(ws.id, cost, '生成失败退点', job.id); this.opts.onDone?.(ws.id, job, false); });
     return { ok: true, job: this.repo.job(ws.id, job.id)! };
+  }
+
+  /**
+   * 生成完成后：每镜视频下载下来转存到自己的存储（中转站链接 24 小时左右就失效），再合成整条。
+   * 转存或合成失败都不让任务失败（钱已经花了）：转存失败就先用中转站链接，合成失败各镜还能单独播。
+   */
+  private async saveOutputs(wsId: string, jobId: string, g: GenSettings, output: VideoOutput, urls: (string | null)[]) {
+    const st = this.opts.storage, f = this.opts.fetch ?? fetch;
+    const tmp = mkdtempSync(join(tmpdir(), 'findai-out-'));
+    const local: string[] = [];
+    try {
+      output.shots = await Promise.all(output.shots.map(async (s, i) => {
+        const src = urls[i] ?? null;
+        if (!src) return { ...s, videoUrl: null };
+        if (!st) { local.push(src); return { ...s, videoUrl: src }; }
+        try {
+          const res = await f(src, { signal: AbortSignal.timeout(180_000) });
+          if (!res.ok) throw new Error(`下载失败（${res.status}）`);
+          const buf = Buffer.from(await res.arrayBuffer());
+          const key = `${wsId}/${jobId}/shot${i + 1}.mp4`;
+          await st.put(key, buf, 'video/mp4');
+          const p = join(tmp, `s${i}.mp4`); writeFileSync(p, buf); local[i] = p;
+          return { ...s, videoUrl: `/files/${key}`, sourceUrl: src };
+        } catch (e) {
+          console.warn(`转存第 ${i + 1} 镜失败，先用中转站链接：${(e as Error).message}`);
+          local[i] = src;
+          return { ...s, videoUrl: src };
+        }
+      }));
+      const inputs = local.filter(Boolean);
+      if (inputs.length && this.opts.compose !== 'off' && hasFfmpeg()) {
+        try {
+          const out = join(tmp, 'final.mp4');
+          await composeVideo({ urls: inputs, lines: output.shots.filter(s => s.videoUrl).map(s => s.line), ratio: g.ratio, res: output.res, outFile: out, font: this.opts.font, subtitles: g.subs });
+          const key = `${wsId}/${jobId}.mp4`;
+          if (st) { await st.put(key, readFileSync(out), 'video/mp4'); output.videoUrl = `/files/${key}`; }
+        } catch (e) { output.composeError = String((e as Error).message ?? e).slice(0, 200); }
+      }
+    } finally { rmSync(tmp, { recursive: true, force: true }); }
   }
 
   startVoiceClone(ws: Workspace, sample: { bytes: number; mime: string }) {

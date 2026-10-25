@@ -1,7 +1,7 @@
 // 合成整条视频：把各镜视频下载下来，统一尺寸和帧率，烧上字幕，拼成一条 mp4 存到自己的存储。
 // 依赖系统里的 ffmpeg；字体需要支持中文（Docker 镜像里装了 Noto CJK）。音频（配音、配乐）留到 TTS 接入后再混。
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -56,10 +56,14 @@ export async function composeVideo(o: ComposeInput): Promise<void> {
     const fontSize = Math.round(Math.min(w, h) * 0.05);
     const segs: string[] = [];
     for (let i = 0; i < o.urls.length; i++) {
-      const res = await f(o.urls[i]);
-      if (!res.ok) throw new Error(`下载第 ${i + 1} 镜失败（${res.status}）`);
-      const src = join(dir, `src${i}.mp4`);
-      writeFileSync(src, Buffer.from(await res.arrayBuffer()));
+      // 输入可以是网址（中转站的视频链接）或本机文件路径（已转存的片段）
+      let src = o.urls[i];
+      if (/^https?:\/\//.test(src)) {
+        const res = await f(src);
+        if (!res.ok) throw new Error(`下载第 ${i + 1} 镜失败（${res.status}）`);
+        src = join(dir, `src${i}.mp4`);
+        writeFileSync(src, Buffer.from(await res.arrayBuffer()));
+      }
       const vf = [`scale=${w}:${h}:force_original_aspect_ratio=decrease`, `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1', 'fps=30'];
       const line = (o.lines[i] ?? '').trim();
       if (font && line) {
@@ -79,4 +83,18 @@ export async function composeVideo(o: ComposeInput): Promise<void> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** 首帧图片内联成 Base64 时的大小上限；超过就先用 ffmpeg 缩到 1280 宽的 JPEG */
+export const FRAME_INLINE_LIMIT = 4 * 1024 * 1024;
+export async function shrinkImage(buf: Buffer): Promise<Buffer | null> {
+  if (!hasFfmpeg()) return null;
+  const dir = mkdtempSync(join(tmpdir(), 'findai-img-'));
+  try {
+    const src = join(dir, 'in'), out = join(dir, 'out.jpg');
+    writeFileSync(src, buf);
+    await run(['-i', src, '-vf', "scale='min(1280,iw)':-2", '-q:v', '4', '-frames:v', '1', out]);
+    const r = readFileSync(out);
+    return r.length <= FRAME_INLINE_LIMIT ? r : null;
+  } catch { return null; } finally { rmSync(dir, { recursive: true, force: true }); }
 }
