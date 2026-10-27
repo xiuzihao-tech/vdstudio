@@ -8,7 +8,7 @@ import { useAssetPicker, useScheduleTopic } from '../ui/pickers.tsx';
 import { useCloneVoice } from './ip/More.tsx';
 import { BGMS, EMOTIONS, RATIOS, STYLES, VOICES } from '../../shared/catalog.ts';
 import { clampRes, draftResOf, genIssues, isDraft, modelOf, trimCopyToLen, videoModels } from '../../shared/gen.ts';
-import { MOVES, SIZES, SOURCE_NAME, TRANSITIONS, VIDEO_TYPES, buildStoryboard, chars, costLines, costTotal, relock, splitSentences, suggestType, typeOf, voiceSecs, type ShotSource, type ShotSpec, type VideoType } from '../../shared/video.ts';
+import { SUBTYPES, MOVES, SIZES, SOURCE_NAME, TRANSITIONS, VIDEO_TYPES, buildStoryboard, chars, costLines, costTotal, relock, splitSentences, suggestType, typeOf, voiceSecs, type ShotSource, type ShotSpec, type VideoType } from '../../shared/video.ts';
 import { copyText } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job, VideoOutput } from '../../shared/types.ts';
 import { fileUrl } from '../config.ts';
@@ -92,8 +92,34 @@ export function GenPage() {
   const pickType = (id: VideoType) => {
     const tt = typeOf(id);
     const avatar = tt.avatar === 'none' ? 'none' : av.clone === 'ready' ? 'clone' : av.photo === 'ready' ? 'photo' : g.avatar ?? 'none';
-    set({ type: id, model: tt.model, bgm: tt.bgm, avatar, draft: modelOf(tt.model).draft, shots: [] });
-    setStep(2);
+    set({ type: id, sub: SUBTYPES[id][0]?.id, model: tt.model, bgm: tt.bgm, avatar, draft: modelOf(tt.model).draft, shots: [] });
+  };
+  const sub = SUBTYPES[t.id].find(x => x.id === g.sub) ?? SUBTYPES[t.id][0];
+  /** 知识库写文案 / 实拍看素材写文案 */
+  const [idea, setIdea] = useState('');
+  const [useKb, setUseKb] = useState(true);
+  const [writing, setWriting] = useState(false);
+  const [usedKb, setUsedKb] = useState<{ kind: string; text: string }[]>([]);
+  const aiWrite = async () => {
+    setWriting(true);
+    try {
+      const r = await api.writeCopy({ idea: idea || `${t.n}${sub ? ` · ${sub.n}` : ''}`, len: ([30, 45, 60, 90].find(x => x >= g.len) ?? 45), kb: useKb });
+      set({ copy: copyText(r.draft), title: r.draft.title, topicId: r.draft.topicId, shots: [] }); setUsedKb(r.used);
+      toast(r.used.length ? `写好了，用了知识库里的 ${r.used.length} 条素材` : '写好了。知识库还是空的，补几条会更像你');
+    } catch (e) { fail(e); } finally { setWriting(false); }
+  };
+  const media = used.filter(a => a.type === '视频' || a.type === '照片');
+  const aiFootage = async () => {
+    if (!media.length) { toast('先放几段实拍视频或照片'); return; }
+    setWriting(true);
+    try {
+      const r = await api.footage(media.map(a => a.id), idea);
+      const m0 = modelOf(g.model);
+      // 每段素材一镜：视频用原片、照片做首帧，台词就是 AI 按这段素材写的那句
+      const shotsNew: ShotSpec[] = r.lines.map((line, i) => { const a = media[i]; return { id: `s${i + 1}`, line, dur: Math.min(Math.min(m0.max, 15), Math.max(m0.min, Math.ceil(voiceSecs(line, g.speed) + 0.3))), lock: true, source: a.type === '视频' ? 'clip' : 'frame', assetId: a.id, lastId: null, refIds: [], prompt: r.assets[i]?.note ?? '', size: '全景', move: a.type === '视频' ? '固定' : '推近', model: '', trans: '硬切' }; });
+      set({ copy: r.lines.join('\n'), shots: shotsNew, len: shotsNew.reduce((x, y) => x + y.dur, 0) }); setUsedKb(r.used);
+      setStep(3); window.scrollTo(0, 0); toast(`看完了 ${media.length} 段素材，每段配了一句`);
+    } catch (e) { fail(e); } finally { setWriting(false); }
   };
   const toStep3 = () => {
     if (!g.copy.trim()) { toast('先放一段文案'); return; }
@@ -155,7 +181,8 @@ export function GenPage() {
   const draftPicker = () => sheet({ title: '导入文案', body: <DraftPicker onPick={(copy, ttl, topicId, len) => { set({ copy, title: ttl, topicId, len, shots: [] }); sheet(null); toast('已导入'); }} /> });
 
   return <section className="view on" id="v-gen"><div className="vb">
-    <div className="hero" style={{ paddingTop: 44 }}>
+    <div className="hero tight">
+      <p className="eyebrow">生成视频</p>
       <h1 className="d2">三步出片，<em>每个参数都能调。</em></h1>
       <div className="steps" aria-label="生成步骤">{(['选类型', '放内容', '确认分镜'] as const).map((n, i) => <span key={n} style={{ display: 'contents' }}>
         {i > 0 && <i />}<button type="button" data-gs={i + 1} className={step > i + 1 ? 'done' : ''} aria-current={step === i + 1 ? 'step' : undefined} onClick={() => (i + 1 === 3 ? toStep3() : setStep((i + 1) as 1 | 2))}><b>{step > i + 1 ? '✓' : i + 1}</b>{n}</button></span>)}</div>
@@ -164,26 +191,45 @@ export function GenPage() {
       {session!.limits.genPaused && <div className="gwarn" style={{ marginTop: 20 }}><div><span>生成功能暂时关闭，管理员打开后就能用</span></div></div>}
 
       {step === 1 && <>
-        <p className="s m" style={{ textAlign: 'center', marginTop: 26 }}>类型决定了镜头结构、默认模型、配乐和数字人怎么出镜，选好后面都可以改。</p>
-        <div className="tcards" id="gTypes">{VIDEO_TYPES.map(x => {
+        <div className="tcards" id="gTypes">{VIDEO_TYPES.map((x, i) => {
           const rec = g.copy.trim() && suggestType(g.copy) === x.id;
-          return <button key={x.id} data-ty={x.id} aria-pressed={g.type === x.id} onClick={() => pickType(x.id)}>
-            <span className="row" style={{ justifyContent: 'space-between' }}><b>{x.n}</b>{rec && <Src k="real">推荐</Src>}</span>
-            <span className="s">{x.d}</span><span className="xs m3">{x.how}</span>
-            <span className="xs" style={{ marginTop: 'auto' }}>{x.voice} · {x.avatar === 'all' ? '数字人全程出镜' : x.avatar === 'some' ? '可本人出镜' : '不出镜'} · {modelOf(x.model).n}</span>
+          return <button key={x.id} data-ty={x.id} aria-pressed={g.type === x.id} className={x.id === 'real' ? 'hot' : ''} onClick={() => pickType(x.id)}>
+            <span className="row" style={{ justifyContent: 'space-between' }}><span className="tno">{String(i + 1).padStart(2, '0')}</span>{x.id === 'real' ? <Src k="real">最省钱 · 最真实</Src> : rec ? <Src k="real">推荐</Src> : null}</span>
+            <b>{x.n}</b><span className="s">{x.d}</span><span className="xs m3">{x.how}</span>
+            <span className="xs tmeta">{x.voice} · {x.avatar === 'all' ? '数字人全程出镜' : x.avatar === 'some' ? '可本人出镜' : '不出镜'}</span>
           </button>;
         })}</div>
+        <div className="subpick card" id="gSub">
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <p className="eyebrow">{t.n} · 选一个小类</p>
+            <div className="pills" style={{ marginTop: 10 }}>{SUBTYPES[t.id].map(x => <button key={x.id} className="pill" data-sub={x.id} aria-pressed={sub?.id === x.id} onClick={() => set({ sub: x.id, shots: [] })}>{x.n}</button>)}</div>
+          </div>
+          {sub && <div className="shotlist"><p className="lb">去现场拍这些</p><ol>{sub.shots.map(x => <li key={x}>{x}</li>)}</ol></div>}
+        </div>
+        <div className="ctabar"><button className="btn cta" id="gToStep2" onClick={() => setStep(2)}>下一步：放内容 <span aria-hidden="true">→</span></button></div>
       </>}
 
       {step === 2 && <>
         <div className="gsrc" id="gSrc">{topic
           ? <><Src k="real">文案已导入</Src><span>来自选题 <b>{g.title || topic.title}</b></span><span className="sp" /><button className="btn g sm" onClick={draftPicker}>换一条</button></>
           : <><span className="m">类型：<b>{t.n}</b> · 文案可以直接贴，也可以从 dazheip 带过来或导入草稿。</span><span className="sp" /><button className="btn g sm" onClick={() => setStep(1)}>换类型</button><button className="btn g sm" id="gPickD" onClick={draftPicker}>从草稿箱导入</button></>}</div>
+        <div className="aiwrite" id="gAi">
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <p className="t2">{t.id === 'real' ? 'AI 看素材写文案' : 'AI 按你的知识库写文案'}</p>
+            <p className="xs m3" style={{ marginTop: 4 }}>{t.id === 'real' ? `先在下面放 ${sub?.shots.length ?? 3} 段以上实拍，AI 看懂每段拍了什么，每段配一句，直接排好分镜。` : '系统从知识库挑 1–3 条最相关、最近没用过的素材交给 AI，不会每条都说同一个卖点。'}</p>
+            <input className="fld" id="gIdea" value={idea} onChange={e => setIdea(e.target.value)} placeholder={t.id === 'real' ? '这条想讲什么（可不填），比如：水电验收看哪 5 个点' : '这条想讲什么，比如：玄关为什么总是乱'} style={{ marginTop: 10 }} />
+            {usedKb.length > 0 && <div className="row" style={{ gap: 6, marginTop: 10 }}><span className="xs m3">这条用了：</span>{usedKb.map((u, i) => <span key={i} className="tag" title={u.text}>{u.kind} · {u.text.slice(0, 14)}{u.text.length > 14 ? '…' : ''}</span>)}</div>}
+          </div>
+          <div className="aiact">
+            {t.id !== 'real' && <Toggle checked={useKb} onChange={setUseKb} label="用我的知识库" />}
+            <button className="btn cta" id="gAiGo" disabled={writing || (t.id === 'real' && !media.length)} onClick={t.id === 'real' ? aiFootage : aiWrite}>{writing ? 'AI 在写…' : t.id === 'real' ? `看 ${media.length} 段素材写文案 →` : 'AI 写一版 →'}</button>
+          </div>
+        </div>
         <div className="gcard">
           <div className="gtop"><b className="s">{t.voice === '口播' ? '口播文案' : '画外音文案'}</b><span className="sp" /><span className="xs m3" id="gCount">{chars(g.copy)} 字 · {sentences.length} 句 · 配音约 {estSecs} 秒</span></div>
           <textarea id="gCopy" aria-label="文案" value={g.copy} onChange={e => set({ copy: e.target.value })} placeholder="贴一段文案。按句拆镜头，每句配音多长，那一镜就多长。" />
           <div className="att" id="gAtt" aria-label="素材">
-            {used.map(a => <button key={a.id} className="th" aria-label={`移除素材 ${a.name}`} title="点一下移除" onClick={() => set({ assetIds: g.assetIds.filter(x => x !== a.id) })}><Ph k={a.k} asset={a} /></button>)}
+            {used.map(a => <button key={a.id} className="th" aria-label={`移除素材 ${a.name}`} title={`${a.note ?? a.name} · 点一下移除`} onClick={() => set({ assetIds: g.assetIds.filter(x => x !== a.id) })}><Ph k={a.k} asset={a} /></button>)}
             <button className="add" id="gAdd" aria-label="导入素材" onClick={() => pickAssets(l => set({ assetIds: [...new Set([...g.assetIds, ...l.map(a => a.id)])] }), { already: g.assetIds })}>+</button>
             <span className="xs m3" style={{ alignSelf: 'center', whiteSpace: 'nowrap', paddingLeft: 4 }}>{used.length ? `${used.length} 份素材 · 第 3 步分到每一镜` : '照片做首帧，视频可以直接用原片'}</span>
           </div>
@@ -231,7 +277,7 @@ export function GenPage() {
         </details>
 
         <div className="gfoot"><div><p className="t2">{t.n} · {sentences.length} 句 · 约 {estSecs} 秒</p><p className="xs m3">{VOICES.find(v => v.id === g.voice)?.n} · {avatarOn ? (g.avatar === 'clone' ? '真人分身出镜' : '照片形象出镜') : '不出镜'} · {m.n}</p></div><span className="sp" />
-          <button className="btn g" onClick={() => setStep(1)}>上一步</button><button className="btn y" id="gNext" disabled={!g.copy.trim()} onClick={toStep3}>下一步：确认分镜</button></div>
+          <button className="btn g" onClick={() => setStep(1)}>上一步</button><button className="btn cta" id="gNext" disabled={!g.copy.trim()} onClick={toStep3}>下一步：确认分镜 <span aria-hidden="true">→</span></button></div>
       </>}
 
       {step === 3 && <>
@@ -252,7 +298,7 @@ export function GenPage() {
 </div>
           <span className="sp" />
           <button className="btn g" onClick={() => setStep(2)}>上一步</button>
-          <button className="btn y" id="gGo" disabled={blocked || !!running || !shots.length || session!.limits.genPaused} onClick={() => submit(false)}>{running ? '生成中…' : `生成 · ${costTotal(lines)} 点`}</button>
+          <button className="btn cta" id="gGo" disabled={blocked || !!running || !shots.length || session!.limits.genPaused} onClick={() => submit(false)}>{running ? '生成中…' : `生成视频 · ${costTotal(lines)} 点`}</button>
         </div>
       </>}
 

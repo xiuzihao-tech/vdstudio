@@ -4,7 +4,7 @@ import { Header, Icons } from './ui/shell.tsx';
 import { IpPage } from './pages/ip/IpPage.tsx';
 import { GenPage } from './pages/Gen.tsx';
 import { Workbench } from './pages/Workbench.tsx';
-import { OpsPage } from './pages/Ops.tsx';
+import { OpsPage } from './pages/AiOps.tsx';
 import { MePage } from './pages/Me.tsx';
 import { useOnboarding } from './ui/onboarding.tsx';
 import { LibraryPage } from './pages/Library.tsx';

@@ -55,6 +55,14 @@ const MIGRATIONS: string[] = [
    CREATE TABLE slot_meta (plan_id TEXT NOT NULL, date TEXT NOT NULL, published_at TEXT, metrics TEXT, PRIMARY KEY(plan_id, date));
    CREATE TABLE redeem_codes (code TEXT PRIMARY KEY, points INTEGER NOT NULL, max_uses INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
    CREATE TABLE redeem_uses (code TEXT NOT NULL, owner_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(code, owner_id));`,
+  // 5：10/27 会后：知识库（按条存素材，记使用次数做轮换）、AI 面诊、素材自动说明
+  `CREATE TABLE kb_items (id TEXT PRIMARY KEY, ws TEXT NOT NULL, section TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]',
+     source TEXT NOT NULL DEFAULT '手动', used INTEGER NOT NULL DEFAULT 0, last_used TEXT, created_at TEXT NOT NULL);
+   CREATE INDEX kb_ws ON kb_items(ws, created_at);
+   CREATE TABLE diagnosis (ws TEXT PRIMARY KEY, unlocked INTEGER NOT NULL DEFAULT 0, answers TEXT NOT NULL DEFAULT '{}', report TEXT, updated_at TEXT NOT NULL);
+   CREATE TABLE copy_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ws TEXT NOT NULL, kinds TEXT NOT NULL, created_at TEXT NOT NULL);
+   ALTER TABLE assets ADD COLUMN note TEXT;
+   UPDATE plans SET auto='copy' WHERE auto='sample';`,
 ];
 
 export type DB = DatabaseSync;

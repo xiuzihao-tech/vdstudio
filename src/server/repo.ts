@@ -1,6 +1,7 @@
 // 数据访问层：只做读写和行映射，不放业务规则。
 import type { DB } from './db.ts';
 import { newId, now } from './db.ts';
+import type { Diagnosis, KbItem } from '../shared/kb.ts';
 import type { SlotMetrics, Asset, CopyDraft, Job, JobExternal, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
 
 type Row = Record<string, any>;
@@ -8,7 +9,7 @@ const j = (s: string | null) => (s == null ? null : JSON.parse(s));
 
 const toWs = (r: Row): Workspace & { ownerId: string } => ({ id: r.id, ownerId: r.owner_id, persona: r.persona, positioning: j(r.positioning), balance: r.obal ?? r.balance, voiceClone: r.voice_clone, theme: r.theme, avatars: { clone: r.avatar_clone ?? 'none', photo: r.avatar_photo ?? 'none' } });
 const toTopic = (r: Row): Topic => ({ id: r.id, cat: r.cat, title: r.title, hook: r.hook, why: r.why, dir: r.dir, type: r.type, heat: r.heat, k: r.k, ageMonths: r.age_months, source: r.source, fav: !!r.fav, createdAt: r.created_at });
-const toAsset = (r: Row): Asset => ({ id: r.id, type: r.type, name: r.name, k: r.k, url: r.file ? `/files/${r.file}` : null, mime: r.mime, size: r.size, used: r.used, source: r.source, createdAt: r.created_at });
+const toAsset = (r: Row): Asset => ({ id: r.id, type: r.type, name: r.name, k: r.k, url: r.file ? `/files/${r.file}` : null, note: r.note ?? null, mime: r.mime, size: r.size, used: r.used, source: r.source, createdAt: r.created_at });
 const toJob = (r: Row): Job => ({ id: r.id, kind: r.kind, status: r.status, step: r.step, steps: j(r.steps), cost: r.cost, title: r.title, input: j(r.input), output: j(r.output), error: r.error, createdAt: r.created_at, updatedAt: r.updated_at });
 const toPlan = (r: Row): Plan => ({ auto: r.auto ?? 'copy', id: r.id, account: r.account, weekdays: j(r.weekdays), hour: r.hour, needOk: !!r.need_ok, budget: r.budget, running: !!r.running, mix: j(r.mix), added: j(r.added), skipped: j(r.skipped), backlog: j(r.backlog) });
 const toSlot = (r: Row): Slot => ({ planId: r.plan_id, date: r.date, topicId: r.topic_id, pin: r.pin, why: r.why, column: r.col });
@@ -104,6 +105,32 @@ export function makeRepo(db: DB) {
       db.prepare('INSERT INTO assets (id, ws, type, name, k, file, mime, size, used, source, created_at, seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(id, ws, a.type, a.name, a.k, a.file ?? null, a.mime ?? null, a.size ?? 0, a.used ?? 0, a.source, now(), seqOverride ?? nextSeq());
       return toAsset(db.prepare('SELECT * FROM assets WHERE id=?').get(id) as Row);
+    },
+    setAssetNote: (ws: string, id: string, note: string) => { db.prepare('UPDATE assets SET note=? WHERE ws=? AND id=?').run(note, ws, id); },
+    /* ---------- 知识库 ---------- */
+    kb(ws: string): KbItem[] { return (db.prepare('SELECT * FROM kb_items WHERE ws=? ORDER BY created_at DESC').all(ws) as Row[]).map(r => ({ id: r.id, section: r.section, kind: r.kind, text: r.text, tags: j(r.tags), source: r.source, used: r.used, lastUsed: r.last_used, createdAt: r.created_at })); },
+    addKb(ws: string, k: { section: string; kind: string; text: string; tags?: string[]; source?: string }) {
+      const id = newId('kb');
+      db.prepare('INSERT INTO kb_items (id, ws, section, kind, text, tags, source, created_at) VALUES (?,?,?,?,?,?,?,?)').run(id, ws, k.section, k.kind, k.text, JSON.stringify(k.tags ?? []), k.source ?? '手动', now());
+      return id;
+    },
+    updateKb: (ws: string, id: string, p: { text?: string; kind?: string; section?: string; tags?: string[] }) => {
+      const r = db.prepare('SELECT * FROM kb_items WHERE ws=? AND id=?').get(ws, id) as Row | undefined; if (!r) return false;
+      db.prepare('UPDATE kb_items SET text=?, kind=?, section=?, tags=? WHERE id=?').run(p.text ?? r.text, p.kind ?? r.kind, p.section ?? r.section, JSON.stringify(p.tags ?? j(r.tags)), id); return true;
+    },
+    deleteKb: (ws: string, id: string) => db.prepare('DELETE FROM kb_items WHERE ws=? AND id=?').run(ws, id).changes > 0,
+    /** 写完一条文案：记下用了哪几条素材（轮换用） */
+    markKbUsed(ws: string, ids: string[], kinds: string[]) {
+      const st = db.prepare('UPDATE kb_items SET used = used + 1, last_used=? WHERE ws=? AND id=?'); const t = now(); ids.forEach(id => st.run(t, ws, id));
+      db.prepare('INSERT INTO copy_log (ws, kinds, created_at) VALUES (?,?,?)').run(ws, JSON.stringify(kinds), t);
+    },
+    /** 最近 n 次写文案里有没有用过履历 */
+    recentResume(ws: string, n = 4): boolean { return (db.prepare('SELECT kinds FROM copy_log WHERE ws=? ORDER BY id DESC LIMIT ?').all(ws, n) as Row[]).some(r => j(r.kinds).includes('resume')); },
+    /* ---------- AI 面诊 ---------- */
+    diagnosis(ws: string): Diagnosis { const r = db.prepare('SELECT * FROM diagnosis WHERE ws=?').get(ws) as Row | undefined; return r ? { unlocked: !!r.unlocked, answers: j(r.answers), report: j(r.report) } : { unlocked: false, answers: {}, report: null }; },
+    saveDiagnosis(ws: string, d: Diagnosis) {
+      db.prepare('INSERT INTO diagnosis (ws, unlocked, answers, report, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(ws) DO UPDATE SET unlocked=excluded.unlocked, answers=excluded.answers, report=excluded.report, updated_at=excluded.updated_at')
+        .run(ws, d.unlocked ? 1 : 0, JSON.stringify(d.answers), d.report ? JSON.stringify(d.report) : null, now());
     },
     markAssetsUsed(ws: string, ids: string[]) { const st = db.prepare('UPDATE assets SET used = used + 1 WHERE ws=? AND id=?'); ids.forEach(id => st.run(ws, id)); },
     deleteAsset: (ws: string, id: string) => db.prepare('DELETE FROM assets WHERE ws=? AND id=?').run(ws, id).changes > 0,

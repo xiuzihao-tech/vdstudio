@@ -46,7 +46,7 @@ export const mockProviders: Providers = {
     },
   },
   copy: {
-    async generate(ctx, t, { kind, len, tone, version }) {
+    async generate(ctx, t, { kind, len, tone, version, materials }) {
       await delay(400);
       const p = ctx.persona, c = catOf(ctx), b = bare(t.title), biz = p.biz[0];
       const base = [
@@ -61,6 +61,9 @@ export const mockProviders: Providers = {
         亲切: s => s, 专业: s => s.replace('我的做法是', '我们的方案是'),
         犀利: s => s.replace('很多人在这一步吃亏', '说句不好听的，大多数人在这一步吃亏'), 幽默: s => s.replace('先说背景', '先交代一下案发现场'),
       };
+      // 有知识库素材：用素材里的具体内容替换通用句（模型版会按素材改写成口语）
+      const mats = (materials ?? []).map(m => m.text.replace(/\s+/g, '').slice(0, 60)).filter(Boolean);
+      if (mats.length) base.splice(1, mats.length, ...mats.map((m, i) => (i === 0 ? `说个真事：${m}` : m)));
       let body = base.slice(0, PARA[len] ?? 4).map(fx[tone]);
       if (version > 1) body = body.slice(1).concat(body[0]);
       const fam = FAMILIES[biz.tpl];
@@ -74,6 +77,43 @@ export const mockProviders: Providers = {
       };
     },
     async rewrite(_ctx, d, how, hook) { await delay(200); return rewriteLocal(d, how, hook); },
+    async diagnose(ctx, qa) {
+      await delay(500);
+      const all = qa.map(x => x.a).join('；'), p = ctx.persona;
+      const has = (re: RegExp) => re.test(all);
+      const big = all.match(/(\d{3,5})\s*(平|㎡)/)?.[1];
+      const years = all.match(/(\d{1,2})\s*年/)?.[1];
+      const hobby = all.match(/(旅行|旅游|钓鱼|摄影|跑步|徒步|收藏|喝茶|骑行|露营)/)?.[1];
+      const style = all.match(/(意式|老钱|侘寂|法式|现代|极简|中古|新中式|原木)/)?.[1];
+      const pro = [big ? `${big}平以上大宅` : p.focus.split('，')[0], years ? `${years}年一线经验` : '懂施工细节', style ? `${style}风格` : p.biz[0].n].filter(Boolean);
+      const personality = [has(/不同|反|错|其实/) ? '敢下判断' : '说话实在', has(/业主|客户/) ? '站在业主这边' : '重细节', hobby ? `爱${hobby}` : '有生活感'];
+      const brand = [style ? `${style}生活方式` : '高品质交付', has(/品牌|代理/) ? '有品牌背书' : '本地口碑'];
+      return {
+        tags: { personality, pro, brand },
+        position: `${pro[0]}的${p.n}，用真实案例讲清${p.focus.split('，')[0]}`,
+        account: qa.find(x => x.q.includes('账号'))?.a ? '现有内容偏零散：案例和日常混在一起，没有固定栏目，观众记不住你是谁。' : '还没给账号信息，补一下主页截图可以拆得更准。',
+        visual: `封面统一用实景大图 + 一行大字；主色跟着${style ?? '你的作品'}走，少用花字。`,
+        nicknames: [`${ctx.positioning.name}｜${pro[0]}`, `${ctx.positioning.name}说${p.n.slice(0, 2)}`],
+        bio: `${pro.slice(0, 2).join(' · ')}\n只讲真实案例和踩过的坑\n${p.goal}`,
+        columns: [
+          { name: `${pro[0]}案例合集`, kind: '转化', type: 'tour', perWeek: 1, why: '你反复提到这类项目，最能带来咨询' },
+          { name: `${style ?? p.n}观点`, kind: '流量', type: 'talk', perWeek: 2, why: '你有自己的判断，短口播最容易打开流量' },
+          { name: '工地实拍', kind: '转化', type: 'real', perWeek: 1, why: '现场素材最真实，建立信任' },
+          { name: hobby ? `${hobby}里的设计` : '我的一天', kind: '人设', type: 'vlog', perWeek: 1, why: '让观众认识你这个人，不只是你的作品' },
+        ],
+      };
+    },
+    async footage(ctx, clips, idea, materials) {
+      await delay(400);
+      const open = idea ? `${idea.replace(/[。！？]$/, '')}，带你看一下。` : `今天带你看一下${ctx.persona.proj}。`;
+      const mid = ['先看这里，{x}。', '再往里走，{x}。', '注意这个细节：{x}。', '这一步很多人会忽略，{x}。', '还有这里，{x}。'];
+      return clips.map((c, i) => {
+        const x = c.note.replace(/^一[段张](视频|照片)：/, '').replace(/（.*）$/, '');
+        if (i === 0) return open;
+        if (i === clips.length - 1) return materials[0] ? `${materials[0].slice(0, 30)}。${ctx.persona.goal}。` : `做对了，住进去才省心。${ctx.persona.goal}。`;
+        return mid[(i - 1) % mid.length].replace('{x}', x);
+      });
+    },
     async humanize(_ctx, text) {
       await delay(200);
       return text.split('。').filter(Boolean).map((s, i) => (i % 2 ? '' : LIVE_OPENERS[(i / 2) % LIVE_OPENERS.length]) + s.replace('我们', '我')).join('。') + '。';

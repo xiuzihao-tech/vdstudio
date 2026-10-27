@@ -34,13 +34,16 @@ await page.goto(base);
 const COPY = '你家玄关，是不是一进门就乱？\n这个项目，我们只解决了一件事。\n鞋、外套、快递，三样东西三个高度。\n凳面四十二公分，老人孩子都好坐。\n很多人装修只看效果图，没想过住进去以后每天怎么用。\n想看你家能怎么改，私信发户型图。';
 await run('导航：4 个入口，选题文案和制作台已隐藏', async () => {
   const tabs = await $('.tabs [data-go]').allTextContents();
-  for (const t of ['生成视频', 'AI 运营', '我的作品', '形象与声音']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
+  for (const t of ['生成视频', 'AI 运营', '我的作品', '知识库与形象']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
   if (tabs.includes('制作台') || tabs.includes('选题文案')) throw new Error('隐藏的入口还在：' + tabs.join(','));
 });
-await run('生成第 1 步：7 种类型，按文案推荐', async () => {
-  await $('#gTypes [data-ty]').nth(6).waitFor();
-  await shot('01_types');
+await run('生成第 1 步：8 种类型（实拍出片排第一）、小类带镜头清单', async () => {
+  await $('#gTypes [data-ty]').nth(7).waitFor();
+  if (await $('#gTypes [data-ty]').first().getAttribute('data-ty') !== 'real') throw new Error('实拍出片没有排第一');
   await $('[data-ty=talk]').click();
+  await $('#gSub').waitFor();
+  await shot('01_types');
+  await $('#gToStep2').click();
 });
 await run('生成第 2 步：文案、比例只剩三种、高级参数', async () => {
   await $('#gCopy').fill(COPY);
@@ -74,7 +77,7 @@ await run('生成 → 作品详情：轨道、单镜重做只收那一镜', asyn
   if (Number((await $('#bal').textContent()).replace(/,/g, '')) >= before) throw new Error('余额没变');
 });
 await run('形象与声音：建真人分身（带授权）→ 口播自动出镜', async () => {
-  await $('.tabs [data-go=me]').click(); await $('[data-mk=clone]').click();
+  await $('.tabs [data-go=me]').click(); await $('#meTabs button', { hasText: '形象与声音' }).click(); await $('[data-mk=clone]').click();
   if (!(await $('#avDemo').isDisabled())) throw new Error('没勾授权也能提交');
   await $('.sheet input[type=checkbox]').check(); await $('#avDemo').click();
   await page.waitForTimeout(400); await page.reload(); await $('#meClone2 .src', { hasText: '可用' }).waitFor();
@@ -84,9 +87,25 @@ await run('形象与声音：建真人分身（带授权）→ 口播自动出�
   if (await $('#gBoard [aria-label=画面来源]').first().inputValue() !== 'avatar') throw new Error('真人口播首镜不是数字人');
   if (!/数字人/.test(await $('#v-gen .gbox .list').textContent())) throw new Error('费用里没有数字人');
 });
-await run('AI 运营：托管、待办、两周进度、导出表格', async () => {
-  await $('.tabs [data-go=ops]').click(); await $('#opsTodo').waitFor();
-  await $('#opsAuto button', { hasText: '自动出样片' }).click(); await page.waitForTimeout(300);
+await run('AI 运营：付费解锁 → AI 面诊 → 报告 → 栏目进排期', async () => {
+  await $('.tabs [data-go=ops]').click(); await $('#unlockBtn').waitFor();
+  await shot('06a_unlock');
+  await $('#unlockBtn').click(); await $('#unlockOk').click();
+  const ans = ['原来在家装公司做了五年，后来自己开了工作室，第一单是朋友介绍的', '周末喜欢带孩子去钓鱼', '发了一些完工的照片，点赞很少'];
+  for (const a of ans) { await $('#diagIn').fill(a); await $('#diagNext').click(); await page.waitForTimeout(250); }
+  await $('#diagIn').fill('一个 90 平的老房，预算二十万，业主说终于不想出门了');
+  await shot('06b_diag');
+  await $('#diagReport').click();
+  await $('#diagReportView').waitFor({ timeout: 15000 });
+  await shot('06c_report');
+  const kb = (await (await page.request.get(base + '/api/kb')).json()).items;
+  if (kb.filter(i => i.source.startsWith('面诊')).length < 4) throw new Error('面诊回答没存进知识库');
+  await $('#toPlan').click();
+});
+await run('AI 运营：托管只剩两档（不自动出样片）、待办、两周进度、导出表格', async () => {
+  await $('#opsTodo').waitFor();
+  if (await $('#opsAuto button', { hasText: '自动出样片' }).count()) throw new Error('自动出样片还在');
+  await $('#opsAuto button', { hasText: '自动写文案' }).click(); await page.waitForTimeout(300);
   if (await $('#approveAll').count()) { await $('#approveAll').click(); await page.waitForTimeout(400); }
   await $('#strip .opsprog').first().waitFor();
   const dl = page.waitForEvent('download'); await $('#opsCsv').click(); await dl;
@@ -98,6 +117,12 @@ await run('点数：兑换码不对会提示', async () => {
   await page.getByText('兑换码不对').waitFor(); await page.waitForTimeout(200); await page.keyboard.press('Escape');
   closing = false;
   errors.splice(0, errors.length, ...errors.filter(e => !e.includes('/api/points/redeem')));
+});
+await run('知识库：三块、手动加一条', async () => {
+  await $('.tabs [data-go=me]').click(); await $('#meTabs button', { hasText: '知识库' }).click();
+  await $('[data-kbadd=pro]').click(); await $('.kbform textarea').fill('鞋柜做到顶，留 15 公分放拖鞋');
+  await $('[data-kbsave=pro]').click(); await $('#kbGrid .kbi', { hasText: '鞋柜做到顶' }).waitFor();
+  await shot('05b_kb');
 });
 await run('作品：能打开作品详情；素材送去生成', async () => {
   await $('.tabs [data-go=lib]').click(); await $('#works [data-open]').first().click(); await $('#gResult').waitFor();

@@ -4,10 +4,11 @@ import { FAMILIES } from './catalog.ts';
 import type { ShotFamily, VideoModel } from './types.ts';
 
 /* ---------- 视频类型（第 1 步） ---------- */
-export type VideoType = 'talk' | 'tour' | 'house' | 'product' | 'site' | 'story' | 'vlog';
+export type VideoType = 'real' | 'talk' | 'tour' | 'house' | 'product' | 'site' | 'story' | 'vlog';
 /** 数字人出镜方式：all = 全程出镜（插入画面盖在上面）；some = 只在模板里的出镜镜头；none = 不出镜 */
 export interface VideoTypeSpec { id: VideoType; n: string; d: string; how: string; voice: '口播' | '画外音'; avatar: 'all' | 'some' | 'none'; fam: ShotFamily; model: string; bgm: string }
 export const VIDEO_TYPES: VideoTypeSpec[] = [
+  { id: 'real', n: '实拍出片', d: '工地、案例、门店的实拍素材', how: 'AI 看懂你拍的每段素材，写文案、配音、串成片，不生成画面', voice: '画外音', avatar: 'none', fam: 'site', model: 'wan', bgm: '城市律动' },
   { id: 'talk', n: '真人口播', d: '观点、避坑、知识', how: '数字人全程出镜，中间插 2–4 个画面', voice: '口播', avatar: 'all', fam: 'talk', model: 's20f', bgm: '轻电子' },
   { id: 'tour', n: '空间漫游', d: '完工案例、样板间、民宿', how: '素材做首帧，长镜头走一遍', voice: '画外音', avatar: 'some', fam: 'tour', model: 's25', bgm: '温暖钢琴' },
   { id: 'house', n: '改造前后', d: '老房翻新、软装焕新', how: '同机位前后对比', voice: '画外音', avatar: 'some', fam: 'house', model: 's20', bgm: '城市律动' },
@@ -17,6 +18,23 @@ export const VIDEO_TYPES: VideoTypeSpec[] = [
   { id: 'vlog', n: 'Vlog', d: '日常、游学、探店', how: '多张参考图 + 场景模板', voice: '画外音', avatar: 'none', fam: 'story', model: 's25', bgm: '温暖钢琴' },
 ];
 export const typeOf = (id: string | undefined): VideoTypeSpec => VIDEO_TYPES.find(t => t.id === id) ?? VIDEO_TYPES[0];
+
+/** 小类：每个小类带一张拍摄清单（去现场拍什么），模板清单以苗苗整理的为准，后台可改 */
+export interface SubType { id: string; n: string; shots: string[] }
+export const SUBTYPES: Record<VideoType, SubType[]> = {
+  real: [
+    { id: 'site-check', n: '节点验收', shots: ['工地入口，交代在哪个阶段', '3–5 个验收点的特写', '本人对着镜头说一句结论'] },
+    { id: 'case-walk', n: '完工走一遍', shots: ['从门口进入的一镜', '每个空间一个全景', '最想让人看到的 2 个细节'] },
+    { id: 'store', n: '门店 / 展厅', shots: ['门头和环境', '主推产品的特写', '店里的人在做什么'] },
+  ],
+  talk: [{ id: 'view', n: '观点', shots: ['正脸半身，说一个判断'] }, { id: 'pit', n: '避坑', shots: ['正脸半身', '一个做错的画面'] }, { id: 'know', n: '知识科普', shots: ['正脸半身', '讲到的材料或工艺特写'] }],
+  tour: [{ id: 'case', n: '完工案例', shots: ['入户一镜', '主空间全景', '细节特写'] }, { id: 'show', n: '样板间', shots: ['入户', '动线一镜到底'] }, { id: 'stay', n: '民宿房型', shots: ['推门', '窗景', '床和浴室'] }],
+  house: [{ id: 'old', n: '老房翻新', shots: ['改造前同机位照片', '改造后同机位'] }, { id: 'soft', n: '软装焕新', shots: ['改前全景', '改后全景'] }],
+  product: [{ id: 'compare', n: '对比测评', shots: ['两样东西并排', '测试过程', '结果特写'] }, { id: 'new', n: '新品上市', shots: ['产品全貌', '3 个卖点特写'] }],
+  site: [{ id: 'water', n: '水电验收', shots: ['线管走向', '打压表读数', '项目经理讲解'] }, { id: 'proof', n: '防水闭水', shots: ['涂刷高度', '闭水 48 小时'] }, { id: 'wood', n: '木作节点', shots: ['板材断面', '收口细节'] }],
+  story: [{ id: 'revisit', n: '业主回访', shots: ['业主在家里的日常', '业主说一句话'] }, { id: 'decision', n: '设计判断', shots: ['问题现场', '改后效果'] }],
+  vlog: [{ id: 'day', n: '一天的工作', shots: ['早上出门', '工地或门店', '收工'] }, { id: 'trip', n: '游学探店', shots: ['到达', '看到的 3 个细节', '一句收获'] }],
+};
 
 /** 按文案内容猜一个类型（只是推荐，用户可改） */
 export function suggestType(copy: string): VideoType {
@@ -129,6 +147,7 @@ export function buildStoryboard(sentences: string[], o: BoardOpts): ShotSpec[] {
   const media = o.assets.filter(a => a.type !== '人物' && a.type !== '音频');
   let mi = 0;
   const n = groups.length;
+  const real = spec.id === 'real';
   // 全程出镜：中间挑 2–4 镜做插入画面（有素材用素材，没有 AI 生成）
   const inserts = new Set<number>();
   if (spec.avatar === 'all' && o.avatar && n >= 3) {
@@ -139,16 +158,18 @@ export function buildStoryboard(sentences: string[], o: BoardOpts): ShotSpec[] {
   return groups.map((g, i) => {
     const t = fam[Math.min(i, fam.length - 1)] ?? fam[0];
     let source: ShotSource;
-    if (spec.avatar === 'all' && o.avatar) source = inserts.has(i) ? (media.length ? 'frame' : 'ai') : 'avatar';
+    if (real) source = media.length ? 'clip' : 'ai';
+    else if (spec.avatar === 'all' && o.avatar) source = inserts.has(i) ? (media.length ? 'frame' : 'ai') : 'avatar';
     else if (t.md === 'ref' && o.avatar && spec.avatar !== 'none') source = 'avatar';
     else if (t.md === 'text' || !media.length) source = 'ai';
     else source = 'frame';
-    const asset = source === 'frame' ? media[mi++ % Math.max(1, media.length)] ?? null : null;
-    if (asset && asset.type === '视频' && spec.id === 'site') source = 'clip';
+    const asset = source === 'frame' || source === 'clip' ? media[mi++ % Math.max(1, media.length)] ?? null : null;
+    // 实拍：视频直接用原片，照片做首帧；工地记录里的视频素材也直接用原片
+    if (asset && (real || spec.id === 'site')) source = asset.type === '视频' ? 'clip' : 'frame';
     return {
       id: `s${i + 1}`, line: g.text, dur: fitDur(g.secs, { min: m.min, max: cap }), lock: true,
       source, assetId: asset?.id ?? null, lastId: null, refIds: [],
-      prompt: source === 'avatar' ? '本人正对镜头讲解，自然手势，背景简洁' : t.md === 'ref' ? '和这句台词相关的空间或细节画面，不出现人脸' : t.d, size: FR[t.fr] ?? '中景', move: MV[t.mv] ?? '固定', model: '', trans: '硬切',
+      prompt: source === 'clip' ? '用这段实拍原片' : source === 'avatar' ? '本人正对镜头讲解，自然手势，背景简洁' : t.md === 'ref' ? '和这句台词相关的空间或细节画面，不出现人脸' : t.d, size: FR[t.fr] ?? '中景', move: MV[t.mv] ?? '固定', model: '', trans: '硬切',
     };
   });
 }

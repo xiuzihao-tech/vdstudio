@@ -1,4 +1,4 @@
-// AI 运营（由排期页改造）：AI 把两周要发的内容从选题推到成片，学员只在三处拍板——通过选题、确认样片、发完点「已发布」。
+// AI 运营 · 运营计划：按面诊报告的栏目排两周，学员通过选题、出片、发完点「已发布」、回填数据。10/27 会后取消了自动出样片。
 // 不照搬飞书表格；复盘数据可以一键导出表格给助教。
 import { useEffect, useState } from 'react';
 import { api, type DayView, type PlanBundle } from '../api.ts';
@@ -8,26 +8,28 @@ import { AddAccount, BudgetNote, Mix, TimeLine, TopicPick } from './Plan.tsx';
 import { hourLabel } from '../../shared/schedule.ts';
 import { WEEKDAYS } from '../../shared/catalog.ts';
 import { copyText } from '../../shared/copy.ts';
+import type { DiagReport } from '../../shared/kb.ts';
+import type { VideoType } from '../../shared/video.ts';
 import type { AutoLevel, CopyDraft, Job, Plan, SlotMetrics, SlotView, VideoOutput } from '../../shared/types.ts';
 import { fileUrl } from '../config.ts';
 
 const isSlot = (d: DayView): d is SlotView => !('empty' in d);
-const AUTO: [AutoLevel, string, string][] = [['plan', '只排计划', 'AI 排选题，文案和视频你来做'], ['copy', '自动写文案', '发布前 3 天按人设写好文案'], ['sample', '自动出样片', '再在发布前 2 天出样片，你确认后出成片']];
-const STAGES = ['选题', '文案', '样片', '成片', '已发', '复盘'] as const;
+const AUTO: [AutoLevel, string, string][] = [['plan', '只排计划', 'AI 按栏目排选题，文案和视频你来做'], ['copy', '自动写文案', '发布前 3 天按人设和知识库写好文案，视频你来出']];
+const STAGES = ['选题', '文案', '出片', '已发', '复盘'] as const;
 
 function stageDone(s: SlotView): boolean[] {
   const p = s.progress;
-  return [s.pin === 'fixed', !!p?.copy, p?.sample === 'done', !!p?.final, !!p?.published, !!p?.reviewed];
+  return [s.pin === 'fixed', !!p?.copy, p?.sample === 'done' || !!p?.final, !!p?.published, !!p?.reviewed];
 }
 function stageNow(s: SlotView): string {
   const d = stageDone(s), i = d.findIndex(x => !x);
   if (s.state === 'paused') return '已暂停';
-  if (s.progress?.sample === 'running') return '样片生成中';
-  if (s.progress?.sample === 'failed') return '样片没出成功';
+  if (s.progress?.sample === 'running') return '视频生成中';
+  if (s.progress?.sample === 'failed') return '视频没出成功';
   return i < 0 ? '完成' : i === 0 ? '选题待审' : `待${STAGES[i] === '已发' ? '发布' : STAGES[i]}`;
 }
 
-export function OpsPage() {
+export function OpsPlan({ report }: { report: DiagReport | null }) {
   const { session, toast, fail, nav, sheet, bump, setGenSeed } = useApp();
   const data = useData(async () => {
     const [p, t, d, j] = await Promise.all([api.plans(), api.allTopics(), api.drafts(), api.jobs()]);
@@ -36,7 +38,7 @@ export function OpsPage() {
   const [pi, setPi] = useState(0);
   const [did, setDid] = useState<string[]>([]);
   useEffect(() => { if (data.data?.did.length) setDid(data.data.did); }, [data.data?.did]);
-  if (!data.data) return <section className="view on" id="v-ops"><div className="vb wrap" style={{ paddingTop: 56 }}><Skel h={300} /></div></section>;
+  if (!data.data) return <div className="wrap" style={{ paddingTop: 30 }}><Skel h={300} /></div>;
   const { plans, topics, drafts, jobs } = data.data;
   const pb = plans[Math.min(pi, plans.length - 1)], p = pb.plan, today = session!.today;
   const apply = (r: { plans: PlanBundle[]; message?: string }) => { data.set({ ...data.data!, plans: r.plans }); if (r.message) toast(r.message); bump(); };
@@ -47,11 +49,13 @@ export function OpsPage() {
   const jobOf = (s: SlotView) => jobs.find(j => j.id === s.progress?.jobId) ?? null;
   const toGen = (s: SlotView) => {
     const d = draftOf(s.topicId);
-    setGenSeed({ copy: d ? copyText(d) : `${s.topic.title}\n${s.topic.hook}`, title: d?.title ?? s.topic.title, topicId: s.topicId });
+    // 栏目 → 视频类型（面诊报告里定的）
+    const col = report?.columns.find(c => c.name === s.column);
+    setGenSeed({ copy: d ? copyText(d) : `${s.topic.title}\n${s.topic.hook}`, title: d?.title ?? s.topic.title, topicId: s.topicId, ...(col ? { type: col.type as VideoType } : {}) });
     nav('gen');
   };
   const writeCopy = async (s: SlotView) => {
-    try { const r = await api.genCopy(s.topicId, { len: 45 }); await api.saveDraft(r.draft); toast('AI 写好了一版文案'); data.reload(); } catch (e) { fail(e); }
+    try { const r = await api.writeCopy({ topicId: s.topicId, column: s.column }); toast(r.used.length ? `写好了，用了知识库里的 ${r.used.length} 条素材` : 'AI 写好了一版文案'); data.reload(); } catch (e) { fail(e); }
   };
 
   // 今天要做的：只列需要学员拍板或动手的
@@ -95,16 +99,12 @@ export function OpsPage() {
   reviewed.forEach(s => byCol.set(s.column, [...(byCol.get(s.column) ?? []), s.progress!.metrics!.views]));
   const best = [...byCol.entries()].map(([c, v]) => [c, v.reduce((a, x) => a + x, 0) / v.length] as const).sort((a, b) => b[1] - a[1])[0];
 
-  return <section className="view on" id="v-ops"><div className="vb">
-    <div className="hero" style={{ paddingTop: 44 }}>
-      <h1 className="d2">AI 运营</h1>
-      <p className="sub s m">AI 把接下来两周要发的内容一路推到成片，你只在三处拍板：通过选题、确认样片、发完点「已发布」。</p>
-      <div className="personas" id="accts" role="group" aria-label="账号" style={{ marginTop: 20 }}>
+  return <div id="v-opsplan">
+    <div className="wrap" style={{ maxWidth: 1024 }}>
+      <div className="personas" id="accts" role="group" aria-label="账号" style={{ marginTop: 28 }}>
         {plans.map((x, i) => <button key={x.plan.id} className="pill" aria-pressed={i === pi} onClick={() => setPi(i)}>{x.plan.account}</button>)}
         <button className="pill" onClick={() => sheet({ title: '加一个发布账号', body: <AddAccount onDone={r => { apply(r); setPi(r.plans.length - 1); sheet(null); toast('在「AI 打法」里设发布的日子和时间'); }} /> })}>＋ 账号</button>
       </div>
-    </div>
-    <div className="wrap" style={{ maxWidth: 1024 }}>
       <div className="opsauto card">
         <div style={{ flex: 1, minWidth: 260 }}><p className="t2">托管程度</p><p className="xs m3" style={{ marginTop: 4 }}>{AUTO.find(a => a[0] === p.auto)?.[2]}。不会自动发布，没拍板的内容不往下走。</p></div>
         <div id="opsAuto"><Seg value={p.auto} options={AUTO.map(a => a[0])} render={v => AUTO.find(a => a[0] === v)![1]} onChange={v => patch({ auto: v })} /></div>
@@ -148,9 +148,9 @@ export function OpsPage() {
 
       <div className="row" style={{ margin: '40px 0 12px', alignItems: 'flex-end' }}><div style={{ flex: 1 }}><h2 className="t1">复盘</h2><p className="s m" style={{ marginTop: 4 }}>发布后 24 小时填一次数据。可以导出表格，贴进助教的学员跟踪表。</p></div><button className="btn g sm" id="opsCsv" onClick={exportCsv}>导出表格</button></div>
       <div className="list" id="opsReview">{reviewed.length ? reviewed.map(s => <div key={s.date}><span>{s.label} · {s.topic.title}<br /><span className="xs m3">{s.column}</span></span><span className="v">播放 {s.progress!.metrics!.views} · 赞 {s.progress!.metrics!.likes} · 私信 {s.progress!.metrics!.leads}</span></div>) : <div><span className="m">还没有回填的数据</span></div>}</div>
-      <p className="note" style={{ textAlign: 'center', marginTop: 26 }}>到点提醒在页面里和浏览器通知里；自动发布到平台、自动抓取播放数据需要平台授权，二期再做。</p>
+      <p className="note" style={{ textAlign: 'center', marginTop: 26 }}>不会自动生成视频，也不会自动发布；自动抓取播放数据需要平台授权，二期再做。</p>
     </div>
-  </div></section>;
+  </div>;
 }
 
 function PublishCard({ s, draft, job, onDone }: { s: SlotView; draft?: CopyDraft; job: Job | null; onDone: () => void }) {

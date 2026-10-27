@@ -120,12 +120,19 @@ ${imageKeys.length ? `附了 ${imageKeys.length} 张现场图。` : ''}
   };
 
   const copy: CopyProvider = {
-    async generate(ctx, t, { kind, len, tone, version, quality }) {
+    async generate(ctx, t, { kind, len, tone, version, quality, materials, habits, avoid, column, tags }) {
       const n = PARA[len] ?? 4, biz = ctx.persona.biz[0], fam = FAMILIES[biz.tpl];
+      // 知识库这一层：只给系统挑好的几条素材，并告诉模型怎么用（用细节说话、资历不直说、只用一次）
+      const kb = materials?.length ? `\n这条只用下面这些素材（来自本人知识库，不要编别的经历和数字）：\n${materials.map((m, i) => `${i + 1}. 【${m.kind}】${m.text}`).join('\n')}\n用法：挑 1–2 条最贴题的，用具体的人、事、数字讲出来；「履历」类不要直接报年限和头衔，要化成一个细节或一句判断；同一个事实只出现一次。` : '';
+      const voice = habits?.length ? `\n本人平时这样说话（只学语气和句子长短，不要照抄、不要硬塞口头禅）：${habits.join(' / ')}` : '';
+      const no = avoid?.length ? `\n不要提：${avoid.join('、')}` : '';
+      const col = column ? `\n栏目：${column}${tags?.length ? `；人设标签：${tags.join('、')}` : ''}` : '';
       const r = await chat(ctx, `为选题写一条${kind}，目标时长 ${len} 秒（口播约每秒 4.5 字）。语气：${tone}。这是第 ${version} 版，和之前的写法要有区别。
 选题：${t.title}
 开头参考：${t.hook}
 方向：${t.dir}
+${kb}${voice}${no}${col}
+写法：像本人对着镜头说话——短句、有判断、有具体细节；不要排比、对仗、成语堆砌，不要每段都升华，不要硬加语气词。
 要求：标题 3 个；开头钩子 3 个（一句话）；正文 ${n} 段，每段对应一个镜头，**只写这一镜要说出口的话**，不要写镜头说明、不要写「口播：」「第几段」；开头 + 正文 + 结尾合计约 ${Math.round(len * 4.5)} 字（每段不超过 ${Math.round((len * 4.5) / (n + 1))} 字）；结尾引导落到「${ctx.persona.goal}」；话题标签 5 个（带 #）。
 ${quality === 'fine' ? '这是「精写」：多花心思在开头钩子和细节画面感上，句子要有节奏，少用套话。\n' : ''}输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9, quality ?? 'fast');
       return {
@@ -133,11 +140,29 @@ ${quality === 'fine' ? '这是「精写」：多花心思在开头钩子和细�
         body: r.body.map(spokenOnly).filter(Boolean), shots: r.body.map((_, i) => fam[Math.min(i + 1, fam.length - 1)].d), cta: r.cta, tags: r.tags, live: 70, version,
       };
     },
-    async rewrite(ctx, d, how) {
-      const ask = { live: '改得更口语、更像真人在说话，加一点语气词，不改意思', short: '每段都缩短，删掉修饰，意思不变', long: '在倒数第二段前补一段有细节的内容', alt: '换一种说法，意思不变' }[how];
-      const r = await chat(ctx, `${ask}。原正文（JSON 数组）：${JSON.stringify(d.body)}。输出：{"body":[]}`, z.object({ body: z.array(z.string().max(400)).min(1).max(12) }), 0.7);
+    async rewrite(ctx, d, how, hook) {
+      const ask = { live: '改得更像本人对着镜头说话：短句、具体、有判断；不要硬加语气词、不要排比，不改意思', short: '每段都缩短，删掉修饰，意思不变', long: '在倒数第二段前补一段有细节的内容', alt: '换一种说法，意思不变' }[how];
+      const extra = how === 'alt' && hook.startsWith('去掉这些 AI 腔') ? `。${hook}` : '';
+      const r = await chat(ctx, `${ask}${extra}。原正文（JSON 数组）：${JSON.stringify(d.body)}。输出：{"body":[]}`, z.object({ body: z.array(z.string().max(400)).min(1).max(12) }), 0.7);
       const changed = r.body.filter((x, i) => x !== d.body[i]).length;
       return { draft: { ...d, body: r.body, live: how === 'live' ? Math.min(94, d.live + 14) : d.live }, changed };
+    },
+    async diagnose(ctx, qa) {
+      const r = await chat(ctx, `你是大哲 IP 研究院的定位顾问，按一对一面诊的方法，根据下面的问答给这位创作者做 IP 定位。
+问答：
+${qa.map(x => `【${x.section}】问：${x.q}\n答：${x.a}`).join('\n')}
+要求：标签必须来自回答里反复出现、能区分他和同行的东西（比如「千平大宅」），不要泛泛的词；个性标签要落到对做内容的意义（如「敢下判断」），不要只写 MBTI；栏目 3–5 个，覆盖流量 / 转化 / 人设三类，每个栏目写清用什么视频类型（real 实拍出片、talk 真人口播、tour 空间漫游、house 改造前后、product 产品种草、site 工地记录、story 案例故事、vlog）、每周几条、为什么。
+输出：{"tags":{"personality":[],"pro":[],"brand":[]},"position":"一句话定位","account":"现有账号的问题","visual":"视觉建议","nicknames":[],"bio":"简介","columns":[{"name":"","kind":"流量|转化|人设","type":"","perWeek":1,"why":""}]}`,
+        z.object({ tags: z.object({ personality: z.array(z.string().max(20)).max(5), pro: z.array(z.string().max(20)).max(5), brand: z.array(z.string().max(20)).max(5) }), position: z.string().max(80), account: z.string().max(300), visual: z.string().max(300), nicknames: z.array(z.string().max(30)).max(4), bio: z.string().max(200),
+          columns: z.array(z.object({ name: z.string().max(20), kind: z.enum(['流量', '转化', '人设']), type: z.string().max(10), perWeek: z.number().int().min(1).max(7), why: z.string().max(80) })).min(1).max(6) }), 0.6, 'fine');
+      return r;
+    },
+    async footage(ctx, clips, idea, materials) {
+      const r = await chat(ctx, `用户拍了 ${clips.length} 段素材，要串成一条画外音视频。按素材顺序，每段写一句画外音（第 i 句配第 i 段），口语、具体，第一句是钩子，最后一句落到转化目标。
+${idea ? `用户想讲的：${idea}\n` : ''}素材：
+${clips.map((c, i) => `${i + 1}. ${c.note}`).join('\n')}
+${materials.length ? `可以用的本人素材：${materials.join(' / ')}\n` : ''}输出：{"lines":[]}（正好 ${clips.length} 句）`, z.object({ lines: z.array(z.string().max(120)).min(1).max(30) }), 0.8);
+      return clips.map((_, i) => r.lines[i] ?? '');
     },
     async humanize(ctx, text) {
       const r = await chat(ctx, `把下面这段文案改得更口语、更像真人在说话，意思不变，长度差不多。原文：${text}\n输出：{"text":""}`, z.object({ text: z.string().max(6000) }), 0.7);

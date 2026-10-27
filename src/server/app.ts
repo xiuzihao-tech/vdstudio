@@ -13,11 +13,12 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
-import { JobRunner, opsTick, withProgress, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
+import { JobRunner, opsTick, withProgress, writeCopy, runDiagnosis, saveAnswer, footageCopy, describeAsset, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
 import { PERSONAS, MODELS, CADENCE, TUDOU_CAPS, withCaps } from '../shared/catalog.ts';
 import { checkCopy, findBanned } from '../shared/copy.ts';
 import { genCost, genIssues, setVideoModels, shotsOf, videoModels } from '../shared/gen.ts';
 import { voiceSecs } from '../shared/video.ts';
+import { DIAG_PRICE, DIAG_QUESTIONS } from '../shared/kb.ts';
 import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
 import type { CopyDraft, Workspace } from '../shared/types.ts';
@@ -204,6 +205,63 @@ export function createApp(opts: AppOptions) {
     return { voiceClone: 'busy' };
   });
 
+  /* ---------- 知识库 ---------- */
+  const kbSchema = z.object({ section: z.enum(['personal', 'pro', 'brand']), kind: z.enum(['story', 'opinion', 'detail', 'quote', 'resume', 'habit', 'avoid']), text: z.string().trim().min(1).max(1000), tags: z.array(z.string().max(12)).max(8).default([]) });
+  r.get('/api/kb', req => ({ items: repo.kb(W(req).id) }));
+  r.post('/api/kb', async req => { const ws = W(req), d = await body(req, kbSchema); repo.addKb(ws.id, d); ops.track(ctx(req).owner, ws.id, 'kb_added', { kind: d.kind }); return { items: repo.kb(ws.id) }; });
+  r.put('/api/kb/:id', async req => { const ws = W(req), d = await body(req, kbSchema.partial()); if (!repo.updateKb(ws.id, req.params.id, d)) throw new HttpError(404, '这条不存在'); return { items: repo.kb(ws.id) }; });
+  r.delete('/api/kb/:id', req => { const ws = W(req); repo.deleteKb(ws.id, req.params.id); return { items: repo.kb(ws.id) }; });
+
+  /* ---------- AI 面诊（AI 运营的入口，付费解锁） ---------- */
+  r.get('/api/diagnosis', req => ({ diagnosis: repo.diagnosis(W(req).id), questions: DIAG_QUESTIONS, price: DIAG_PRICE }));
+  r.post('/api/diagnosis/unlock', req => {
+    const ws = W(req), d = repo.diagnosis(ws.id);
+    if (!d.unlocked) {
+      if (!repo.charge(ws.id, DIAG_PRICE, '解锁 AI 运营（含 AI 面诊）', null)) throw new HttpError(402, `余额不足：需要 ${DIAG_PRICE} 点`);
+      repo.saveDiagnosis(ws.id, { ...d, unlocked: true }); ops.track(ctx(req).owner, ws.id, 'diag_unlocked');
+    }
+    return { diagnosis: repo.diagnosis(ws.id) };
+  });
+  r.put('/api/diagnosis/answer', async req => {
+    const ws = W(req), d = await body(req, z.object({ qid: z.string().max(10), text: z.string().max(2000) }));
+    if (!repo.diagnosis(ws.id).unlocked) throw new HttpError(402, '先解锁 AI 运营');
+    saveAnswer(repo, ws, d.qid, d.text.trim());
+    return { diagnosis: repo.diagnosis(ws.id) };
+  });
+  r.post('/api/diagnosis/report', async req => {
+    const ws = W(req), d = repo.diagnosis(ws.id);
+    if (!d.unlocked) throw new HttpError(402, '先解锁 AI 运营');
+    if (Object.values(d.answers).filter(x => x.trim()).length < 3) throw new HttpError(400, '至少回答 3 个问题，报告才准');
+    const report = await runDiagnosis(repo, providers, ws);
+    ops.track(ctx(req).owner, ws.id, 'diag_report');
+    return { diagnosis: { ...repo.diagnosis(ws.id), report } };
+  });
+  r.put('/api/diagnosis/report', async req => {
+    const ws = W(req), d = repo.diagnosis(ws.id);
+    if (!d.report) throw new HttpError(404, '还没有报告');
+    const p = await body(req, z.object({ tags: z.object({ personality: z.array(z.string().max(20)).max(6), pro: z.array(z.string().max(20)).max(6), brand: z.array(z.string().max(20)).max(6) }).optional(),
+      columns: z.array(z.object({ name: z.string().max(20), kind: z.enum(['流量', '转化', '人设']), type: z.string().max(10), perWeek: z.number().int().min(1).max(7), why: z.string().max(80) })).max(6).optional() }));
+    const report = { ...d.report, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)) };
+    repo.saveDiagnosis(ws.id, { ...d, report });
+    if (p.columns) { const w = [0.8, 0.6, 0.45, 0.3, 0.2]; for (const plan of repo.plans(ws.id)) repo.savePlan(ws.id, { ...plan, mix: p.columns.slice(0, 5).map((c, i) => ({ n: c.name, v: w[i] })) }); }
+    return { diagnosis: repo.diagnosis(ws.id) };
+  });
+
+  /* ---------- 写文案（知识库 → 文案） ---------- */
+  r.post('/api/copy/write', async req => {
+    const ws = W(req), d = await body(req, z.object({ idea: z.string().max(200).default(''), topicId: z.string().optional(), len: z.union([z.literal(30), z.literal(45), z.literal(60), z.literal(90)]).default(45), kb: z.boolean().default(true), column: z.string().max(20).optional() }));
+    const t = d.topicId ? topicOr404(ws, d.topicId) : repo.insertTopic(ws.id, { cat: catIndex(ws.persona), title: (d.idea || personaOf(ws.persona).focus).slice(0, 60), hook: '', why: '自己的想法', dir: '项目案例', type: 0, heat: 1, k: personaOf(ws.persona).att[0], ageMonths: 0, source: 'ai' });
+    const out = await writeCopy(repo, providers, ws, t, { len: d.len, kb: d.kb, column: d.column });
+    ops.track(ctx(req).owner, ws.id, 'copy_written', { kb: d.kb, used: out.used.length });
+    return { draft: out.draft, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })), cliches: out.cliches };
+  });
+  r.post('/api/gen/footage', async req => {
+    const ws = W(req), d = await body(req, z.object({ assetIds: z.array(z.string()).min(1).max(20), idea: z.string().max(200).default('') }));
+    const out = await footageCopy(repo, providers, ws, d.assetIds, d.idea);
+    ops.track(ctx(req).owner, ws.id, 'footage_copy', { clips: d.assetIds.length });
+    return { lines: out.lines, assets: out.assets, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })) };
+  });
+
   /* ---------- 数字人形象 ---------- */
   // 上传本人视频（真人分身）或照片（照片形象），必须带本人授权（念过带随机数字的授权声明）。接上数字人服务前：审核几秒后变成可用（示意）
   r.post('/api/avatars', async req => {
@@ -241,7 +299,8 @@ export function createApp(opts: AppOptions) {
   });
 
   /* ---------- 素材 ---------- */
-  r.get('/api/assets', req => ({ assets: repo.assets(W(req).id) }));
+  // 素材都带一句「拍了什么」（AI 看懂后的说明；接上看视频的模型前按场景和文件名给）
+  r.get('/api/assets', req => ({ assets: repo.assets(W(req).id).map(a => ({ ...a, note: a.note || describeAsset(a) })) }));
   r.post('/api/assets', async req => {
     const ws = W(req), mime = String(req.raw.headers['content-type'] ?? 'application/octet-stream');
     if (!/^(image|video|audio)\//.test(mime)) throw new HttpError(415, '只支持图片、视频、音频');
@@ -252,7 +311,9 @@ export function createApp(opts: AppOptions) {
     await storage.put(file, buf, mime);
     const keys = ['entry', 'live', 'kit', 'bed', 'stone', 'site', 'soft', 'store', 'hotel', 'new'];
     ops.track(ctx(req).owner, ws.id, 'asset_uploaded', { mime, size: buf.length });
-    return repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: keys[repo.assets(ws.id).length % keys.length], file, mime, size: buf.length, source: String(req.raw.headers['x-source'] ?? '上传').slice(0, 20) });
+    const a = repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: keys[repo.assets(ws.id).length % keys.length], file, mime, size: buf.length, source: String(req.raw.headers['x-source'] ?? '上传').slice(0, 20) });
+    repo.setAssetNote(ws.id, a.id, describeAsset(a));
+    return { ...a, note: describeAsset(a) };
   });
   r.delete('/api/assets/:id', async req => {
     const ws = W(req), a = repo.assetsByIds(ws.id, [req.params.id])[0];

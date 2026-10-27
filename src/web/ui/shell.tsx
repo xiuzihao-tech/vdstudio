@@ -8,8 +8,8 @@ import { PointsSheet } from './points.tsx';
 import type { Job } from '../../shared/types.ts';
 
 // MVP 导航：4 个入口。选题文案、制作台、首页先隐藏（代码保留，选题和文案在 dazheip 做）
-const TABS: [View, string, string][] = [['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['lib', '我的作品', '作品'], ['me', '形象与声音', '形象']];
-const MOBILE: View[] = ['gen', 'ops', 'lib', 'me'];
+const TABS: [View, string, string][] = [['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['me', '知识库与形象', '知识库'], ['lib', '我的作品', '作品']];
+const MOBILE: View[] = ['gen', 'ops', 'me', 'lib'];
 const ICON: Record<string, string> = { gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
 const THEMES: [string, string][] = [['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };

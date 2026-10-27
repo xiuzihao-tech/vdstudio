@@ -1,5 +1,8 @@
-// 形象与声音：声音复刻、真人分身（本人视频，只改嘴型）、照片形象（一张照片驱动）。都要本人授权：念一句带随机数字的授权声明。
+// 知识库与形象：知识库（个人 / 专业 / 品牌三块，按条存能讲出来的素材）；形象与声音：声音复刻、真人分身（本人视频，只改嘴型）、照片形象（一张照片驱动）。都要本人授权：念一句带随机数字的授权声明。
 import { useMemo, useState } from 'react';
+import { useData } from '../store.tsx';
+import { Seg } from '../ui/kit.tsx';
+import { KIND_HINT, KIND_NAME, SECTION_HINT, SECTION_NAME, type KbKind, type KbSection } from '../../shared/kb.ts';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
 import { Ph, Src, pickFiles } from '../ui/kit.tsx';
@@ -10,13 +13,59 @@ const ST: Record<string, [string, string]> = { none: ['', '还没建'], busy: ['
 const SAMPLE = '大家好，我是这个账号的主理人。今天用一分钟，讲清楚一个装修里最容易后悔的地方。';
 
 export function MePage() {
+  const { route, nav } = useApp();
+  const tab = route.sub === 'avatar' ? 'avatar' : 'kb';
+  return <section className="view on" id="v-me"><div className="vb wrap" style={{ maxWidth: 1080 }}>
+    <div className="hero tight" style={{ textAlign: 'left', padding: '44px 0 0' }}>
+      <p className="eyebrow">让 AI 更懂你</p>
+      <h1 className="d2">知识库与形象</h1>
+      <p className="s m" style={{ marginTop: 8 }}>知识库让文案像你写的，形象和声音让视频像你拍的。都只用你本人的。</p>
+      <div style={{ marginTop: 20 }} id="meTabs"><Seg value={tab} options={['kb', 'avatar'] as const} render={v => v === 'kb' ? '知识库' : '形象与声音'} onChange={v => nav({ view: 'me', sub: v }, true)} /></div>
+    </div>
+    {tab === 'kb' ? <Kb /> : <Avatars />}
+  </div></section>;
+}
+
+function Kb() {
+  const { fail, toast, nav } = useApp();
+  const d = useData(() => api.kb(), []);
+  const [form, setForm] = useState<{ section: KbSection; kind: KbKind; text: string } | null>(null);
+  const items = d.data?.items ?? [];
+  const add = async () => { if (!form?.text.trim()) return; try { d.set(await api.addKb({ ...form, text: form.text.trim() })); setForm(null); toast('记下了'); } catch (e) { fail(e); } };
+  const kinds = Object.keys(KIND_NAME) as KbKind[];
+  return <>
+    <div className="howcard">
+      <b>写文案时怎么用</b>
+      <p className="s m">每写一条，系统按选题挑 1–3 条最相关、最近没用过的素材交给 AI；「履历」最多隔几条用一次，「说话习惯」只学语气，「不说的话」不会出现。面诊的回答也会自动存进来。</p>
+      {!items.length && <button className="btn y" onClick={() => nav('ops')}>去做 AI 面诊，一次填好 →</button>}
+    </div>
+    <div className="kbgrid" id="kbGrid">{(['personal', 'pro', 'brand'] as KbSection[]).map(sec => {
+      const list = items.filter(i => i.section === sec);
+      return <div className="kbcol" key={sec}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><p className="t2">{SECTION_NAME[sec]}</p><span className="xs m3">{list.length} 条</span></div>
+        <p className="xs m3" style={{ marginTop: 4 }}>{SECTION_HINT[sec]}</p>
+        <div className="kbl">{list.map(i => <div className="kbi" key={i.id}>
+          <div className="row" style={{ gap: 6 }}><span className={`tag k-${i.kind}`}>{KIND_NAME[i.kind]}</span><span className="xs m3" style={{ flex: 1 }}>{i.used ? `用过 ${i.used} 次` : '还没用过'}{i.source.startsWith('面诊') ? ' · 来自面诊' : ''}</span>
+            <button className="lnk xs" aria-label="删除" onClick={async () => { try { d.set(await api.deleteKb(i.id)); } catch (e) { fail(e); } }}>删除</button></div>
+          <p className="s" style={{ marginTop: 6 }}>{i.text}</p>
+        </div>)}</div>
+        {form?.section === sec ? <div className="kbform">
+          <select className="fld sm" aria-label="类型" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as KbKind })}>{kinds.map(k => <option key={k} value={k}>{KIND_NAME[k]}</option>)}</select>
+          <p className="xs m3">{KIND_HINT[form.kind]}</p>
+          <textarea className="fld" rows={3} autoFocus value={form.text} onChange={e => setForm({ ...form, text: e.target.value })} placeholder="一条只写一件事" />
+          <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => setForm(null)}>取消</button><button className="btn y sm" data-kbsave={sec} disabled={!form.text.trim()} onClick={add}>保存</button></div>
+        </div> : <button className="kbadd" data-kbadd={sec} onClick={() => setForm({ section: sec, kind: sec === 'brand' ? 'detail' : 'story', text: '' })}>＋ 加一条{SECTION_NAME[sec]}素材</button>}
+      </div>;
+    })}</div>
+  </>;
+}
+
+function Avatars() {
   const { session, setGenSeed, nav } = useApp();
   const clone = useCloneVoice();
   const ws = session!.workspace, av = ws.avatars ?? { clone: 'none', photo: 'none' };
   const tryIt = (kind: 'clone' | 'photo') => { setGenSeed({ copy: SAMPLE, type: 'talk', avatar: kind, voice: ws.voiceClone === 'ready' ? 'me' : 'p1', draft: true }); nav('gen'); };
-  return <section className="view on" id="v-me"><div className="vb wrap" style={{ maxWidth: 980, paddingTop: 44 }}>
-    <h1 className="d2">形象与声音</h1>
-    <p className="s m" style={{ marginTop: 8 }}>设一次，之后每条视频都能用。只能用你本人的形象和声音，每次都要本人授权。</p>
+  return <>
 
     <div className="mecards">
       <div className="card" id="meVoice">
@@ -42,7 +91,7 @@ export function MePage() {
       </div>
       <p className="note">删除形象后，供应商那边的资料会一起删掉。成片都会带「AI 生成」标识，不能关闭。</p>
     </div>
-  </div></section>;
+  </>;
 }
 
 function AvatarCard({ kind, state, onTry }: { kind: 'clone' | 'photo'; state: string; onTry: () => void }) {

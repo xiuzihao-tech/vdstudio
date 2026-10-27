@@ -1,4 +1,5 @@
 // 前端 API 客户端：所有请求都走这里，错误统一抛 ApiError（message 是可直接给用户看的中文）。
+import type { DiagQuestion, DiagReport, Diagnosis, KbItem } from '../shared/kb.ts';
 import type { SlotMetrics, Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
@@ -95,6 +96,17 @@ export const api = {
   upload: (f: File, source = '上传') => call<Asset>('POST', '/api/assets', f, { 'content-type': f.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(f.name), 'x-source': encodeURIComponent(source) }),
   deleteAsset: (id: string) => call<{ ok: true }>('DELETE', `/api/assets/${id}`),
 
+  kb: () => call<{ items: KbItem[] }>('GET', '/api/kb'),
+  addKb: (k: Pick<KbItem, 'section' | 'kind' | 'text'> & { tags?: string[] }) => call<{ items: KbItem[] }>('POST', '/api/kb', k),
+  updateKb: (id: string, k: Partial<Pick<KbItem, 'section' | 'kind' | 'text' | 'tags'>>) => call<{ items: KbItem[] }>('PUT', `/api/kb/${id}`, k),
+  deleteKb: (id: string) => call<{ items: KbItem[] }>('DELETE', `/api/kb/${id}`),
+  diagnosis: () => call<{ diagnosis: Diagnosis; questions: DiagQuestion[]; price: number }>('GET', '/api/diagnosis'),
+  unlock: () => call<{ diagnosis: Diagnosis }>('POST', '/api/diagnosis/unlock'),
+  answer: (qid: string, text: string) => call<{ diagnosis: Diagnosis }>('PUT', '/api/diagnosis/answer', { qid, text }),
+  makeReport: () => call<{ diagnosis: Diagnosis }>('POST', '/api/diagnosis/report'),
+  editReport: (p: Partial<Pick<DiagReport, 'tags' | 'columns'>>) => call<{ diagnosis: Diagnosis }>('PUT', '/api/diagnosis/report', p),
+  writeCopy: (o: { idea?: string; topicId?: string; len?: number; kb?: boolean; column?: string }) => call<{ draft: CopyDraft; used: { id: string; kind: string; text: string }[]; cliches: string[] }>('POST', '/api/copy/write', o),
+  footage: (assetIds: string[], idea: string) => call<{ lines: string[]; assets: { id: string; note: string }[]; used: { id: string; kind: string; text: string }[] }>('POST', '/api/gen/footage', { assetIds, idea }),
   genVoice: (lines: string[], speed: number, voice: string) => call<{ provider: string; secs: number[] }>('POST', '/api/gen/voice', { lines, speed, voice }),
   createAvatar: (kind: 'clone' | 'photo', file: Blob | null) => call<{ avatars: Workspace['avatars'] }>('POST', '/api/avatars', file ?? new Blob(['demo']), { 'content-type': file?.type || 'application/octet-stream', 'x-kind': kind, 'x-consent': 'yes', ...(file ? {} : { 'x-sample': 'demo' }) }),
   deleteAvatar: (kind: 'clone' | 'photo') => call<{ avatars: Workspace['avatars'] }>('DELETE', `/api/avatars/${kind}`),

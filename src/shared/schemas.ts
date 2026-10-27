@@ -63,7 +63,7 @@ export const genSettingsSchema = z.object({
   res: z.enum(['480p', '720p', '1080p', '4K']), draft: z.boolean(),
   voice: z.enum(['me', 'p1', 'p2', 'p3', 'none']), speed: z.number().min(0.8).max(1.3),
   bgm: z.string(), subs: z.boolean(), ambience: z.boolean(), cover: z.boolean(), style: z.string().default('AI 推荐'),
-  type: z.enum(['talk', 'tour', 'house', 'product', 'site', 'story', 'vlog']).optional(),
+  type: z.enum(['real', 'talk', 'tour', 'house', 'product', 'site', 'story', 'vlog']).optional(), sub: z.string().max(30).optional(),
   avatar: z.enum(['none', 'clone', 'photo']).optional(),
   emotion: z.string().max(10).optional(), pause: z.number().min(0).max(1).optional(), bgmVol: z.number().min(0).max(1).optional(), seed: z.boolean().optional(),
   shots: z.array(shotSpecSchema).max(40).optional(),
@@ -77,7 +77,7 @@ export const planPatchSchema = z.object({
   hour: z.number().min(6).max(23.5).multipleOf(0.5).optional(),
   needOk: z.boolean().optional(), budget: z.number().int().min(0).max(100000).optional(), running: z.boolean().optional(),
   mix: z.array(z.object({ n: z.string(), v: z.number().min(0.05).max(1) })).max(8).optional(),
-  auto: z.enum(['plan', 'copy', 'sample']).optional(),
+  auto: z.enum(['plan', 'copy']).optional(),
 });
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const slotActionSchema = z.object({

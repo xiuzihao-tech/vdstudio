@@ -3,13 +3,13 @@ import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
 import { draftResOf, GEN_STEPS, genCost, isDraft, modelOf, shotsOf } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
 import { WEEKDAYS } from '../shared/catalog.ts';
-import { buildStoryboard, splitSentences, suggestType, typeOf } from '../shared/video.ts';
+import { DIAG_QUESTIONS, KIND_NAME, cliches, pickMaterials } from '../shared/kb.ts';
 import { composeVideo, hasFfmpeg } from './compose.ts';
 import { join } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Storage } from './storage/index.ts';
-import type { CopyDraft, SlotProgress, Asset, GenSettings, Job, PlannedShot, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
+import type { CopyLen, SlotProgress, Asset, GenSettings, Job, PlannedShot, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
 import { tx, type DB } from './db.ts';
@@ -104,52 +104,80 @@ export function withProgress(repo: Repo, ws: Workspace, plan: Plan, days: Return
 }
 
 /**
- * AI 运营的定时动作（每 10 分钟跑一次，打开 AI 运营页时也跑）：
- * 托管到「自动写文案」：已固定、3 天内要发、还没文案的，按人设写一版；
- * 托管到「自动出样片」：2 天内要发、有文案、还没样片的，按推荐类型出样片（超出每月上限就停）。
- * 选题待审的不动——没拍板的内容不往下走。
+ * AI 运营的定时动作（打开 AI 运营页时跑一次，之后接定时任务）：
+ * 托管到「自动写文案」：已固定、3 天内要发、还没文案的，按人设和知识库写一版。
+ * 10/27 会后取消了自动出样片：任何档位都不会自动花点数生成视频。选题待审的不动。
  */
-export async function opsTick(repo: Repo, providers: Providers, runner: JobRunner, ws: Workspace, today = todayIso()): Promise<string[]> {
+export async function opsTick(repo: Repo, providers: Providers, _runner: JobRunner, ws: Workspace, today = todayIso()): Promise<string[]> {
   const did: string[] = [];
-  const p = personaOf(ws.persona);
   for (const plan of repo.plans(ws.id)) {
-    if (!plan.running || plan.auto === 'plan') continue;
+    if (!plan.running || plan.auto !== 'copy') continue;
     ensureSchedule(repo, ws, plan, today);
     for (const s of repo.slots(plan.id)) {
       if (s.date <= today || s.pin !== 'fixed' || !isPublishDay(plan, s.date)) continue;
       const days = Math.round((Date.parse(s.date) - Date.parse(today)) / 864e5);
-      const t = repo.topic(ws.id, s.topicId); if (!t) continue;
-      let draft = repo.draftByTopic(ws.id, t.id);
-      if (!draft && days <= 3) {
-        try {
-          const g = await providers.copy.generate({ persona: p, positioning: ws.positioning }, t, { kind: '口播', len: 45, tone: ws.positioning.tone, version: 1 });
-          draft = repo.upsertDraft(ws.id, { ...g, assetIds: [] });
-          did.push(`写好了 ${s.date.slice(5)} 的文案：${t.title}`);
-        } catch (e) { console.warn('AI 运营写文案失败：', (e as Error).message); }
-      }
-      if (plan.auto !== 'sample' || !draft || days > 2) continue;
-      if (repo.jobs(ws.id).some(j => (j.input as GenSettings)?.topicId === t.id)) continue;
-      const g = autoSettings(repo, ws, draft);
-      const month = today.slice(0, 7);
-      const mineTopics = new Set(repo.slots(plan.id).map(x => x.topicId));
-      const spent = repo.jobs(ws.id).filter(j => j.createdAt.slice(0, 7) === month && mineTopics.has((j.input as GenSettings)?.topicId ?? '')).reduce((a, j) => a + j.cost, 0);
-      if (spent + genCost(g) > plan.budget) { did.push(`这个月的预算快用完了，${s.date.slice(5)} 的样片先不出`); continue; }
-      const r = runner.startVideo(repo.ws(ws.id)!, g, false, draft.title);
-      did.push(r.ok ? `开始出 ${s.date.slice(5)} 的样片：${draft.title}` : `${s.date.slice(5)} 的样片没出：${r.error}`);
+      const t = repo.topic(ws.id, s.topicId); if (!t || days > 3 || repo.draftByTopic(ws.id, t.id)) continue;
+      try { await writeCopy(repo, providers, ws, t, { column: s.column }); did.push(`写好了 ${s.date.slice(5)} 的文案：${t.title}`); }
+      catch (e) { console.warn('AI 运营写文案失败：', (e as Error).message); }
     }
   }
   return did;
 }
 
-/** AI 运营自动出样片用的设置：按文案推荐类型、按句拆分镜、用工作区素材；数字人可用才出镜 */
-export function autoSettings(repo: Repo, ws: Workspace, draft: CopyDraft): GenSettings {
-  const copy = [draft.hook, ...draft.body, draft.cta].filter(Boolean).join('\n');
-  const type = suggestType(copy), spec = typeOf(type), m = modelOf(spec.model);
-  const assets = repo.assets(ws.id).filter(a => a.type !== '人物' && a.type !== '音频').slice(0, 6);
-  const avatar = ws.avatars.clone === 'ready' ? 'clone' : ws.avatars.photo === 'ready' ? 'photo' : 'none';
-  const shots = buildStoryboard(splitSentences(copy), { type, model: m, assets: assets.map(a => ({ id: a.id, type: a.type })), avatar: avatar !== 'none' });
-  return { copy, prompt: '', title: draft.title, topicId: draft.topicId, assetIds: assets.map(a => a.id), model: spec.model, len: shots.reduce((a, x) => a + x.dur, 0), ratio: '9:16', res: '720p', draft: true,
-    voice: ws.voiceClone === 'ready' ? 'me' : 'p1', speed: 1, bgm: spec.bgm, subs: true, ambience: true, cover: false, style: 'AI 推荐', type, avatar, shots };
+/* ================= 知识库 → 文案 ================= */
+/**
+ * 写一条文案：系统先从知识库挑素材（相关、最近没用过、履历有上限），把说话习惯当语气参考、不说的话当禁区，
+ * 交给文案模型；写完自检 AI 腔，命中就让模型改一次；最后记下用了哪几条（下次轮换）。
+ */
+export async function writeCopy(repo: Repo, providers: Providers, ws: Workspace, t: Topic, o: { len?: CopyLen; column?: string; kb?: boolean; version?: number } = {}) {
+  const items = o.kb === false ? [] : repo.kb(ws.id);
+  const picked = pickMaterials(items, `${t.title}${t.hook}${o.column ?? ''}`, { recentResume: repo.recentResume(ws.id) });
+  const habits = items.filter(i => i.kind === 'habit').map(i => i.text).slice(0, 5);
+  const avoid = items.filter(i => i.kind === 'avoid').map(i => i.text).slice(0, 8);
+  const ctx = { persona: personaOf(ws.persona), positioning: ws.positioning };
+  const report = repo.diagnosis(ws.id).report;
+  let g = await providers.copy.generate(ctx, t, { kind: '口播', len: o.len ?? 45, tone: ws.positioning.tone, version: o.version ?? 1, materials: picked.map(i => ({ kind: KIND_NAME[i.kind], text: i.text })), habits, avoid, column: o.column, tags: report ? [...report.tags.pro, ...report.tags.personality].slice(0, 6) : undefined });
+  const text = () => [g.hook, ...g.body, g.cta].join('');
+  const hits = cliches(text());
+  if (hits.length) {
+    try { const fixed = await providers.copy.rewrite(ctx, { ...g, id: '', updatedAt: '', assetIds: [] }, 'alt', `去掉这些 AI 腔：${hits.join('、')}`); g = { ...g, body: fixed.draft.body }; } catch { /* 改不了就用原稿 */ }
+  }
+  const d = repo.upsertDraft(ws.id, { ...g, assetIds: [] });
+  repo.markKbUsed(ws.id, picked.map(i => i.id), picked.map(i => i.kind));
+  return { draft: d, used: picked, cliches: cliches(text()) };
+}
+
+/** AI 面诊：回答存进知识库（每题一条），再按回答出报告；报告里的栏目同步到各账号的栏目配比 */
+export async function runDiagnosis(repo: Repo, providers: Providers, ws: Workspace) {
+  const d = repo.diagnosis(ws.id);
+  const qa = DIAG_QUESTIONS.filter(q => d.answers[q.id]?.trim()).map(q => ({ section: q.section, q: q.q, a: d.answers[q.id] }));
+  const report = { ...(await providers.copy.diagnose({ persona: personaOf(ws.persona), positioning: ws.positioning }, qa)), createdAt: new Date().toISOString() };
+  repo.saveDiagnosis(ws.id, { ...d, report });
+  const weights = [0.8, 0.6, 0.45, 0.3, 0.2];
+  for (const plan of repo.plans(ws.id)) repo.savePlan(ws.id, { ...plan, mix: report.columns.slice(0, 5).map((c, i) => ({ n: c.name, v: weights[i] })) });
+  return report;
+}
+/** 面诊回答 → 知识库条目（同一题重答就覆盖） */
+export function saveAnswer(repo: Repo, ws: Workspace, qid: string, text: string) {
+  const q = DIAG_QUESTIONS.find(x => x.id === qid); if (!q) return;
+  const d = repo.diagnosis(ws.id);
+  repo.saveDiagnosis(ws.id, { ...d, answers: { ...d.answers, [qid]: text } });
+  const old = repo.kb(ws.id).find(i => i.source === `面诊:${qid}`);
+  if (old) repo.updateKb(ws.id, old.id, { text }); else if (text.trim()) repo.addKb(ws.id, { section: q.section, kind: q.kind, text, source: `面诊:${qid}` });
+}
+
+/** 素材自动说明（AI 看懂拍了什么）：接上能看视频的模型前，按场景和文件名给一句说明 */
+const SCENE: Record<string, string> = { entry: '玄关', live: '客厅', kit: '厨房', bed: '卧室', stone: '石材台面', site: '施工现场', soft: '软装', store: '门店展厅', hotel: '民宿房间', new: '完工后的空间', old: '改造前的老房', ext: '小区外景', sales: '售楼处', person: '人物出镜' };
+export const describeAsset = (a: Pick<Asset, 'k' | 'type' | 'name'>) => `${a.type === '视频' ? '一段视频' : '一张照片'}：${SCENE[a.k] ?? '空间'}${a.name ? `（${a.name.replace(/\.[a-z0-9]+$/i, '')}）` : ''}`;
+
+/** 实拍出片：按每段素材写一句画外音，素材顺序就是镜头顺序 */
+export async function footageCopy(repo: Repo, providers: Providers, ws: Workspace, assetIds: string[], idea: string) {
+  const assets = repo.assetsByIds(ws.id, assetIds).map(a => ({ ...a, note: a.note || describeAsset(a) }));
+  const items = repo.kb(ws.id);
+  const picked = pickMaterials(items, idea + assets.map(a => a.note).join(''), { n: 2, recentResume: repo.recentResume(ws.id) });
+  const lines = await providers.copy.footage({ persona: personaOf(ws.persona), positioning: ws.positioning }, assets.map(a => ({ type: a.type, note: a.note! })), idea, picked.map(i => i.text));
+  repo.markKbUsed(ws.id, picked.map(i => i.id), picked.map(i => i.kind));
+  return { lines, assets: assets.map(a => ({ id: a.id, note: a.note })), used: picked };
 }
 
 /** 把某个选题固定到某天。若它原本排在别的未来日期，那天由 AI 补一个预选。返回原来的日期（若有） */

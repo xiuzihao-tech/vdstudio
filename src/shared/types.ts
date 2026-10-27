@@ -53,7 +53,7 @@ export interface CopyDraft {
 export type AssetType = '照片' | '视频' | '人物' | '音频';
 export interface Asset {
   id: string; type: AssetType; name: string; k: SceneKey;
-  url: string | null; mime: string | null; size: number; used: number; source: string; createdAt: string;
+  url: string | null; /** AI 看懂后的说明：拍了什么 */ note?: string | null; mime: string | null; size: number; used: number; source: string; createdAt: string;
 }
 
 /* ---------- 生成 ---------- */
@@ -66,6 +66,7 @@ export interface GenSettings {
   voice: VoiceId; speed: number; bgm: string; subs: boolean; ambience: boolean; cover: boolean; style: string;
   /** 视频类型（第 1 步）；老数据没有 = 按旧规则平均拆镜 */
   type?: VideoType;
+  /** 小类（第 1 步） */ sub?: string;
   /** 数字人：none 不出镜；clone 真人分身；photo 照片形象 */
   avatar?: AvatarMode;
   emotion?: string; pause?: number; bgmVol?: number; seed?: boolean;
@@ -102,8 +103,8 @@ export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; f
 export interface VideoOutput { /** 有镜头失败、其余照常出片 */ partial?: boolean; type?: string; draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */
-/** 托管程度：plan 只排计划；copy 自动写文案；sample 自动出样片 */
-export type AutoLevel = 'plan' | 'copy' | 'sample';
+/** 托管程度：plan 只排计划；copy 自动写文案（10/27 会后取消了自动出样片） */
+export type AutoLevel = 'plan' | 'copy';
 export interface SlotMetrics { views: number; likes: number; comments: number; leads: number }
 export interface Plan {
   auto: AutoLevel;

@@ -76,7 +76,7 @@ function Assets() {
     {!d.data ? <Skel h={200} /> : <div className="wgrid" id="assets" style={{ marginTop: 14 }}>{A.map(a => (
       <button key={a.id} className="wk pickable" data-as={a.id} aria-pressed={sel.includes(a.id)} aria-label={`选择 ${a.name}`} onClick={() => toggle(a.id)}>
         <Ph k={a.k} asset={a} /><span className="ck" aria-hidden="true">{sel.includes(a.id) ? '✓' : ''}</span><span className="ty">{a.type}</span>
-        <div className="b"><p className="s">{a.name}</p><p className="xs" style={{ color: a.used >= 4 ? 'var(--warn)' : 'var(--tx3)' }}>{a.used >= 4 ? '已用 4 次 · 建议补拍' : `已用 ${a.used} 次`} · {a.source}{a.size ? ` · ${(a.size / 1024 / 1024).toFixed(1)}MB` : ''}</p></div>
+        <div className="b"><p className="s">{a.name}</p>{a.note && <p className="xs m3 anote">{a.note}</p>}<p className="xs" style={{ color: a.used >= 4 ? 'var(--warn)' : 'var(--tx3)' }}>{a.used >= 4 ? '已用 4 次 · 建议补拍' : `已用 ${a.used} 次`} · {a.source}{a.size ? ` · ${(a.size / 1024 / 1024).toFixed(1)}MB` : ''}</p></div>
       </button>))}</div>}
     {sel.length > 0 && <div className="selbar" id="aSel">
       <span>已选 <b>{sel.length}</b> 份</span><span className="sp" />
