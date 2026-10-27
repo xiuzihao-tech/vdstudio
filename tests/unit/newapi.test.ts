@@ -80,9 +80,20 @@ test('土豆视频：按档位选模型、带首帧（按土豆文档的字段�
   assert.equal(steps.at(-1), 5);
 });
 
-test('土豆视频：失败说明是哪一镜；没配模型给出可操作的提示', async () => {
+test('土豆视频：一镜失败（重试一次仍失败）不拖累其他镜，并说明原因；全失败才报错；没配模型给出可操作的提示', async () => {
   const v = makeNewApiVideo({ baseUrl: base, apiKey: 'k', models: { s25: 'seedance-2.5' }, pollMs: 5, concurrency: 1 });
-  await assert.rejects(v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true }, { dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {}), /第 2 镜生成失败：内容审核未通过/);
+  const before = reqs.filter(r => r.method === 'POST').length;
+  const r = await v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true }, { dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {});
+  assert.ok(r && r.shotVideos?.[0]?.startsWith('https://'));
+  assert.equal(r!.shotVideos?.[1], null);
+  assert.match(r!.errors![1]!, /生成失败：内容审核未通过/);
+  assert.equal(reqs.filter(q => q.method === 'POST').length - before, 3, '坏镜头自动重交了一次');
+  await assert.rejects(v.run({ settings: g, final: true, frames: [null], shots: [{ dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {}), /第 1 镜生成失败：内容审核未通过/);
+  // 沿用上一版的镜头不重新提交
+  const before2 = reqs.filter(q => q.method === 'POST').length;
+  const r2 = await v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true, reused: true, videoUrl: '/files/x.mp4' }, { dur: 5, line: '新', k: 'b', generated: true }] }, () => {});
+  assert.equal(reqs.filter(q => q.method === 'POST').length - before2, 1);
+  assert.equal(r2!.shotVideos![0], '/files/x.mp4');
   await assert.rejects(makeNewApiVideo({ baseUrl: base, apiKey: 'k', models: {}, pollMs: 5 }).run({ settings: { ...g, model: 'wan' }, final: true, frames: [], shots: [] }, () => {}), /AI 服务/);
 });
 

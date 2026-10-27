@@ -48,6 +48,13 @@ const MIGRATIONS: string[] = [
    CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT NOT NULL);`,
   // 3：记录每镜在视频服务里的任务 ID，服务重启后接着查，不重复提交、不白花钱
   `ALTER TABLE jobs ADD COLUMN external TEXT;`,
+  // 4：MVP：数字人形象、AI 运营（托管档位、发布与回填数据）、兑换码
+  `ALTER TABLE workspaces ADD COLUMN avatar_clone TEXT NOT NULL DEFAULT 'none';
+   ALTER TABLE workspaces ADD COLUMN avatar_photo TEXT NOT NULL DEFAULT 'none';
+   ALTER TABLE plans ADD COLUMN auto TEXT NOT NULL DEFAULT 'copy';
+   CREATE TABLE slot_meta (plan_id TEXT NOT NULL, date TEXT NOT NULL, published_at TEXT, metrics TEXT, PRIMARY KEY(plan_id, date));
+   CREATE TABLE redeem_codes (code TEXT PRIMARY KEY, points INTEGER NOT NULL, max_uses INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+   CREATE TABLE redeem_uses (code TEXT NOT NULL, owner_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(code, owner_id));`,
 ];
 
 export type DB = DatabaseSync;

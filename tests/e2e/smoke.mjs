@@ -31,133 +31,101 @@ const $ = (s, o) => page.locator(s, o);
 const shot = n => page.screenshot({ path: join(shots, `${n}.png`), fullPage: true });
 
 await page.goto(base);
-await run('首页：出 3 个选题 → 写文案', async () => {
-  await $('#goBtn').click();
-  await $('#topics .hc').nth(2).waitFor();
-  await shot('01_home');
-  await $('#topics [data-act=write]').first().click();
-  await $('#cpTitle').waitFor();
+const COPY = '你家玄关，是不是一进门就乱？\n这个项目，我们只解决了一件事。\n鞋、外套、快递，三样东西三个高度。\n凳面四十二公分，老人孩子都好坐。\n很多人装修只看效果图，没想过住进去以后每天怎么用。\n想看你家能怎么改，私信发户型图。';
+await run('导航：4 个入口，选题文案和制作台已隐藏', async () => {
+  const tabs = await $('.tabs [data-go]').allTextContents();
+  for (const t of ['生成视频', 'AI 运营', '我的作品', '形象与声音']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
+  if (tabs.includes('制作台') || tabs.includes('选题文案')) throw new Error('隐藏的入口还在：' + tabs.join(','));
 });
-await run('文案：违禁词替换、改写、改时长、存草稿', async () => {
-  await shot('02_copy');
-  await $('[data-rep]').first().click();
-  await $('[data-cw=live]').click(); await page.waitForTimeout(300);
-  await $('.cpset .seg').nth(1).locator('button', { hasText: '60 秒' }).click(); await page.waitForTimeout(400);
-  await $('[data-bi2="0"]').fill('先说背景：测试改了一段正文。');
-  await $('#cpSave').click(); await page.waitForTimeout(200);
+await run('生成第 1 步：7 种类型，按文案推荐', async () => {
+  await $('#gTypes [data-ty]').nth(6).waitFor();
+  await shot('01_types');
+  await $('[data-ty=talk]').click();
 });
-await run('文案 → 简易生成 → 冲突修复 → 生成样片 → 转成片', async () => {
-  await $('#toGen').click();
-  await $('#gCopy').waitFor();
-  if (!(await $('#gCopy').inputValue()).includes('测试改了一段正文')) throw new Error('文案没带过来');
-  await $('[data-gk=model][data-v=s20f]').click();
-  await $('.gbox .pill', { hasText: '4K' }).click({ force: true }); // 不支持，应提示（按钮带 aria-disabled）
-  await $('[data-gk=voice][data-v=me]').click();
-  await $('#gWarn [data-gf="voice:p1"]').waitFor();
-  await $('#gWarn [data-gf="voice:p1"]').click();
-  await $('[data-gk=model][data-v=s25]').click();
-  // 选 Fast（最高 720p）时清晰度会自动退到 720p；换回 2.5 后手动选回 1080p
-  if (await $('.gbox .pill[aria-pressed=true]', { hasText: '720p' }).count() !== 1) throw new Error('换到 Fast 时清晰度没有自动退到 720p');
-  await $('.gbox .pill', { hasText: '1080p' }).click();
-  await shot('03_gen');
+await run('生成第 2 步：文案、比例只剩三种、高级参数', async () => {
+  await $('#gCopy').fill(COPY);
+  if (await $('#gCtl .pill', { hasText: '3:4' }).count()) throw new Error('3:4 还在');
+  await $('#gAdv summary').click(); await $('#gAdv [data-gk=model][data-v=s20]').click();
+  await shot('02_content');
+  await $('#gNext').click();
+});
+await run('生成第 3 步：按句拆镜、一句不丢、逐镜可改', async () => {
+  await $('#gBoard .sbrow').first().waitFor();
+  const lines = (await $('#gBoard textarea[aria-label=台词]').evaluateAll(t => t.map(x => x.value))).join('');
+  for (const k of ['玄关', '一件事', '三个高度', '好坐', '怎么用', '户型图']) if (!lines.includes(k)) throw new Error('分镜丢句：' + k);
+  await $('#gBoard [aria-label=景别]').first().selectOption('特写');
+  await $('#gBoard [aria-label=画面描述]').first().fill('玄关全景，鞋柜和换鞋凳，清晨暖光');
+  await shot('03_board');
+});
+await run('生成 → 作品详情：轨道、单镜重做只收那一镜', async () => {
+  const before = Number((await $('#bal').textContent()).replace(/,/g, ''));
   await $('#gGo').click(); await $('#payOk').click();
-  await $('#goFinal').waitFor({ timeout: 8000 });
-  await $('#goFinal').click(); await $('#payOk').click();
-  await page.getByText('成片 · 1080p').waitFor({ timeout: 8000 });
-  await shot('04_gen_done');
+  await $('#gResult').waitFor({ timeout: 20000 });
+  const jobs = (await (await page.request.get(base + '/api/jobs')).json()).jobs;
+  const g = jobs[0].input;
+  if (!g.shots?.length || g.shots[0].size !== '特写' || !g.shots[0].prompt.includes('鞋柜')) throw new Error('逐镜参数没传到后端');
+  await shot('04_result');
+  await $('#gResult .track .tr button').nth(1).click(); await $('.sheet .sf .btn.y').click();
+  const label = await $('#shB .list').textContent();
+  if (!/画面 · 1 镜/.test(label)) throw new Error('单镜重做的费用不对：' + label);
+  await $('#payOk').click(); await page.waitForTimeout(1500);
+  const j2 = (await (await page.request.get(base + '/api/jobs')).json()).jobs[0];
+  if (j2.output?.shots?.filter(s => s.reused).length !== g.shots.length - 1) throw new Error('其余镜头没有沿用上一版');
+  if (Number((await $('#bal').textContent()).replace(/,/g, '')) >= before) throw new Error('余额没变');
 });
-await run('生成 → 制作台：镜头、导入素材、换首帧、整条生成', async () => {
-  await $('#gOut .btn', { hasText: '进制作台精修' }).click();
-  await $('#srail [data-si]').first().waitFor();
-  const n = await $('#srail [data-si]').count();
-  await $('#wbAsset').click(); await $('#shB [data-pkk]').nth(0).click(); await $('#shB [data-pkk]').nth(1).click(); await $('#pkOk').click();
-  await $('#wmAdd').click();
-  if (await $('#srail [data-si]').count() !== n + 2) throw new Error('素材没加成镜头');
-  await $('#wbLine').fill('新加的一镜台词');
-  await shot('05_wb');
-  await $('#wbGo').click(); await $('#payOk').click();
-  await page.getByText('已生成').waitFor({ timeout: 8000 });
+await run('形象与声音：建真人分身（带授权）→ 口播自动出镜', async () => {
+  await $('.tabs [data-go=me]').click(); await $('[data-mk=clone]').click();
+  if (!(await $('#avDemo').isDisabled())) throw new Error('没勾授权也能提交');
+  await $('.sheet input[type=checkbox]').check(); await $('#avDemo').click();
+  await page.waitForTimeout(400); await page.reload(); await $('#meClone2 .src', { hasText: '可用' }).waitFor();
+  await shot('05_me');
+  await $('#meClone2 .btn.y').click();
+  await $('#gBoard .sbrow').first().waitFor();
+  if (await $('#gBoard [aria-label=画面来源]').first().inputValue() !== 'avatar') throw new Error('真人口播首镜不是数字人');
+  if (!/数字人/.test(await $('#v-gen .gbox .list').textContent())) throw new Error('费用里没有数字人');
 });
-await run('IP：筛选、案例策划、对标复刻、素材创作、深挖、收藏', async () => {
-  await $('.tabs [data-go=ip]').click();
-  await $('[data-ff=dir] [data-v=知识科普]').click();
-  await page.waitForTimeout(300);
-  const n1 = await $('#hot .hc').count();
-  await $('[data-ff=cat] [data-v=all]').click(); await page.waitForTimeout(300);
-  if ((await $('#hot .hc').count()) <= n1) throw new Error('放宽品类后数量没变多');
-  await $('[data-en=case]').click(); await $('#caseTx').fill('海景房主卧衣帽间'); await $('#caseGo').click(); await $('#caseOut .hc').nth(2).waitFor();
-  await shot('06_ip_find');
-  await $('#hot [data-act=fav]').first().click();
-  await $('#hot [data-act=dig]').first().click(); await $('#shB [data-ang]').first().click();
-  await $('#cpTitle').waitFor();
-  await $('#ipTabs [data-v=find]').click();
-  await $('[data-en=bench]').click(); await $('#benchGo').click(); await $('#benchUse').click(); await $('#cpTitle').waitFor();
-  await $('#ipTabs [data-v=find]').click();
-  await $('[data-en=mat]').click(); await $('[data-am]').first().click(); await $('#matGo').click(); await $('#cpTitle').waitFor();
+await run('AI 运营：托管、待办、两周进度、导出表格', async () => {
+  await $('.tabs [data-go=ops]').click(); await $('#opsTodo').waitFor();
+  await $('#opsAuto button', { hasText: '自动出样片' }).click(); await page.waitForTimeout(300);
+  if (await $('#approveAll').count()) { await $('#approveAll').click(); await page.waitForTimeout(400); }
+  await $('#strip .opsprog').first().waitFor();
+  const dl = page.waitForEvent('download'); await $('#opsCsv').click(); await dl;
+  await shot('06_ops');
 });
-await run('IP 工具：违禁词、声音克隆（无麦克风走演示样本）、视频提文案', async () => {
-  await $('#ipTabs [data-v=tools]').click();
-  await $('[data-tool=ban]').click(); await $('#tGo').click(); await $('#tFix').click(); await $('#shX').click();
-  await $('[data-tool=clone]').click(); await $('#recB').click(); await page.waitForTimeout(2200); await $('#recOk').check(); await $('#recGo').click();
-  await page.getByText('已克隆').waitFor({ timeout: 8000 });
-  await $('[data-tool=v2c]').click(); await $('#tIn').fill('https://v.douyin.com/x'); await $('#tGo').click();
-  await $('#shB .btn', { hasText: '送去写文案' }).click(); await $('#cpTitle').waitFor();
-  for (const t of ['cover', 'class', 'mine']) { await $(`#ipTabs [data-v=${t}]`).click(); await page.waitForTimeout(200); }
-  await shot('07_ip_mine');
+await run('点数：兑换码不对会提示', async () => {
+  closing = true; // 这里的 400 是预期的
+  await $('#ptsBtn').click(); await $('#redeemIn').fill('NOPE1234'); await $('#redeemBtn').click();
+  await page.getByText('兑换码不对').waitFor(); await page.waitForTimeout(200); await page.keyboard.press('Escape');
+  closing = false;
+  errors.splice(0, errors.length, ...errors.filter(e => !e.includes('/api/points/redeem')));
 });
-await run('排期：通过、换一个、从选题库挑（跨页放回）、全部通过、备选池', async () => {
-  await $('.tabs [data-go=plan]').click();
-  await $('#pre .pc').first().waitFor();
-  await shot('08_plan');
-  const cand = () => $('#pre .pc.cand');
-  const c0 = await cand().count();
-  if (!c0) throw new Error('没有待审的预选题');
-  await cand().first().locator('[data-pa2=ok]').click(); await page.waitForTimeout(300);
-  if (await cand().count() !== c0 - 1) throw new Error('通过后数量不对');
-  const before = await cand().first().locator('.t2').textContent();
-  await cand().first().locator('[data-pa2=next]').click(); await page.waitForTimeout(300);
-  if (await cand().first().locator('.t2').textContent() === before) throw new Error('换一个没换');
-  await cand().first().locator('[data-pa2=lib]').click(); await $('#tpIp').click();
-  await $('.banner').waitFor();
-  const want = await $('#hot .hc h3').nth(3).textContent();
-  await $('#hot [data-act=place]').nth(3).click();
-  await $('#pre').waitFor();
-  if (!(await $('#pre').textContent()).includes(want)) throw new Error('从选题库挑的选题没放进排期');
-  await $('.tabs [data-go=ip]').click(); await $('#hot [data-act=sch]').nth(5).click(); await $('#ssBack').click();
-  await $('.tabs [data-go=plan]').click(); await $('#backlog [data-bk]').first().waitFor();
-  await $('#preAll').click(); await page.waitForTimeout(300);
-  if (await cand().count()) throw new Error('全部通过后还有待审');
-  await $('#wkd button').nth(0).click(); await page.waitForTimeout(300);
-});
-await run('素材：上传真实文件、多选、送去简易生成', async () => {
+await run('作品：能打开作品详情；素材送去生成', async () => {
+  await $('.tabs [data-go=lib]').click(); await $('#works [data-open]').first().click(); await $('#gResult').waitFor();
   await $('.tabs [data-go=lib]').click(); await $('#libTabs button', { hasText: '素材' }).click();
   const png = join(data, 'up.png');
   writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
   const chooser = page.waitForEvent('filechooser'); await $('#upBtn').click(); await (await chooser).setFiles(png);
   await $('[data-af=stay]').click();
-  await $('#aSel').waitFor();
-  await $('#assets [data-as]').nth(1).click();
-  await shot('09_lib');
   await $('[data-snd=gen]').click();
   await $('#gAtt img').first().waitFor();
+  await shot('07_lib');
 });
 await run('账号：注册保留内容 → 退出 → 登录', async () => {
   await $('#loginBtn').click(); await $('#authForm .seg button', { hasText: '注册' }).click();
   await $('#auName').fill('林设计师'); await $('#auEmail').fill('lin@example.com'); await $('#auPw').fill('secret123'); await $('#auGo').click();
   await $('#whoBtn', { hasText: '林设计师 ·' }).waitFor();
   if (await $('#loginBtn').count()) throw new Error('注册后还显示登录按钮');
-  await $('.tabs [data-go=ip]').click(); await $('#ipTabs [data-v=mine]').click();
-  const drafts = await $('.mine button[data-v=draft] b').textContent();
-  if (drafts === '0') throw new Error('注册后草稿丢了');
+  const works = async () => (await (await page.request.get(base + '/api/jobs')).json()).jobs.length;
+  const drafts = await works();
+  if (!drafts) throw new Error('注册后作品丢了');
   await $('#whoBtn').click(); await $('#logoutBtn').click(); await $('#loginBtn').waitFor();
   await $('#loginBtn').click(); await $('#auEmail').fill('lin@example.com'); await $('#auPw').fill('secret123'); await $('#auGo').click();
   await $('#whoBtn', { hasText: '林设计师 ·' }).waitFor();
-  await $('.tabs [data-go=ip]').click(); await $('#ipTabs [data-v=mine]').click();
-  if (await $('.mine button[data-v=draft] b').textContent() !== drafts) throw new Error('重新登录后草稿数量不对');
+  if (await works() !== drafts) throw new Error('重新登录后作品数量不对');
 });
 await run('切换人设与主题', async () => {
   await $('#whoBtn').click(); await $('[data-pv=dev]').click(); await page.waitForTimeout(400);
-  await $('.tabs [data-go=ip]').click(); await $('#hot .hc').first().waitFor();
+  await $('.tabs [data-go=gen]').click(); await $('[data-gs="1"]').click(); await $('#gTypes [data-ty]').first().waitFor();
   await $('#whoBtn').click(); await $('[data-th=cinema]').click(); await $('#shX').click();
   await shot('10_cinema');
 });
@@ -184,7 +152,7 @@ await run('提意见 → 管理员后台：漏斗、反馈、邀请码、暂停�
   await a.locator('#v-admin .seg button', { hasText: '概览' }).click(); await a.locator('#pauseSw').uncheck(); await a.waitForTimeout(300);
   await page.locator('.tabs [data-go=gen]').click(); await page.reload();
   await page.getByText('生成功能暂时关闭').waitFor();
-  if (!(await page.locator('#gGo').isDisabled())) throw new Error('暂停后生成按钮还能点');
+  if (await page.locator('#gGo').count() && !(await page.locator('#gGo').isDisabled())) throw new Error('暂停后生成按钮还能点');
   await a.locator('#pauseSw').check();
   await ctx2.close();
 });
@@ -193,7 +161,7 @@ const m = await browser.newPage({ viewport: { width: 390, height: 844 } });
 m.on('pageerror', e => errors.push(`mobile pageerror: ${e.message}`));
 await m.goto(base);
 await run('手机宽度无横向滚动', async () => {
-  for (const v of ['ip', 'gen', 'plan', 'lib']) {
+  for (const v of ['gen', 'ops', 'lib', 'me']) {
     await m.locator(`.tbar [data-go=${v}]`).click(); await m.waitForTimeout(400);
     const w = await m.evaluate(() => document.documentElement.scrollWidth);
     if (w > 392) throw new Error(`${v} 页宽 ${w}`);

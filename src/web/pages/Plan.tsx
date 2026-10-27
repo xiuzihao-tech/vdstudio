@@ -111,12 +111,12 @@ export function PlanPage() {
   </div></section>;
 }
 
-function BudgetNote({ plan }: { plan: Plan }) {
+export function BudgetNote({ plan }: { plan: Plan }) {
   const n = plan.weekdays.length * 4 + plan.added.length, c = n * SLOT_COST;
   return <p className="xs m3" style={{ marginTop: 8 }}>每月约 {n} 条 × {SLOT_COST} 点 ≈ {c} 点。{c > plan.budget ? <span style={{ color: 'var(--warn)' }}>超过上限，第 {Math.max(1, Math.floor(plan.budget / SLOT_COST))} 条后自动暂停。</span> : '在上限内，用完自动暂停。'}</p>;
 }
 
-function TimeLine({ hour, onChange }: { hour: number; onChange: (h: number) => void }) {
+export function TimeLine({ hour, onChange }: { hour: number; onChange: (h: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const h = drag ?? hour;
@@ -132,7 +132,7 @@ function TimeLine({ hour, onChange }: { hour: number; onChange: (h: number) => v
   </div>;
 }
 
-function Mix({ plan, onChange }: { plan: Plan; onChange: (m: Plan['mix']) => void }) {
+export function Mix({ plan, onChange }: { plan: Plan; onChange: (m: Plan['mix']) => void }) {
   const [mix, setMix] = useState(plan.mix);
   const tot = mix.reduce((a, x) => a + x.v, 0) || 1;
   const setV = (i: number, v: number, commit: boolean) => { const m = mix.map((x, j) => j === i ? { ...x, v: Math.max(0.05, Math.min(1, +v.toFixed(2))) } : x); setMix(m); if (commit) onChange(m); };
@@ -148,7 +148,7 @@ function Mix({ plan, onChange }: { plan: Plan; onChange: (m: Plan['mix']) => voi
     </div>))}</div>;
 }
 
-function TopicPick({ plan, topics, used, onPick, onLib }: { plan: Plan; topics: Topic[]; used: Set<string>; onPick: (t: Topic) => void; onLib: () => void }) {
+export function TopicPick({ plan, topics, used, onPick, onLib }: { plan: Plan; topics: Topic[]; used: Set<string>; onPick: (t: Topic) => void; onLib: () => void }) {
   const G: [string, string, Topic[]][] = [['back', '备选池', plan.backlog.map(id => topics.find(t => t.id === id)).filter((t): t is Topic => !!t)], ['fav', '收藏', topics.filter(t => t.fav)], ['mine', 'AI 策划', topics.filter(t => t.source !== 'hot')], ['hot', '热门', topics.filter(t => t.source === 'hot')]];
   const [tab, setTab] = useState(G.find(g => g[2].length)?.[0] ?? 'hot');
   const list = G.find(g => g[0] === tab)![2];
@@ -159,7 +159,7 @@ function TopicPick({ plan, topics, used, onPick, onLib }: { plan: Plan; topics: 
   </>;
 }
 
-function AddAccount({ onDone }: { onDone: (r: { plans: PlanBundle[] }) => void }) {
+export function AddAccount({ onDone }: { onDone: (r: { plans: PlanBundle[] }) => void }) {
   const { fail } = useApp();
   const [n, setN] = useState('');
   return <>

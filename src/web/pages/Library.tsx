@@ -1,4 +1,4 @@
-// 作品与素材：作品（生成任务结果）、素材（上传 / 多选 / 送去简易生成、制作台、写文案 / 删除）。
+// 我的作品：作品（生成结果，点开进作品详情）、素材（上传 / 多选 / 送去生成 / 删除）。
 import { useState } from 'react';
 import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
@@ -12,7 +12,7 @@ export function LibraryPage() {
   const { route, nav } = useApp();
   const tab = route.sub === 'assets' ? 'assets' : 'works';
   return <section className="view on" id="v-lib"><div className="vb wrap lib">
-    <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>作品与素材</h1>
+    <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>我的作品</h1>
       <div id="libTabs"><Seg value={tab} options={['works', 'assets'] as const} render={v => v === 'works' ? '作品' : '素材'} onChange={v => nav({ view: 'lib', sub: v }, true)} /></div></div>
     {tab === 'works' ? <Works /> : <Assets />}
   </div></section>;
@@ -23,12 +23,12 @@ function Works() {
   const d = useData(() => api.jobs(), []);
   if (!d.data) return <Skel h={200} />;
   const done = d.data.jobs.filter(j => j.status === 'done');
-  if (!done.length) return <Empty title="还没有作品" action={<button className="btn y" onClick={() => nav('gen')}>去生成第一条</button>}>在“生成视频”或“制作台”里出片后，会出现在这里。</Empty>;
+  if (!done.length) return <Empty title="还没有作品" action={<button className="btn y" onClick={() => nav('gen')}>去生成第一条</button>}>在「生成视频」里出片后，会出现在这里。</Empty>;
   return <div className="wgrid" id="works" style={{ marginTop: 24 }}>{done.map(j => {
     const o = j.output as VideoOutput;
     return <div className="wk" key={j.id}>{o.videoUrl ? <div className="ph" data-k="img"><video src={fileUrl(o.videoUrl)} controls playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} /></div> : <Ph k={o.shots[0]?.k ?? 'live'} tag="gen" />}
       <div className="b"><p className="s" style={{ fontWeight: 500 }}>{o.title}</p><p className="xs m3">{o.draft ? `样片 ${o.res}` : `成片 ${o.res}`} · {o.len} 秒 · {modelOf(o.model).n} · {new Date(j.createdAt).toLocaleDateString()}</p>
-        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.videoUrl ? <a className="lnk xs" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
+        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.partial && <Src k="warn">部分镜头失败</Src>}<button className="lnk xs" data-open={j.id} onClick={() => nav({ view: 'gen', sub: 'job', id: j.id })}>打开</button>{o.videoUrl ? <a className="lnk xs" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
   })}</div>;
 }
 
@@ -42,7 +42,7 @@ function Assets() {
 
   const send = (to: 'gen' | 'wb' | 'ip', list: Asset[]) => {
     const ids = list.map(a => a.id);
-    if (to === 'gen') { setGenSeed({ assetIds: ids }); nav('gen'); toast(`已放进简易生成 · ${ids.length} 份素材`); }
+    if (to === 'gen') { setGenSeed({ assetIds: ids }); nav('gen'); toast(`已放进生成视频 · ${ids.length} 份素材`); }
     if (to === 'wb') { setWbSeed({ title: '素材成片', lines: list.map(() => ''), assetIds: ids }); nav('wb'); }
     if (to === 'ip') { setMatSeed(ids); nav({ view: 'ip', sub: 'find' }); toast('在“我有素材，帮我创作文案”里，素材已选好'); }
     setSel([]);
@@ -58,9 +58,7 @@ function Assets() {
         body: <>
           <div className="row" style={{ gap: 6, marginBottom: 14 }}>{list.slice(0, 8).map(a => <div key={a.id} style={{ width: 52, height: 52, borderRadius: 10, overflow: 'hidden', position: 'relative' }}><Ph k={a.k} asset={a} /></div>)}</div>
           <div className="list">
-            <button data-af="gen" onClick={() => { sheet(null); send('gen', list); }}><span>送去简易生成<br /><span className="xs m3">配上文案，选模型和声音就出片</span></span><span className="v">›</span></button>
-            <button data-af="wb" onClick={() => { sheet(null); send('wb', list); }}><span>送去制作台<br /><span className="xs m3">逐镜调整景别、运镜、配音</span></span><span className="v">›</span></button>
-            <button data-af="ip" onClick={() => { sheet(null); send('ip', list); }}><span>用这些写文案<br /><span className="xs m3">在大哲 IP 里按素材出口播</span></span><span className="v">›</span></button>
+            <button data-af="gen" onClick={() => { sheet(null); send('gen', list); }}><span>送去生成视频<br /><span className="xs m3">配上文案，第 3 步分到每一镜</span></span><span className="v">›</span></button>
             <button data-af="stay" onClick={() => { sheet(null); setSel(list.map(a => a.id)); }}><span>先留在素材库</span><span className="v">›</span></button>
           </div>
         </>,
@@ -73,7 +71,7 @@ function Assets() {
   });
 
   return <>
-    <div className="row" style={{ marginTop: 24 }}><p className="s m" style={{ flex: 1 }}>照片、视频和人物素材。点选后直接送去简易生成、制作台，或用来写文案。</p><button className="btn y sm" id="upBtn" disabled={!!busy} onClick={upload}>{busy ?? '导入素材'}</button></div>
+    <div className="row" style={{ marginTop: 24 }}><p className="s m" style={{ flex: 1 }}>照片、视频和人物素材。照片可以做首帧，视频可以直接当某一镜的原片。</p><button className="btn y sm" id="upBtn" disabled={!!busy} onClick={upload}>{busy ?? '导入素材'}</button></div>
     <div className="row" style={{ marginTop: 28, alignItems: 'flex-end' }}><div style={{ flex: 1 }}><h2 className="t1">项目素材</h2><p className="xs m3" style={{ marginTop: 4 }}>点一下选中，可多选 · 支持 JPG、PNG、WebP、MP4、MOV，单个不超过 200MB</p></div><button className="lnk s" id="aAll" onClick={() => setSel(sel.length === A.length ? [] : A.map(a => a.id))}>{sel.length === A.length && A.length ? '取消全选' : '全选'}</button></div>
     {!d.data ? <Skel h={200} /> : <div className="wgrid" id="assets" style={{ marginTop: 14 }}>{A.map(a => (
       <button key={a.id} className="wk pickable" data-as={a.id} aria-pressed={sel.includes(a.id)} aria-label={`选择 ${a.name}`} onClick={() => toggle(a.id)}>
@@ -83,9 +81,7 @@ function Assets() {
     {sel.length > 0 && <div className="selbar" id="aSel">
       <span>已选 <b>{sel.length}</b> 份</span><span className="sp" />
       <button className="btn g sm" onClick={() => setSel([])}>清空</button><button className="btn g sm" onClick={del}>删除</button>
-      <button className="btn g sm" data-snd="ip" onClick={() => send('ip', A.filter(a => sel.includes(a.id)))}>用这些写文案</button>
-      <button className="btn g sm" data-snd="wb" onClick={() => send('wb', A.filter(a => sel.includes(a.id)))}>送去制作台</button>
-      <button className="btn y sm" data-snd="gen" onClick={() => send('gen', A.filter(a => sel.includes(a.id)))}>送去简易生成</button>
+      <button className="btn y sm" data-snd="gen" onClick={() => send('gen', A.filter(a => sel.includes(a.id)))}>送去生成视频</button>
     </div>}
   </>;
 }

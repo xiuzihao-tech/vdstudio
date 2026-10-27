@@ -1,5 +1,5 @@
 // 前端 API 客户端：所有请求都走这里，错误统一抛 ApiError（message 是可直接给用户看的中文）。
-import type { Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
+import type { SlotMetrics, Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
 
@@ -61,6 +61,8 @@ export const api = {
     aiModels: () => call<{ llm: ModelList; video: ModelList }>('POST', '/api/admin/ai/models'),
     aiSave: (p: { llmModel?: string | null; llmModelFine?: string | null; llmFallbacks?: string[]; videoModels?: Record<string, string> }) => call<{ status: AiStatus }>('PUT', '/api/admin/ai', p),
     aiTest: () => call<{ ok: boolean; ms: number; model: string; reply: string | null; error: string | null }>('POST', '/api/admin/ai/test'),
+    redeemCodes: () => call<{ codes: { code: string; points: number; maxUses: number; used: number; note: string; createdAt: string }[] }>('GET', '/api/admin/redeem'),
+    createRedeem: (count: number, points: number, maxUses: number, note: string) => call<{ codes: string[] }>('POST', '/api/admin/redeem', { count, points, maxUses, note }),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
   },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
@@ -93,15 +95,21 @@ export const api = {
   upload: (f: File, source = '上传') => call<Asset>('POST', '/api/assets', f, { 'content-type': f.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(f.name), 'x-source': encodeURIComponent(source) }),
   deleteAsset: (id: string) => call<{ ok: true }>('DELETE', `/api/assets/${id}`),
 
+  genVoice: (lines: string[], speed: number, voice: string) => call<{ provider: string; secs: number[] }>('POST', '/api/gen/voice', { lines, speed, voice }),
+  createAvatar: (kind: 'clone' | 'photo', file: Blob | null) => call<{ avatars: Workspace['avatars'] }>('POST', '/api/avatars', file ?? new Blob(['demo']), { 'content-type': file?.type || 'application/octet-stream', 'x-kind': kind, 'x-consent': 'yes', ...(file ? {} : { 'x-sample': 'demo' }) }),
+  deleteAvatar: (kind: 'clone' | 'photo') => call<{ avatars: Workspace['avatars'] }>('DELETE', `/api/avatars/${kind}`),
+  ledger: () => call<{ items: { delta: number; reason: string; createdAt: string }[] }>('GET', '/api/ledger'),
+  redeem: (code: string) => call<{ points: number; balance: number }>('POST', '/api/points/redeem', { code }),
   genCheck: (g: GenSettings) => call<{ issues: GenIssue[]; shots: PlannedShot[]; cost: number; finalCost: number }>('POST', '/api/gen/check', g),
   generate: (settings: GenSettings, final: boolean, title: string) => call<Job>('POST', '/api/gen', { settings, final, title }),
   jobs: () => call<{ jobs: Job[] }>('GET', '/api/jobs'),
   job: (id: string) => call<Job>('GET', `/api/jobs/${id}`),
 
-  plans: () => call<{ plans: PlanBundle[] }>('GET', '/api/plans'),
+  plans: () => call<{ plans: PlanBundle[]; did?: string[] }>('GET', '/api/plans'),
+  slotMetrics: (planId: string, date: string, metrics: SlotMetrics) => call<{ message: string; plans: PlanBundle[] }>('POST', `/api/plans/${planId}/slots/${date}`, { action: 'metrics', metrics }),
   addPlan: (account: string) => call<{ plans: PlanBundle[] }>('POST', '/api/plans', { account }),
   patchPlan: (id: string, p: Partial<Plan>) => call<{ plans: PlanBundle[] }>('PATCH', `/api/plans/${id}`, p),
-  slot: (planId: string, date: string, action: 'approve' | 'next' | 'unpin' | 'set' | 'skip' | 'add', topicId?: string) =>
+  slot: (planId: string, date: string, action: 'approve' | 'next' | 'unpin' | 'set' | 'skip' | 'add' | 'publish' | 'unpublish', topicId?: string) =>
     call<{ message: string; plans: PlanBundle[] }>('POST', `/api/plans/${planId}/slots/${date}`, { action, topicId }),
   approveAll: (planId: string) => call<{ message: string; plans: PlanBundle[] }>('POST', `/api/plans/${planId}/approve-all`),
   reroll: (planId: string) => call<{ message: string; plans: PlanBundle[] }>('POST', `/api/plans/${planId}/reroll`),

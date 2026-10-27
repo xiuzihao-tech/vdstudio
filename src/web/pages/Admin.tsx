@@ -4,8 +4,8 @@ import { api, type ModelList } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Empty, Seg, Skel, Src } from '../ui/kit.tsx';
 
-type Tab = 'overview' | 'users' | 'invites' | 'feedback' | 'ai';
-const TABN: Record<Tab, string> = { overview: '概览', users: '用户', invites: '邀请码', feedback: '反馈', ai: 'AI 服务' };
+type Tab = 'overview' | 'users' | 'invites' | 'feedback' | 'ai' | 'redeem';
+const TABN: Record<Tab, string> = { overview: '概览', users: '用户', invites: '邀请码', redeem: '兑换码', feedback: '反馈', ai: 'AI 服务' };
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function AdminPage() {
@@ -15,7 +15,7 @@ export function AdminPage() {
   return <section className="view on" id="v-admin"><div className="vb wrap" style={{ paddingTop: 40 }}>
     <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>后台</h1>
       <Seg value={tab} options={Object.keys(TABN) as Tab[]} render={t => TABN[t]} onChange={t => nav({ view: 'admin', sub: t }, true)} /></div>
-    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : tab === 'ai' ? <AiServices /> : <FeedbackList />}</div>
+    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : tab === 'redeem' ? <Redeem /> : tab === 'ai' ? <AiServices /> : <FeedbackList />}</div>
   </div></section>;
 }
 
@@ -184,4 +184,26 @@ function AiServices() {
     </div>
     <p className="note">密钥只在服务器的 .env 里，这里看不到也改不了。改模型不用重启，保存后下一次调用就生效。</p>
   </div>;
+}
+
+/** 兑换码：线下收款后发给学员，在「点数」里兑换 */
+function Redeem() {
+  const { toast, fail } = useApp();
+  const d = useData(() => api.admin.redeemCodes(), []);
+  const [n, setN] = useState(5), [pts, setPts] = useState(500), [uses, setUses] = useState(1), [note, setNote] = useState('');
+  const [fresh, setFresh] = useState<string[]>([]);
+  const make = async () => { try { const r = await api.admin.createRedeem(n, pts, uses, note); setFresh(r.codes); d.reload(); toast(`生成了 ${r.codes.length} 个兑换码`); } catch (e) { fail(e); } };
+  return <>
+    <div className="gbox"><div className="hd">新建兑换码</div>
+      <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
+        <label className="lb">数量<input className="fld" type="number" min={1} max={100} value={n} onChange={e => setN(Number(e.target.value))} style={{ width: 90 }} /></label>
+        <label className="lb">每个多少点<input className="fld" type="number" min={1} value={pts} onChange={e => setPts(Number(e.target.value))} style={{ width: 110 }} /></label>
+        <label className="lb">每个能用几次<input className="fld" type="number" min={1} value={uses} onChange={e => setUses(Number(e.target.value))} style={{ width: 90 }} /></label>
+        <label className="lb" style={{ flex: 1 }}>备注<input className="fld" value={note} onChange={e => setNote(e.target.value)} placeholder="比如：10 月学员班" /></label>
+        <button className="btn y" id="mkRedeem" onClick={make}>生成</button>
+      </div>
+      {fresh.length > 0 && <textarea className="fld" readOnly rows={Math.min(8, fresh.length)} value={fresh.join('\n')} style={{ marginTop: 12 }} />}
+    </div>
+    <div className="list" style={{ marginTop: 14 }}>{d.data?.codes.length ? d.data.codes.map(c => <div key={c.code}><span className="ro">{c.code}<br /><span className="xs m3">{c.note || '—'}</span></span><span className="v">{c.points} 点 · 已用 {c.used}/{c.maxUses}</span></div>) : <div><span className="m">还没有兑换码</span></div>}</div>
+  </>;
 }

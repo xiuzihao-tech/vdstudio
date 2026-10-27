@@ -44,7 +44,7 @@ function run(args: string[]): Promise<void> {
   });
 }
 
-export interface ComposeInput { urls: string[]; lines: string[]; ratio: string; res: string; outFile: string; font?: string | null; subtitles?: boolean; fetch?: typeof fetch }
+export interface ComposeInput { urls: string[]; lines: string[]; /** 每镜保留的秒数（生成时向上取整，合成时裁掉多余的） */ durs?: number[]; ratio: string; res: string; outFile: string; font?: string | null; subtitles?: boolean; fetch?: typeof fetch }
 
 export async function composeVideo(o: ComposeInput): Promise<void> {
   if (!o.urls.length) throw new Error('没有可合成的镜头');
@@ -73,7 +73,7 @@ export async function composeVideo(o: ComposeInput): Promise<void> {
         vf.push(`drawtext=fontfile='${esc(font)}':textfile='${esc(txt)}':fontsize=${fontSize}:fontcolor=white:line_spacing=${Math.round(fontSize * 0.3)}:borderw=${Math.max(2, Math.round(fontSize / 12))}:bordercolor=black@0.85:x=(w-text_w)/2:y=h-text_h-${Math.round(h * 0.12)}`);
       }
       const seg = join(dir, `seg${i}.mp4`);
-      await run(['-i', src, '-vf', vf.join(','), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', seg]);
+      await run(['-i', src, ...(o.durs?.[i] ? ['-t', String(o.durs[i])] : []), '-vf', vf.join(','), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', seg]);
       segs.push(seg);
     }
     const list = join(dir, 'list.txt');

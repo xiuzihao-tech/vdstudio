@@ -27,7 +27,7 @@ function system(ctx: Ctx) {
   return [
     `你是「大哲 IP」的短视频文案助手，服务${CATS[catOf(ctx)]}行业的内容创作者。`,
     `账号：${pos.name}。定位：${pos.line}。受众：${pos.aud.join('、')}。语气：${pos.tone}。人设标签：${pos.tags.join('、')}。`,
-    `当前项目：${p.proj}；重点：${p.focus}；转化目标：${p.goal}。`,
+    `当前项目：${p.proj}；重点：${p.focus}；转化目标：${pos.goal || p.goal}。${pos.pillars.length ? `常讲的栏目：${pos.pillars.join('、')}。` : ''}${pos.platforms?.length ? `发布平台：${pos.platforms.join('、')}。` : ''}`,
     '要求：说人话、短句、第一人称；不编造数据；不使用广告法禁用的绝对化用语（最、第一、唯一、顶级、保证、100% 等）。',
     '只输出 JSON，不要任何解释或 Markdown。',
   ].join('\n');

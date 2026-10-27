@@ -1,14 +1,15 @@
 // 业务服务：新建工作区种子、排期补齐与调整、生成任务。路由只调用这里和 repo。
 import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
-import { draftResOf, GEN_STEPS, genCost, isDraft, planShots } from '../shared/gen.ts';
+import { draftResOf, GEN_STEPS, genCost, isDraft, modelOf, shotsOf } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
 import { WEEKDAYS } from '../shared/catalog.ts';
+import { buildStoryboard, splitSentences, suggestType, typeOf } from '../shared/video.ts';
 import { composeVideo, hasFfmpeg } from './compose.ts';
 import { join } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Storage } from './storage/index.ts';
-import type { Asset, GenSettings, Job, PlannedShot, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
+import type { CopyDraft, SlotProgress, Asset, GenSettings, Job, PlannedShot, Persona, PersonaId, Plan, Positioning, SlotView, Topic, VideoOutput, Workspace } from '../shared/types.ts';
 import type { Repo } from './repo.ts';
 import type { Providers } from './providers/types.ts';
 import { tx, type DB } from './db.ts';
@@ -82,6 +83,75 @@ export function scheduleView(repo: Repo, ws: Workspace, plan: Plan, today = toda
   });
 }
 
+/* ================= AI 运营 ================= */
+/** 每条内容的进度：文案、样片、成片、发布、回填。过去的日子没有发布记录时按「已发」算（老数据） */
+export function withProgress(repo: Repo, ws: Workspace, plan: Plan, days: ReturnType<typeof scheduleView>, today = todayIso()) {
+  const drafts = new Set(repo.drafts(ws.id).map(d => d.topicId));
+  const jobs = repo.jobs(ws.id);
+  const meta = repo.slotMeta(plan.id);
+  return days.map(d => {
+    if ('empty' in d) return d;
+    const mine = jobs.filter(j => (j.input as GenSettings)?.topicId === d.topicId);
+    const sample = mine.find(j => j.kind === 'video');
+    const m = meta.get(d.date);
+    return { ...d, progress: {
+      copy: drafts.has(d.topicId) || d.date < today,
+      sample: sample ? (sample.status === 'done' ? 'done' : sample.status === 'failed' ? 'failed' : 'running') : d.date < today ? 'done' : 'none',
+      final: mine.some(j => j.kind === 'video_final' && j.status === 'done') || d.date < today,
+      published: !!m?.publishedAt || d.date < today, reviewed: !!m?.metrics, jobId: (mine.find(j => j.kind === 'video_final') ?? sample)?.id ?? null, metrics: m?.metrics ?? null,
+    } as SlotProgress };
+  });
+}
+
+/**
+ * AI 运营的定时动作（每 10 分钟跑一次，打开 AI 运营页时也跑）：
+ * 托管到「自动写文案」：已固定、3 天内要发、还没文案的，按人设写一版；
+ * 托管到「自动出样片」：2 天内要发、有文案、还没样片的，按推荐类型出样片（超出每月上限就停）。
+ * 选题待审的不动——没拍板的内容不往下走。
+ */
+export async function opsTick(repo: Repo, providers: Providers, runner: JobRunner, ws: Workspace, today = todayIso()): Promise<string[]> {
+  const did: string[] = [];
+  const p = personaOf(ws.persona);
+  for (const plan of repo.plans(ws.id)) {
+    if (!plan.running || plan.auto === 'plan') continue;
+    ensureSchedule(repo, ws, plan, today);
+    for (const s of repo.slots(plan.id)) {
+      if (s.date <= today || s.pin !== 'fixed' || !isPublishDay(plan, s.date)) continue;
+      const days = Math.round((Date.parse(s.date) - Date.parse(today)) / 864e5);
+      const t = repo.topic(ws.id, s.topicId); if (!t) continue;
+      let draft = repo.draftByTopic(ws.id, t.id);
+      if (!draft && days <= 3) {
+        try {
+          const g = await providers.copy.generate({ persona: p, positioning: ws.positioning }, t, { kind: '口播', len: 45, tone: ws.positioning.tone, version: 1 });
+          draft = repo.upsertDraft(ws.id, { ...g, assetIds: [] });
+          did.push(`写好了 ${s.date.slice(5)} 的文案：${t.title}`);
+        } catch (e) { console.warn('AI 运营写文案失败：', (e as Error).message); }
+      }
+      if (plan.auto !== 'sample' || !draft || days > 2) continue;
+      if (repo.jobs(ws.id).some(j => (j.input as GenSettings)?.topicId === t.id)) continue;
+      const g = autoSettings(repo, ws, draft);
+      const month = today.slice(0, 7);
+      const mineTopics = new Set(repo.slots(plan.id).map(x => x.topicId));
+      const spent = repo.jobs(ws.id).filter(j => j.createdAt.slice(0, 7) === month && mineTopics.has((j.input as GenSettings)?.topicId ?? '')).reduce((a, j) => a + j.cost, 0);
+      if (spent + genCost(g) > plan.budget) { did.push(`这个月的预算快用完了，${s.date.slice(5)} 的样片先不出`); continue; }
+      const r = runner.startVideo(repo.ws(ws.id)!, g, false, draft.title);
+      did.push(r.ok ? `开始出 ${s.date.slice(5)} 的样片：${draft.title}` : `${s.date.slice(5)} 的样片没出：${r.error}`);
+    }
+  }
+  return did;
+}
+
+/** AI 运营自动出样片用的设置：按文案推荐类型、按句拆分镜、用工作区素材；数字人可用才出镜 */
+export function autoSettings(repo: Repo, ws: Workspace, draft: CopyDraft): GenSettings {
+  const copy = [draft.hook, ...draft.body, draft.cta].filter(Boolean).join('\n');
+  const type = suggestType(copy), spec = typeOf(type), m = modelOf(spec.model);
+  const assets = repo.assets(ws.id).filter(a => a.type !== '人物' && a.type !== '音频').slice(0, 6);
+  const avatar = ws.avatars.clone === 'ready' ? 'clone' : ws.avatars.photo === 'ready' ? 'photo' : 'none';
+  const shots = buildStoryboard(splitSentences(copy), { type, model: m, assets: assets.map(a => ({ id: a.id, type: a.type })), avatar: avatar !== 'none' });
+  return { copy, prompt: '', title: draft.title, topicId: draft.topicId, assetIds: assets.map(a => a.id), model: spec.model, len: shots.reduce((a, x) => a + x.dur, 0), ratio: '9:16', res: '720p', draft: true,
+    voice: ws.voiceClone === 'ready' ? 'me' : 'p1', speed: 1, bgm: spec.bgm, subs: true, ambience: true, cover: false, style: 'AI 推荐', type, avatar, shots };
+}
+
 /** 把某个选题固定到某天。若它原本排在别的未来日期，那天由 AI 补一个预选。返回原来的日期（若有） */
 export function setDay(repo: Repo, ws: Workspace, plan: Plan, date: string, topic: Topic, today = todayIso()): string | null {
   let movedFrom: string | null = null;
@@ -148,8 +218,8 @@ export class JobRunner {
   /** 校验、扣点、建任务，然后在后台跑；返回任务或错误 */
   startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
     const p = personaOf(ws.persona);
-    const assets = this.repo.assetsByIds(ws.id, g.assetIds);
-    const shots = planShots(g, assets.map(a => a.k), p.att);
+    const assets = this.repo.assetsByIds(ws.id, [...new Set([...g.assetIds, ...(g.shots ?? []).flatMap(s => [s.assetId, s.lastId].filter((x): x is string => !!x))])]);
+    const shots = shotsOf(g, assets, p.att);
     const cost = genCost(g, final);
     const kind = final ? 'video_final' : 'video';
     const job = this.repo.insertJob(ws.id, { kind, steps: GEN_STEPS, cost, title, input: g });
@@ -157,7 +227,7 @@ export class JobRunner {
       this.repo.updateJob(job.id, { status: 'failed', error: '余额不足' });
       return { ok: false, error: `余额不足：需要 ${cost} 点` };
     }
-    this.repo.markAssetsUsed(ws.id, g.assetIds);
+    this.repo.markAssetsUsed(ws.id, assets.map(a => a.id));
     this.repo.updateJob(job.id, { status: 'running' });
     this.repo.setJobExternal(job.id, { tasks: shots.map(() => null), shots, final });
     void this.execute(ws.id, job, g, final, shots, assets, []);
@@ -170,19 +240,38 @@ export class JobRunner {
     if (!ext) return;
     const g = job.input as GenSettings;
     console.log(`接着查重启前的任务 ${job.id}（已提交 ${ext.tasks.filter(Boolean).length}/${ext.shots.length} 镜）`);
-    void this.execute(wsId, job, g, ext.final, ext.shots, this.repo.assetsByIds(wsId, g.assetIds), ext.tasks);
+    void this.execute(wsId, job, g, ext.final, ext.shots, this.repo.assetsByIds(wsId, [...new Set([...g.assetIds, ...ext.shots.map(s => s.assetId).filter((x): x is string => !!x)])]), ext.tasks);
   }
 
   private async execute(wsId: string, job: Job, g: GenSettings, final: boolean, shots: PlannedShot[], assets: Asset[], known: (string | null)[]) {
-    const output: VideoOutput = { draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? draftResOf(g.model) : g.res, ratio: g.ratio, len: g.len, model: g.model, voice: g.voice };
+    const output: VideoOutput = { type: g.type, draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? draftResOf(g.model) : g.res, ratio: g.ratio, len: shots.reduce((a, s) => a + s.dur, 0) || g.len, model: g.model, voice: g.voice };
     const tasks = shots.map((_, i) => known[i] ?? null);
+    const byId = new Map(assets.map(a => [a.id, a]));
+    // 每镜用哪张素材：新链路按分镜里指定的；旧链路按顺序轮流
+    const assetOf = (s: PlannedShot, i: number): Asset | null => (s.source ? (s.assetId ? byId.get(s.assetId) ?? null : null) : assets.length ? assets[i % assets.length] : null);
     try {
-      const frames = await Promise.all(shots.map((_, i) => (known[i] || !assets.length ? null : this.frameUrl(assets[i % assets.length]))));
+      const frames = await Promise.all(shots.map((s, i) => {
+        const a = assetOf(s, i);
+        return known[i] || s.reused || s.source === 'clip' || !a ? null : this.frameUrl(a);
+      }));
+      // 素材原片：不生成，直接用素材文件
+      const clips = shots.map((s, i) => (s.source === 'clip' ? assetOf(s, i)?.url ?? null : null));
       const r = await this.providers.video.run({
         settings: g, shots, final, frames, known,
         onTask: (i, id) => { tasks[i] = id; this.repo.setJobExternal(job.id, { tasks, shots, final }); },
       }, step => this.repo.updateJob(job.id, { step }));
-      if (r?.shotVideos) await this.saveOutputs(wsId, job.id, g, output, r.shotVideos);
+      const errors = r?.errors ?? [];
+      // 有镜头失败：其余照常出片，失败那几镜的点数退回
+      const failed = shots.map((_, i) => errors[i]).map((e, i) => (e ? i : -1)).filter(i => i >= 0);
+      if (failed.length) {
+        const per = (i: number) => { const m = modelOf(shots[i].model || g.model); return Math.round(shots[i].dur * (output.draft && m.draft ? m.pd : m.pf)); };
+        const back = Math.min(job.cost, failed.reduce((a, i) => a + per(i), 0));
+        failed.forEach(i => { shots[i].failed = errors[i]!; });
+        output.partial = true;
+        if (back > 0) this.repo.refund(wsId, back, `${failed.length} 镜没生成成功，退回这几镜的点数`, job.id);
+      }
+      const videos = r?.shotVideos ? r.shotVideos.map((u, i) => clips[i] ?? u) : clips.some(Boolean) ? clips : null;
+      if (videos) await this.saveOutputs(wsId, job.id, g, output, videos);
       this.repo.updateJob(job.id, { status: 'done', step: GEN_STEPS.length, output });
       this.opts.onDone?.(wsId, job, true);
     } catch (err) {
@@ -204,7 +293,13 @@ export class JobRunner {
       output.shots = await Promise.all(output.shots.map(async (s, i) => {
         const src = urls[i] ?? null;
         if (!src) return { ...s, videoUrl: null };
-        if (!st) { local.push(src); return { ...s, videoUrl: src }; }
+        // 本站已有的文件（沿用上一版的镜头、素材原片）：不再转存，读出来参与合成
+        if (src.startsWith('/files/')) {
+          const buf = st ? await st.get(src.slice(7).split('?')[0]).catch(() => null) : null;
+          if (buf) { const p = join(tmp, `s${i}.mp4`); writeFileSync(p, buf); local[i] = p; }
+          return { ...s, videoUrl: src };
+        }
+        if (!st) { local[i] = src; return { ...s, videoUrl: src }; }
         try {
           const res = await f(src, { signal: AbortSignal.timeout(180_000) });
           if (!res.ok) throw new Error(`下载失败（${res.status}）`);
@@ -219,11 +314,12 @@ export class JobRunner {
           return { ...s, videoUrl: src };
         }
       }));
-      const inputs = local.filter(Boolean);
-      if (inputs.length && this.opts.compose !== 'off' && hasFfmpeg()) {
+      const idx = output.shots.map((_, i) => i).filter(i => local[i]);
+      if (idx.length && this.opts.compose !== 'off' && hasFfmpeg()) {
         try {
           const out = join(tmp, 'final.mp4');
-          await composeVideo({ urls: inputs, lines: output.shots.filter(s => s.videoUrl).map(s => s.line), ratio: g.ratio, res: output.res, outFile: out, font: this.opts.font, subtitles: g.subs });
+          // 每镜裁到它的时长（生成时向上取整多出来的部分去掉）
+          await composeVideo({ urls: idx.map(i => local[i]), lines: idx.map(i => output.shots[i].line), durs: idx.map(i => output.shots[i].dur), ratio: g.ratio, res: output.res, outFile: out, font: this.opts.font, subtitles: g.subs });
           const key = `${wsId}/${jobId}.mp4`;
           if (st) { await st.put(key, readFileSync(out), 'video/mp4'); output.videoUrl = `/files/${key}`; }
         } catch (e) { output.composeError = String((e as Error).message ?? e).slice(0, 200); }

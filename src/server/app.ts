@@ -13,10 +13,11 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
-import { JobRunner, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
+import { JobRunner, opsTick, withProgress, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
 import { PERSONAS, MODELS, CADENCE, TUDOU_CAPS, withCaps } from '../shared/catalog.ts';
 import { checkCopy, findBanned } from '../shared/copy.ts';
-import { genCost, genIssues, planShots, setVideoModels, videoModels } from '../shared/gen.ts';
+import { genCost, genIssues, setVideoModels, shotsOf, videoModels } from '../shared/gen.ts';
+import { voiceSecs } from '../shared/video.ts';
 import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
 import type { CopyDraft, Workspace } from '../shared/types.ts';
@@ -102,7 +103,7 @@ export function createApp(opts: AppOptions) {
   const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
   const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
     limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: { ...providerInfo, firstFrame: firstFrameOk() }, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso() });
-  const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: scheduleView(repo, ws, p) }));
+  const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: withProgress(repo, ws, p, scheduleView(repo, ws, p)) }));
 
   const r = new Router();
 
@@ -203,6 +204,42 @@ export function createApp(opts: AppOptions) {
     return { voiceClone: 'busy' };
   });
 
+  /* ---------- 数字人形象 ---------- */
+  // 上传本人视频（真人分身）或照片（照片形象），必须带本人授权（念过带随机数字的授权声明）。接上数字人服务前：审核几秒后变成可用（示意）
+  r.post('/api/avatars', async req => {
+    const ws = W(req), kind = req.raw.headers['x-kind'] === 'photo' ? 'photo' : 'clone';
+    if (req.raw.headers['x-consent'] !== 'yes') throw new HttpError(400, '需要本人对着镜头念授权声明，并勾选同意');
+    const mime = String(req.raw.headers['content-type'] ?? '');
+    const demo = req.raw.headers['x-sample'] === 'demo';
+    if (!demo && !(kind === 'photo' ? /^image\//.test(mime) : /^video\//.test(mime))) throw new HttpError(415, kind === 'photo' ? '照片形象要传一张照片' : '真人分身要传一段视频');
+    if (!demo) {
+      const buf = await readBuffer(req.raw, UPLOAD_LIMIT);
+      const file = `${ws.id}/${newId('av')}${kind === 'photo' ? '.jpg' : '.mp4'}`;
+      await storage.put(file, buf, mime);
+      const a = repo.insertAsset(ws.id, { type: '人物', name: kind === 'photo' ? '照片形象' : '真人分身底片', k: 'person', file, mime, size: buf.length, source: '数字人形象' });
+      ops.setSetting(`avatar_asset:${ws.id}:${kind}`, a.id);
+    }
+    repo.setAvatar(ws.id, kind, 'busy');
+    setTimeout(() => repo.setAvatar(ws.id, kind, 'ready'), Number(process.env.MOCK_DELAY_MS ?? 3000)).unref();
+    ops.track(ctx(req).owner, ws.id, 'avatar_created', { kind });
+    return { avatars: repo.ws(ws.id)!.avatars };
+  });
+  r.delete('/api/avatars/:kind', req => {
+    const ws = W(req), kind = req.params.kind === 'photo' ? 'photo' : 'clone';
+    repo.setAvatar(ws.id, kind, 'none'); ops.setSetting(`avatar_asset:${ws.id}:${kind}`, null);
+    return { avatars: repo.ws(ws.id)!.avatars };
+  });
+
+  /* ---------- 点数 ---------- */
+  r.get('/api/ledger', req => ({ items: repo.ledger(W(req).id) }));
+  r.post('/api/points/redeem', async req => {
+    const ws = W(req), { code } = await body(req, z.object({ code: z.string().trim().min(4).max(40) }));
+    const out = repo.redeem(ws.id, code.toUpperCase());
+    if (!out.ok) throw new HttpError(400, out.error);
+    ops.track(ctx(req).owner, ws.id, 'redeemed', { points: out.points });
+    return { points: out.points, balance: repo.ws(ws.id)!.balance };
+  });
+
   /* ---------- 素材 ---------- */
   r.get('/api/assets', req => ({ assets: repo.assets(W(req).id) }));
   r.post('/api/assets', async req => {
@@ -228,7 +265,12 @@ export function createApp(opts: AppOptions) {
   r.post('/api/gen/check', async req => {
     const ws = W(req), g = await body(req, S.genSettingsSchema);
     const assets = repo.assetsByIds(ws.id, g.assetIds);
-    return { issues: genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk() }), shots: planShots(g, assets.map(a => a.k), personaOf(ws.persona).att), cost: genCost(g), finalCost: genCost(g, true) };
+    return { issues: genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }), shots: shotsOf(g, assets, personaOf(ws.persona).att), cost: genCost(g), finalCost: genCost(g, true) };
+  });
+  /** 试听 / 定时长：按句配音，返回每句时长。接上配音服务前按字数估（前端用浏览器朗读试听） */
+  r.post('/api/gen/voice', async req => {
+    const d = await body(req, z.object({ lines: z.array(z.string().max(400)).max(60), speed: z.number().min(0.5).max(2).default(1), voice: z.string().max(10).default('p1') }));
+    return { provider: 'estimate', secs: d.lines.map(l => voiceSecs(l, d.speed)) };
   });
   r.post('/api/gen', async (req, res) => {
     const ws = W(req), d = await body(req, z.object({ settings: S.genSettingsSchema, final: z.boolean().default(false), title: z.string().max(80).default('') }));
@@ -236,7 +278,7 @@ export function createApp(opts: AppOptions) {
     if (ops.genPaused()) throw new HttpError(503, '生成功能暂时关闭了，管理员打开后就能用');
     if (o.dailyJobsPerUser && ops.jobsToday(owner) >= o.dailyJobsPerUser) throw new HttpError(429, `今天的生成次数用完了（每天 ${o.dailyJobsPerUser} 次），明天再来`);
     if (o.dailyBudget && ops.spentToday() >= o.dailyBudget) throw new HttpError(503, '今天的试用额度已经用完，明天再来');
-    const blocking = genIssues(d.settings, ws.voiceClone, { firstFrame: firstFrameOk() }).filter(i => i.blocking);
+    const blocking = genIssues(d.settings, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }).filter(i => i.blocking);
     if (blocking.length) throw new HttpError(422, blocking.map(i => i.text).join('；'));
     const title = d.title || d.settings.title || d.settings.copy.split('\n')[0]?.slice(0, 20) || '未命名';
     const out = runner.startVideo(ws, d.settings, d.final, title);
@@ -248,7 +290,11 @@ export function createApp(opts: AppOptions) {
   r.get('/api/jobs/:id', req => { const j = repo.job(W(req).id, req.params.id); if (!j) throw new HttpError(404, '任务不存在'); return j; });
 
   /* ---------- 排期 ---------- */
-  r.get('/api/plans', req => ({ plans: planPayload(W(req)) }));
+  r.get('/api/plans', async req => {
+    const ws = W(req);
+    const did = await opsTick(repo, providers, runner, ws).catch(e => { console.warn('AI 运营：', e.message); return [] as string[]; });
+    return { plans: planPayload(ws), did };
+  });
   r.post('/api/plans', async req => {
     const ws = W(req), { account } = await body(req, z.object({ account: z.string().trim().min(1).max(40) }));
     const base = repo.plans(ws.id)[0];
@@ -271,6 +317,9 @@ export function createApp(opts: AppOptions) {
     if (d.action === 'next') { const t = replaceWithNext(repo, ws, p, date); message = t ? `换了一个：${t.title}` : '选题库里没有更多选题了'; }
     if (d.action === 'skip') { p.skipped = [...new Set([...p.skipped, date])]; repo.savePlan(ws.id, p); message = '跳过了这一天'; }
     if (d.action === 'add') { p.added = [...new Set([...p.added, date])]; p.skipped = p.skipped.filter(x => x !== date); repo.savePlan(ws.id, p); ensureSchedule(repo, ws, p); message = '加了一条，AI 预选了选题，等你审核'; }
+    if (d.action === 'publish') { repo.setSlotMeta(p.id, date, { publishedAt: new Date().toISOString() }); ops.track(ctx(req).owner, ws.id, 'slot_published'); message = '记下了：已发布。24 小时后来填一下数据'; }
+    if (d.action === 'unpublish') { repo.setSlotMeta(p.id, date, { publishedAt: null }); message = '已改回未发布'; }
+    if (d.action === 'metrics') { if (!d.metrics) throw new HttpError(400, '缺少数据'); repo.setSlotMeta(p.id, date, { metrics: d.metrics }); message = '数据已记下，下周的打法会参考它'; }
     if (d.action === 'set') {
       if (!d.topicId) throw new HttpError(400, '缺少选题');
       if (date < today) throw new HttpError(400, '不能排到过去的日期');
@@ -327,6 +376,14 @@ export function createApp(opts: AppOptions) {
   r.post('/api/admin/users/:id/points', async req => { admin(req); const { delta } = await body(req, z.object({ delta: z.number().int().min(-100000).max(100000) })); if (!ops.addPoints(req.params.id, delta)) throw new HttpError(404, '没有这个用户'); return { users: ops.users() }; });
   r.get('/api/admin/invites', req => { admin(req); return { invites: ops.listInvites() }; });
   r.post('/api/admin/invites', async req => { admin(req); const d = await body(req, z.object({ count: z.number().int().min(1).max(100), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') })); const codes = ops.createInvites(d.count, d.maxUses, d.note); return { codes, invites: ops.listInvites() }; });
+  r.get('/api/admin/redeem', req => { admin(req); return { codes: repo.redeemCodes() }; });
+  r.post('/api/admin/redeem', async req => {
+    admin(req);
+    const d = await body(req, z.object({ count: z.number().int().min(1).max(100), points: z.number().int().min(1).max(100000), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') }));
+    const codes = Array.from({ length: d.count }, () => randomBytes(4).toString('hex').toUpperCase());
+    codes.forEach(c => repo.createRedeem(c, d.points, d.maxUses, d.note));
+    return { codes, list: repo.redeemCodes() };
+  });
   r.get('/api/admin/feedback', req => { admin(req); return { feedback: ops.listFeedback() }; });
   r.post('/api/admin/feedback/:id', async req => { admin(req); const { status } = await body(req, z.object({ status: z.enum(['new', 'read', 'done']) })); ops.setFeedback(req.params.id, status); return { feedback: ops.listFeedback() }; });
   r.put('/api/admin/settings', async req => { admin(req); const d = await body(req, z.object({ genPaused: z.boolean() })); ops.setGenPaused(d.genPaused); return { settings: { genPaused: ops.genPaused() } }; });

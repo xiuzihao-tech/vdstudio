@@ -808,3 +808,61 @@ body[data-theme=poster] .gfoot{border:2px solid #000;background:#fff}
 .fbb{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:30;writing-mode:vertical-rl;letter-spacing:.15em;padding:14px 8px;border-radius:10px 0 0 10px;background:var(--pri);color:var(--pritx);font-size:13.5px;font-weight:500;box-shadow:0 10px 30px -10px rgba(0,0,0,.4)}
 body[data-theme=poster] .fbb{border-radius:0;border:2px solid #000;background:var(--ac);color:#000}
 @media (max-width:760px){.fbb{padding:10px 5px;font-size:12px}}
+
+/* ===== MVP：三步生成 ===== */
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-top:22px}
+.tcards button{display:flex;flex-direction:column;gap:6px;text-align:left;padding:16px;min-height:150px;border-radius:var(--r2);border:var(--bd);background:var(--pn);box-shadow:var(--sh)}
+.tcards button:hover{border-color:var(--tx3)}
+.tcards button[aria-pressed="true"]{border-color:var(--tx);box-shadow:0 0 0 1px var(--tx)}
+.tcards b{font-size:17px}
+.adv summary{font-size:14px}
+.advg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;padding:4px 18px 18px;border-top:1px solid var(--ln2);padding-top:16px}
+.advg .w2{grid-column:span 2}
+.fld.sm{padding:6px 10px;font-size:13.5px;border-radius:calc(var(--r1) - 2px)}
+.sboard{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.sbrow{display:grid;grid-template-columns:132px minmax(0,1fr) 190px;gap:14px;padding:12px;border-radius:var(--r2);background:var(--pn);border:var(--bd)}
+.sbl{display:flex;flex-direction:column;gap:6px}
+.sbth{position:relative;border-radius:8px;overflow:hidden;aspect-ratio:16/10}
+.sbth .ph{position:absolute;inset:0;aspect-ratio:auto;height:100%}
+.sbth .ph::after{display:none}
+.sbm{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sbm textarea{font-size:15px}
+.sbp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.sbr{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.track{display:flex;flex-direction:column;gap:5px;margin-top:14px}
+.track .tr{display:grid;grid-template-columns:36px 1fr;gap:8px;align-items:center;font-size:11.5px;color:var(--tx3)}
+.track .tr>div{display:flex;gap:2px;height:22px}
+.track .tr button,.track .tr i{display:grid;place-items:center;min-width:0;border-radius:4px;font-style:normal;font-size:11px;color:var(--tx2);background:color-mix(in srgb,var(--tx) 10%,transparent);overflow:hidden;white-space:nowrap}
+.track .tr button:hover{background:color-mix(in srgb,var(--tx) 18%,transparent)}
+.track .tr .avt{background:color-mix(in srgb,var(--ac) 45%,transparent);color:var(--tx)}
+.track .tr .bad{background:color-mix(in srgb,var(--err) 30%,transparent);color:var(--tx)}
+.track .tr .off{opacity:.3}
+/* ===== MVP：AI 运营 ===== */
+.opsauto{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:28px;padding:18px 20px}
+.card{background:var(--pn);border:var(--bd);border-radius:var(--r3);padding:20px;box-shadow:var(--sh)}
+.todo{display:flex;flex-direction:column;gap:8px}
+.tdc{padding:12px 14px;border-radius:var(--r2);background:var(--pn);border:var(--bd)}
+.tdc>.row{gap:10px;flex-wrap:wrap;align-items:center}
+.tdr{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0 0;margin-top:8px;border-top:1px solid var(--ln2)}
+.opsprog{display:flex;gap:3px;margin-top:8px}
+.opsprog i{flex:1;height:5px;border-radius:3px;background:color-mix(in srgb,var(--tx) 12%,transparent)}
+.opsprog i.ok{background:var(--real)}
+.opsprog.big{gap:6px;flex-wrap:wrap}
+.opsprog.big span{flex:1;min-width:52px;text-align:center;font-size:12px;padding:6px 0;border-radius:var(--rp);background:color-mix(in srgb,var(--tx) 8%,transparent);color:var(--tx3)}
+.opsprog.big span.ok{background:color-mix(in srgb,var(--real) 18%,transparent);color:var(--tx)}
+/* ===== MVP：形象与声音 ===== */
+.mecards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:26px}
+.mecards .card{display:flex;flex-direction:column}
+.meph{position:relative;border-radius:var(--r2);overflow:hidden;aspect-ratio:4/3;margin:12px 0}
+.meph .ph{position:absolute;inset:0;aspect-ratio:auto;height:100%}
+.tips{margin:10px 0 0 16px;display:grid;gap:4px}
+button.pts{background:none;border:0;cursor:pointer;color:inherit;font:inherit}
+@media (max-width:860px){
+  .sbrow{grid-template-columns:1fr}
+  .sbl{flex-direction:row;align-items:center}
+  .sbth{width:96px;flex:none}
+  .sbp{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sbr{flex-direction:row;flex-wrap:wrap;align-items:center}
+  .advg{grid-template-columns:1fr}.advg .w2{grid-column:auto}
+  .mecards{grid-template-columns:1fr}
+}

@@ -4,11 +4,13 @@ import { api } from '../api.ts';
 import { useApp, type View } from '../store.tsx';
 import { Src } from './kit.tsx';
 import { AuthForm } from './auth.tsx';
+import { PointsSheet } from './points.tsx';
 import type { Job } from '../../shared/types.ts';
 
-const TABS: [View, string, string][] = [['home', '创作', '创作'], ['ip', '选题文案', '选题'], ['gen', '生成视频', '生成'], ['wb', '制作台', '制作台'], ['plan', '排期', '排期'], ['lib', '作品与素材', '素材']];
-const MOBILE: View[] = ['home', 'ip', 'gen', 'plan', 'lib'];
-const ICON: Record<string, string> = { home: 'i-make', ip: 'i-idea', gen: 'i-wb', wb: 'i-wb', plan: 'i-cal', lib: 'i-lib' };
+// MVP 导航：4 个入口。选题文案、制作台、首页先隐藏（代码保留，选题和文案在 dazheip 做）
+const TABS: [View, string, string][] = [['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['lib', '我的作品', '作品'], ['me', '形象与声音', '形象']];
+const MOBILE: View[] = ['gen', 'ops', 'lib', 'me'];
+const ICON: Record<string, string> = { gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
 const THEMES: [string, string][] = [['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
@@ -37,7 +39,7 @@ export function Header() {
       <p className="lb" style={{ marginTop: 18 }}>界面风格</p>
       <div className="pills">{THEMES.map(([k, n]) => <button key={k} className="pill sm" data-th={k} aria-pressed={session!.workspace.theme === k}
         onClick={async () => { document.body.dataset.theme = k; setSession({ ...session!, workspace: { ...session!.workspace, theme: k } }); await api.setTheme(k).catch(fail); }}>{n}</button>)}</div>
-      <p className="note">每个身份是独立的工作区：选题、文案、素材、排期互不影响。</p>
+      <p className="note">每个身份是独立的工作区：文案、素材、运营计划、形象互不影响。</p>
       <p className="lb" style={{ marginTop: 18 }}>账号</p>
       {session!.user
         ? <div className="list"><div><span>{session!.user.name}<br /><span className="xs m3">{session!.user.email}</span></span><button className="btn g sm" id="logoutBtn" onClick={async () => { try { await api.logout(); sheet(null); await reloadSession(); bump(); toast('已退出'); } catch (e) { fail(e); } }}>退出</button></div></div>
@@ -67,7 +69,7 @@ export function Header() {
         {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
       </nav>
       <span className="sp" />
-      <span className="pts">余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</span>
+      <button className="pts" id="ptsBtn" onClick={() => session && sheet({ title: '点数', body: <PointsSheet /> })}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</button>
       {session && !session.user && <button className="btn g sm" id="loginBtn" onClick={() => sheet({ title: '登录', body: <AuthForm onDone={() => sheet(null)} /> })}>登录</button>}
       <button className="who" id="whoBtn" aria-label="切换身份和账号" onClick={whoSheet} disabled={!session}>{session ? `${session.user ? `${session.user.name} · ` : ''}${session.persona.n}` : '…'}</button>
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>

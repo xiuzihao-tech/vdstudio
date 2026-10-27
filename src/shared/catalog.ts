@@ -42,12 +42,13 @@ export const VOICES: { id: 'me' | 'p1' | 'p2' | 'p3' | 'none'; n: string; d: str
   { id: 'me', n: '本人声音', d: '克隆', k: 'person' },
   { id: 'p1', n: '沉稳男声', d: '平台音色', k: 'ref' },
   { id: 'p2', n: '温和女声', d: '平台音色', k: 'bed' },
-  { id: 'p3', n: '青岛方言', d: '平台音色', k: 'live' },
-  { id: 'none', n: '不要人声', d: '只放音乐和环境声', k: '' },
+  { id: 'none', n: '后期再配', d: '先出画面，成片后再配音或自己录', k: '' },
 ];
 export const BGMS = ['温暖钢琴', '城市律动', '轻电子', '弦乐氛围', '不要'];
-export const RATIOS = ['9:16', '16:9', '1:1', '3:4'] as const;
-export const RESOLUTIONS = ['720p', '1080p', '4K'] as const;
+/** 土豆只认这三种比例；3:4、4K 已从页面上去掉 */
+export const RATIOS = ['9:16', '16:9', '1:1'] as const;
+export const RESOLUTIONS = ['480p', '720p', '1080p'] as const;
+export const EMOTIONS = ['自动', '平静', '开心', '惊讶', '严肃'] as const;
 export const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 export const TOPIC_SOURCE_NAME: Record<string, string> = { hot: '热门选题', case: '案例策划', ai: 'AI 生成', bench: '对标复刻', mat: '素材创作', plan: '排期预选', angle: '深挖角度', tool: '工具整理' };
 /** 各人设默认发布日（0=周一） */

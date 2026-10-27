@@ -1,16 +1,16 @@
 // 数据访问层：只做读写和行映射，不放业务规则。
 import type { DB } from './db.ts';
 import { newId, now } from './db.ts';
-import type { Asset, CopyDraft, Job, JobExternal, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
+import type { SlotMetrics, Asset, CopyDraft, Job, JobExternal, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
 
 type Row = Record<string, any>;
 const j = (s: string | null) => (s == null ? null : JSON.parse(s));
 
-const toWs = (r: Row): Workspace & { ownerId: string } => ({ id: r.id, ownerId: r.owner_id, persona: r.persona, positioning: j(r.positioning), balance: r.obal ?? r.balance, voiceClone: r.voice_clone, theme: r.theme });
+const toWs = (r: Row): Workspace & { ownerId: string } => ({ id: r.id, ownerId: r.owner_id, persona: r.persona, positioning: j(r.positioning), balance: r.obal ?? r.balance, voiceClone: r.voice_clone, theme: r.theme, avatars: { clone: r.avatar_clone ?? 'none', photo: r.avatar_photo ?? 'none' } });
 const toTopic = (r: Row): Topic => ({ id: r.id, cat: r.cat, title: r.title, hook: r.hook, why: r.why, dir: r.dir, type: r.type, heat: r.heat, k: r.k, ageMonths: r.age_months, source: r.source, fav: !!r.fav, createdAt: r.created_at });
 const toAsset = (r: Row): Asset => ({ id: r.id, type: r.type, name: r.name, k: r.k, url: r.file ? `/files/${r.file}` : null, mime: r.mime, size: r.size, used: r.used, source: r.source, createdAt: r.created_at });
 const toJob = (r: Row): Job => ({ id: r.id, kind: r.kind, status: r.status, step: r.step, steps: j(r.steps), cost: r.cost, title: r.title, input: j(r.input), output: j(r.output), error: r.error, createdAt: r.created_at, updatedAt: r.updated_at });
-const toPlan = (r: Row): Plan => ({ id: r.id, account: r.account, weekdays: j(r.weekdays), hour: r.hour, needOk: !!r.need_ok, budget: r.budget, running: !!r.running, mix: j(r.mix), added: j(r.added), skipped: j(r.skipped), backlog: j(r.backlog) });
+const toPlan = (r: Row): Plan => ({ auto: r.auto ?? 'copy', id: r.id, account: r.account, weekdays: j(r.weekdays), hour: r.hour, needOk: !!r.need_ok, budget: r.budget, running: !!r.running, mix: j(r.mix), added: j(r.added), skipped: j(r.skipped), backlog: j(r.backlog) });
 const toSlot = (r: Row): Slot => ({ planId: r.plan_id, date: r.date, topicId: r.topic_id, pin: r.pin, why: r.why, column: r.col });
 
 export function makeRepo(db: DB) {
@@ -31,6 +31,34 @@ export function makeRepo(db: DB) {
     },
     setPositioning: (ws: string, p: Positioning) => { db.prepare('UPDATE workspaces SET positioning=? WHERE id=?').run(JSON.stringify(p), ws); },
     setVoiceClone: (ws: string, s: VoiceCloneState) => { db.prepare('UPDATE workspaces SET voice_clone=? WHERE id=?').run(s, ws); },
+    setAvatar: (ws: string, kind: 'clone' | 'photo', st: VoiceCloneState) => { db.prepare(`UPDATE workspaces SET ${kind === 'clone' ? 'avatar_clone' : 'avatar_photo'}=? WHERE id=?`).run(st, ws); },
+    ledger(ws: string, limit = 50) { return db.prepare('SELECT delta, reason, created_at AS createdAt FROM ledger WHERE ws IN (SELECT id FROM workspaces WHERE owner_id=(SELECT owner_id FROM workspaces WHERE id=?)) ORDER BY created_at DESC LIMIT ?').all(ws, limit) as { delta: number; reason: string; createdAt: string }[]; },
+    /* ---------- AI 运营：发布与回填 ---------- */
+    slotMeta(planId: string): Map<string, { publishedAt: string | null; metrics: SlotMetrics | null }> {
+      return new Map((db.prepare('SELECT * FROM slot_meta WHERE plan_id=?').all(planId) as Row[]).map(r => [r.date, { publishedAt: r.published_at, metrics: j(r.metrics) }]));
+    },
+    setSlotMeta(planId: string, date: string, p: { publishedAt?: string | null; metrics?: SlotMetrics | null }) {
+      const cur = this.slotMeta(planId).get(date) ?? { publishedAt: null, metrics: null };
+      const next = { ...cur, ...p };
+      db.prepare('INSERT INTO slot_meta (plan_id, date, published_at, metrics) VALUES (?,?,?,?) ON CONFLICT(plan_id, date) DO UPDATE SET published_at=excluded.published_at, metrics=excluded.metrics')
+        .run(planId, date, next.publishedAt, next.metrics ? JSON.stringify(next.metrics) : null);
+    },
+    /* ---------- 兑换码 ---------- */
+    createRedeem(code: string, points: number, maxUses: number, note: string) { db.prepare('INSERT INTO redeem_codes (code, points, max_uses, note, created_at) VALUES (?,?,?,?,?)').run(code, points, maxUses, note, now()); },
+    redeemCodes() { return db.prepare('SELECT code, points, max_uses AS maxUses, used, note, created_at AS createdAt FROM redeem_codes ORDER BY created_at DESC').all() as { code: string; points: number; maxUses: number; used: number; note: string; createdAt: string }[]; },
+    /** 兑换：码不存在 / 用完 / 这个账号用过 → 返回原因；成功返回加的点数 */
+    redeem(ws: string, code: string): { ok: true; points: number } | { ok: false; error: string } {
+      const c = db.prepare('SELECT * FROM redeem_codes WHERE code=?').get(code) as Row | undefined;
+      if (!c) return { ok: false, error: '兑换码不对' };
+      if (c.used >= c.max_uses) return { ok: false, error: '这个兑换码已经用完了' };
+      const owner = (db.prepare('SELECT owner_id FROM workspaces WHERE id=?').get(ws) as Row).owner_id;
+      if (db.prepare('SELECT 1 FROM redeem_uses WHERE code=? AND owner_id=?').get(code, owner)) return { ok: false, error: '你已经用过这个兑换码' };
+      db.prepare('INSERT INTO redeem_uses (code, owner_id, created_at) VALUES (?,?,?)').run(code, owner, now());
+      db.prepare('UPDATE redeem_codes SET used = used + 1 WHERE code=?').run(code);
+      db.prepare('UPDATE owners SET balance = balance + ? WHERE id=?').run(c.points, owner);
+      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), ws, c.points, `兑换码 ${code}`, null, now());
+      return { ok: true, points: c.points };
+    },
     setTheme: (ws: string, t: string) => { db.prepare('UPDATE workspaces SET theme=? WHERE id=?').run(t, ws); },
 
     /* ---------- 点数 ---------- */
@@ -115,15 +143,16 @@ export function makeRepo(db: DB) {
     /* ---------- 排期 ---------- */
     plans(ws: string): Plan[] { return (db.prepare('SELECT * FROM plans WHERE ws=? ORDER BY seq').all(ws) as Row[]).map(toPlan); },
     plan(ws: string, id: string): Plan | null { const r = db.prepare('SELECT * FROM plans WHERE ws=? AND id=?').get(ws, id) as Row | undefined; return r ? toPlan(r) : null; },
-    insertPlan(ws: string, p: Omit<Plan, 'id'>): Plan {
+    insertPlan(ws: string, p: Omit<Plan, 'id' | 'auto'> & { auto?: Plan['auto'] }): Plan {
       const id = newId('pl');
       db.prepare('INSERT INTO plans (id, ws, account, weekdays, hour, need_ok, budget, running, mix, added, skipped, backlog, seq) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(id, ws, p.account, JSON.stringify(p.weekdays), p.hour, p.needOk ? 1 : 0, p.budget, p.running ? 1 : 0, JSON.stringify(p.mix), JSON.stringify(p.added), JSON.stringify(p.skipped), JSON.stringify(p.backlog), nextSeq());
+      if (p.auto) db.prepare('UPDATE plans SET auto=? WHERE id=?').run(p.auto, id);
       return this.plan(ws, id)!;
     },
     savePlan(ws: string, p: Plan) {
-      db.prepare('UPDATE plans SET account=?, weekdays=?, hour=?, need_ok=?, budget=?, running=?, mix=?, added=?, skipped=?, backlog=? WHERE ws=? AND id=?')
-        .run(p.account, JSON.stringify(p.weekdays), p.hour, p.needOk ? 1 : 0, p.budget, p.running ? 1 : 0, JSON.stringify(p.mix), JSON.stringify(p.added), JSON.stringify(p.skipped), JSON.stringify(p.backlog), ws, p.id);
+      db.prepare('UPDATE plans SET auto=?, account=?, weekdays=?, hour=?, need_ok=?, budget=?, running=?, mix=?, added=?, skipped=?, backlog=? WHERE ws=? AND id=?')
+        .run(p.auto ?? 'copy', p.account, JSON.stringify(p.weekdays), p.hour, p.needOk ? 1 : 0, p.budget, p.running ? 1 : 0, JSON.stringify(p.mix), JSON.stringify(p.added), JSON.stringify(p.skipped), JSON.stringify(p.backlog), ws, p.id);
     },
     slots(planId: string): Slot[] { return (db.prepare('SELECT * FROM slots WHERE plan_id=? ORDER BY date').all(planId) as Row[]).map(toSlot); },
     upsertSlot(s: Slot) {

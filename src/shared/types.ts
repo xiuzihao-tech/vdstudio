@@ -1,4 +1,5 @@
 // 领域类型：前后端共用。数据库行、接口返回、页面状态都以这里为准。
+import type { ShotSource, ShotSpec, VideoType } from './video.ts';
 
 export type PersonaId = 'designer' | 'deco' | 'custom' | 'material' | 'soft' | 'agent' | 'dev' | 'stay';
 
@@ -28,6 +29,8 @@ export type TopicSource = 'hot' | 'case' | 'ai' | 'bench' | 'mat' | 'plan' | 'an
 export interface Positioning {
   name: string; line: string; aud: string[]; pillars: string[];
   tone: Tone; tags: string[];
+  /** 人设档案：转化目标、发哪些平台（新手引导里填） */
+  goal?: string; platforms?: string[];
 }
 export type Tone = '亲切' | '专业' | '犀利' | '幽默';
 
@@ -61,10 +64,30 @@ export interface GenSettings {
   copy: string; prompt: string; title: string; topicId: string | null; assetIds: string[];
   model: string; len: number; ratio: Ratio; res: Resolution; draft: boolean;
   voice: VoiceId; speed: number; bgm: string; subs: boolean; ambience: boolean; cover: boolean; style: string;
+  /** 视频类型（第 1 步）；老数据没有 = 按旧规则平均拆镜 */
+  type?: VideoType;
+  /** 数字人：none 不出镜；clone 真人分身；photo 照片形象 */
+  avatar?: AvatarMode;
+  emotion?: string; pause?: number; bgmVol?: number; seed?: boolean;
+  /** 第 3 步确认过的分镜；有就严格按它生成（每镜的时长、来源、首帧、描述、景别运镜都下发） */
+  shots?: ShotSpec[];
+  /** 沿用上一版的镜头（单镜重做、换配音时）：下标 → 已有的视频地址 */
+  reuse?: (string | null)[];
+  /** music = 只换音乐：配音和画面都沿用，不收配音费 */
+  remix?: 'music';
 }
-export interface PlannedShot { dur: number; line: string; k: SceneKey; generated: boolean; /** 真实视频服务生成后回填（转存后是本站 /files 地址） */ videoUrl?: string | null; /** 中转站原始链接（会过期，仅留档） */ sourceUrl?: string }
+export type AvatarMode = 'none' | 'clone' | 'photo';
+export interface PlannedShot {
+  dur: number; line: string; k: SceneKey; generated: boolean;
+  /** 真实视频服务生成后回填（转存后是本站 /files 地址） */ videoUrl?: string | null;
+  /** 中转站原始链接（会过期，仅留档） */ sourceUrl?: string;
+  /** 第 3 步的逐镜参数（新链路才有） */
+  source?: ShotSource; assetId?: string | null; prompt?: string; size?: string; move?: string; model?: string; trans?: string;
+  /** 这一镜沿用上一版、不重新生成 */ reused?: boolean;
+  /** 这一镜生成失败（其余镜照常出片，这一镜的点数已退） */ failed?: string;
+}
 
-export type IssueCode = 'model_off' | 'res_unsupported' | 'ratio_unsupported' | 'no_copy' | 'copy_too_long' | 'voice_missing' | 'voice_busy' | 'no_assets' | 'frame_unusable';
+export type IssueCode = 'model_off' | 'res_unsupported' | 'ratio_unsupported' | 'no_copy' | 'copy_too_long' | 'voice_missing' | 'voice_busy' | 'no_assets' | 'frame_unusable' | 'avatar_missing' | 'avatar_busy';
 export interface GenIssue { code: IssueCode; blocking: boolean; text: string; fixes: { id: string; label: string }[] }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -76,20 +99,28 @@ export interface Job {
 }
 /** 生成任务在视频服务那边的记录：每镜的任务 ID（没提交为 null）和当时的分镜，重启后靠它接着查 */
 export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; final: boolean }
-export interface VideoOutput { draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
+export interface VideoOutput { /** 有镜头失败、其余照常出片 */ partial?: boolean; type?: string; draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */
+/** 托管程度：plan 只排计划；copy 自动写文案；sample 自动出样片 */
+export type AutoLevel = 'plan' | 'copy' | 'sample';
+export interface SlotMetrics { views: number; likes: number; comments: number; leads: number }
 export interface Plan {
+  auto: AutoLevel;
   id: string; account: string; weekdays: number[]; hour: number; needOk: boolean; budget: number; running: boolean;
   mix: { n: string; v: number }[]; added: string[]; skipped: string[]; backlog: string[];
 }
 export type SlotPin = 'cand' | 'fixed';
 export interface Slot { planId: string; date: string; topicId: string; pin: SlotPin; why: string; column: string }
 export type SlotState = 'done' | 'review' | 'gen' | 'plan' | 'cand' | 'paused' | 'gap';
-export interface SlotView extends Slot { state: SlotState; topic: Topic; weekday: string; label: string }
+/** AI 运营：一条内容走到哪一步了 */
+export interface SlotProgress { copy: boolean; sample: 'none' | 'running' | 'done' | 'failed'; final: boolean; published: boolean; reviewed: boolean; jobId: string | null; metrics: SlotMetrics | null }
+export interface SlotView extends Slot { state: SlotState; topic: Topic; weekday: string; label: string; progress?: SlotProgress }
 
 /* ---------- 工作区 ---------- */
 export type VoiceCloneState = 'none' | 'busy' | 'ready';
 export interface Workspace {
   id: string; persona: PersonaId; positioning: Positioning; balance: number; voiceClone: VoiceCloneState; theme: string;
+  /** 数字人形象：clone = 真人分身，photo = 照片形象（none / busy 审核中 / ready 可用） */
+  avatars: { clone: VoiceCloneState; photo: VoiceCloneState };
 }

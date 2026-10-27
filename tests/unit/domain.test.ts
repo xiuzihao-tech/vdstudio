@@ -51,11 +51,11 @@ test('分镜：镜数不少于文案行数，单镜时长不低于模型下限',
   assert.ok(none.every(s => s.generated && s.k === 'live'));
 });
 
-test('费用：样片按样片价，成片按正式价，封面另计', () => {
+test('费用：样片按样片价，成片按正式价，封面接图像模型前不收费', () => {
   assert.equal(genCost(gen({ len: 45 })), Math.round(45 * 2.4));
   assert.equal(genCost(gen({ len: 45 }), true), Math.round(45 * 4.2));
   assert.equal(genCost(gen({ len: 45, model: 's20' })), Math.round(45 * 3.4));
-  assert.equal(genCost(gen({ len: 10, cover: true })), 24 + 4);
+  assert.equal(genCost(gen({ len: 10, cover: true })), 24);
 });
 
 test('冲突检查：清晰度超出、没文案、声音未克隆都会拦截', () => {

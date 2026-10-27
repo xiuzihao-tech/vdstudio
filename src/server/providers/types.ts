@@ -29,7 +29,7 @@ export interface VideoProvider {
     known?: (string | null)[];
     /** 每镜任务提交成功时回调，用来把任务 ID 存进数据库 */
     onTask?: (i: number, taskId: string) => void;
-  }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[] } | void>;
+  }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[]; /** 第 i 镜失败的原因（其余镜照常返回）；全部失败时直接抛错 */ errors?: (string | null)[] } | void>;
   /** 能否在服务重启后接着查任务（Mock 不能） */
   resumable?: boolean;
   /** 首帧图能否用 base64 内联发送。false = 只认公网链接（土豆），本机没有公网地址时就发不了首帧 */
