@@ -30,11 +30,11 @@ page.on('response', r => { if (r.status() >= 400) errors.push(`http ${r.status()
 const $ = (s, o) => page.locator(s, o);
 const shot = n => page.screenshot({ path: join(shots, `${n}.png`), fullPage: true });
 
-await page.goto(base);
+await page.goto(base + '/gen');
 const COPY = '你家玄关，是不是一进门就乱？\n这个项目，我们只解决了一件事。\n鞋、外套、快递，三样东西三个高度。\n凳面四十二公分，老人孩子都好坐。\n很多人装修只看效果图，没想过住进去以后每天怎么用。\n想看你家能怎么改，私信发户型图。';
 await run('导航：4 个入口，选题文案和制作台已隐藏', async () => {
   const tabs = await $('.tabs [data-go]').allTextContents();
-  for (const t of ['生成视频', 'AI 运营', '我的作品', '知识库与形象']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
+  for (const t of ['今天', '生成视频', 'AI 运营', '我的作品', '知识库与形象']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
   if (tabs.includes('制作台') || tabs.includes('选题文案')) throw new Error('隐藏的入口还在：' + tabs.join(','));
 });
 const hasFf = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
@@ -209,11 +209,57 @@ await run('提意见 → 管理员后台：漏斗、反馈、邀请码、暂停�
   await ctx2.close();
 });
 
+await run('模块开关：管理员套用「只开一期」，学员看不到二三期；今天页先做面诊；面诊贴链接；知识库贴链接；切回全部打开', async () => {
+  const ctx3 = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+  const a = await ctx3.newPage();
+  a.on('pageerror', e => errors.push(`mod pageerror: ${e.message}`));
+  await a.goto(base);
+  await a.locator('#loginBtn').click(); await a.locator('#auEmail').fill('boss@example.com'); await a.locator('#auPw').fill('secret123'); await a.locator('#auGo').click();
+  await a.locator('.tabs [data-go=admin]').click();
+  await a.locator('#v-admin .seg button', { hasText: '模块开关' }).click();
+  await a.locator('#modAdmin [data-preset=phase1]').click();
+  await a.waitForTimeout(300);
+  await a.locator('[data-mod=voiceClone] [data-st=off][aria-pressed=true]').waitFor();
+  await a.locator('[data-mod=extend] [data-st=soon]').click(); await a.waitForTimeout(300);
+  await a.screenshot({ path: join(shots, '12_modules.png'), fullPage: true });
+  // 学员（另一个浏览器，没登录）
+  const ctx4 = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+  const s = await ctx4.newPage();
+  s.on('pageerror', e => errors.push(`student pageerror: ${e.message}`));
+  await s.goto(base);
+  await s.locator('#v-today').waitFor();
+  await s.locator('#todayDiag').waitFor();
+  if (!(await s.locator('#todayEntries [data-entry=real]').count())) throw new Error('今天页没有三个入口');
+  await s.screenshot({ path: join(shots, '13_today.png'), fullPage: true });
+  await s.locator('.tabs [data-go=gen]').click();
+  await s.locator('#gTypes').waitFor();
+  await s.locator('#gToStep2').click(); await s.locator('#gCtl').waitFor();
+  if (await s.locator('#gClone').count()) throw new Error('一期还显示声音复刻');
+  await s.locator('.tabs [data-go=me]').click(); await s.locator('#kbGrid').waitFor();
+  if (await s.locator('#meTabs').count()) throw new Error('形象与声音没隐藏');
+  await s.locator('[data-kblink=pro]').click(); await s.locator('[data-kburl=pro]').fill('https://example.com/case/123'); await s.locator('[data-kburlgo=pro]').click();
+  await s.locator('#kbGrid', { hasText: '打开链接' }).waitFor();
+  await s.locator('#todayDiag').count();
+  await s.locator('.tabs [data-go=home]').click(); await s.locator('#todayDiag button').click();
+  await s.locator('#unlockBtn').click(); await s.locator('#unlockOk').click();
+  await s.locator('#diagAttach').waitFor();
+  await s.locator('#diagUrl').fill('https://v.douyin.com/abc123/'); await s.locator('#diagUrlGo').click();
+  await s.locator('#diagAttList', { hasText: '抖音' }).waitFor();
+  await s.screenshot({ path: join(shots, '14_diag_attach.png'), fullPage: true });
+  // 管理员「按学员看」后台入口还在、导航和学员一致
+  await a.locator('#asStudent').click(); await a.locator('.tabs [data-go=home]').click(); await a.locator('#v-today').waitFor();
+  await a.locator('#asStudent').click();
+  await a.locator('.tabs [data-go=admin]').click(); await a.locator('#v-admin .seg button', { hasText: '模块开关' }).click();
+  await a.locator('#modAdmin [data-preset=all]').click(); await a.waitForTimeout(300);
+  await s.reload(); await s.locator('.tabs [data-go=me]').click(); await s.locator('#meTabs').waitFor();
+  await ctx3.close(); await ctx4.close();
+});
+
 const m = await browser.newPage({ viewport: { width: 390, height: 844 } });
 m.on('pageerror', e => errors.push(`mobile pageerror: ${e.message}`));
 await m.goto(base);
 await run('手机宽度无横向滚动', async () => {
-  for (const v of ['gen', 'ops', 'lib', 'me']) {
+  for (const v of ['home', 'gen', 'ops', 'lib', 'me']) {
     await m.locator(`.tbar [data-go=${v}]`).click(); await m.waitForTimeout(400);
     const w = await m.evaluate(() => document.documentElement.scrollWidth);
     if (w > 392) throw new Error(`${v} 页宽 ${w}`);

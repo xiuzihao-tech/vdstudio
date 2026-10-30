@@ -1,8 +1,10 @@
 // 知识库与形象：知识库（个人 / 专业 / 品牌三块，按条存能讲出来的素材）；形象与声音：声音复刻、真人分身（本人视频，只改嘴型）、照片形象（一张照片驱动）。都要本人授权：念一句带随机数字的授权声明。
+import { useMods, useModOpen } from '../ui/mods.tsx';
+import { fileUrl } from '../config.ts';
 import { useMemo, useState } from 'react';
 import { useData } from '../store.tsx';
 import { Seg } from '../ui/kit.tsx';
-import { KIND_HINT, KIND_NAME, SECTION_HINT, SECTION_NAME, type KbKind, type KbSection } from '../../shared/kb.ts';
+import { KIND_HINT, KIND_NAME, SECTION_HINT, SECTION_NAME, reportStale, type KbKind, type KbSection } from '../../shared/kb.ts';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
 import { Ph, Src, pickFiles } from '../ui/kit.tsx';
@@ -14,13 +16,16 @@ const SAMPLE = '大家好，我是这个账号的主理人。今天用一分钟�
 
 export function MePage() {
   const { route, nav } = useApp();
-  const tab = route.sub === 'avatar' ? 'avatar' : 'kb';
+  const mods = useMods();
+  const tabs = (['kb', 'avatar'] as const).filter(v => v === 'kb' ? mods.on('kb') : mods.any('voiceClone', 'avatars'));
+  const tab = tabs.includes(route.sub === 'avatar' ? 'avatar' : 'kb') ? (route.sub === 'avatar' ? 'avatar' : 'kb') : tabs[0] ?? 'kb';
+  useModOpen(tab === 'kb' ? 'kb' : 'voiceClone');
   return <section className="view on" id="v-me"><div className="vb wrap" style={{ maxWidth: 1080 }}>
     <div className="hero tight" style={{ textAlign: 'left', padding: '44px 0 0' }}>
       <p className="eyebrow">让 AI 更懂你</p>
       <h1 className="d2">知识库与形象</h1>
       <p className="s m" style={{ marginTop: 8 }}>知识库让文案像你写的，形象和声音让视频像你拍的。都只用你本人的。</p>
-      <div style={{ marginTop: 20 }} id="meTabs"><Seg value={tab} options={['kb', 'avatar'] as const} render={v => v === 'kb' ? '知识库' : '形象与声音'} onChange={v => nav({ view: 'me', sub: v }, true)} /></div>
+      {tabs.length > 1 && <div style={{ marginTop: 20 }} id="meTabs"><Seg value={tab} options={tabs} render={v => v === 'kb' ? '知识库' : '形象与声音'} onChange={v => nav({ view: 'me', sub: v }, true)} /></div>}
     </div>
     {tab === 'kb' ? <Kb /> : <Avatars />}
   </div></section>;
@@ -31,6 +36,14 @@ function Kb() {
   const d = useData(() => api.kb(), []);
   const [form, setForm] = useState<{ section: KbSection; kind: KbKind; text: string } | null>(null);
   const items = d.data?.items ?? [];
+  const mods = useMods();
+  const dg = useData(() => mods.on('report') ? api.diagnosis() : Promise.resolve(null), [mods.on('report')]);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [imp, setImp] = useState<{ section: KbSection; url: string } | null>(null);
+  const saveEdit = async () => { if (!editing?.text.trim()) return; try { d.set(await api.updateKb(editing.id, { text: editing.text.trim() })); setEditing(null); toast('改好了'); } catch (e) { fail(e); } };
+  const importLink = async () => { if (!imp) return; try { const r = await api.kbImport({ url: imp.url.trim() }, imp.section); d.set({ items: r.items }); setImp(null); toast('链接存进知识库了'); } catch (e) { fail(e); } };
+  const importFile = async (sec: KbSection) => { const fs = await pickFiles('.txt,.md,.pdf,.doc,.docx,image/*'); let n = 0; for (const f of fs.slice(0, 10)) { try { const r = await api.kbImport(f, sec); n += r.added; d.set({ items: r.items }); } catch (e) { fail(e); } } if (n) toast(`导入了 ${n} 条`); };
+  const stale = dg.data && reportStale(dg.data.diagnosis);
   const add = async () => { if (!form?.text.trim()) return; try { d.set(await api.addKb({ ...form, text: form.text.trim() })); setForm(null); toast('记下了'); } catch (e) { fail(e); } };
   const kinds = Object.keys(KIND_NAME) as KbKind[];
   return <>
@@ -39,6 +52,7 @@ function Kb() {
       <p className="s m">每写一条，系统按选题挑 1–3 条最相关、最近没用过的素材交给 AI；「履历」最多隔几条用一次，「说话习惯」只学语气，「不说的话」不会出现。面诊的回答也会自动存进来。</p>
       {!items.length && <button className="btn y" onClick={() => nav('ops')}>去做 AI 面诊，一次填好 →</button>}
     </div>
+    {stale && <div className="gwarn" id="kbStale" style={{ marginTop: 14 }}><div><span style={{ flex: 1 }}>知识库改过了，面诊报告里的标签<b>可重新提取</b>。</span><button className="btn g sm" onClick={() => nav({ view: 'ops', sub: 'report' })}>去报告里重新提取</button></div></div>}
     <div className="kbgrid" id="kbGrid">{(['personal', 'pro', 'brand'] as KbSection[]).map(sec => {
       const list = items.filter(i => i.section === sec);
       return <div className="kbcol" key={sec}>
@@ -46,8 +60,11 @@ function Kb() {
         <p className="xs m3" style={{ marginTop: 4 }}>{SECTION_HINT[sec]}</p>
         <div className="kbl">{list.map(i => <div className="kbi" key={i.id}>
           <div className="row" style={{ gap: 6 }}><span className={`tag k-${i.kind}`}>{KIND_NAME[i.kind]}</span><span className="xs m3" style={{ flex: 1 }}>{i.used ? `用过 ${i.used} 次` : '还没用过'}{i.source.startsWith('面诊') ? ' · 来自面诊' : ''}</span>
+            {(i.media ?? 'text') === 'text' && <button className="lnk xs" data-kbedit={i.id} onClick={() => setEditing({ id: i.id, text: i.text })}>改</button>}
             <button className="lnk xs" aria-label="删除" onClick={async () => { try { d.set(await api.deleteKb(i.id)); } catch (e) { fail(e); } }}>删除</button></div>
-          <p className="s" style={{ marginTop: 6 }}>{i.text}</p>
+          {editing?.id === i.id ? <div className="kbform" style={{ marginTop: 6 }}><textarea className="fld" rows={3} autoFocus value={editing.text} onChange={e => setEditing({ ...editing, text: e.target.value })} />
+            <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => setEditing(null)}>取消</button><button className="btn y sm" id="kbEditSave" disabled={!editing.text.trim()} onClick={saveEdit}>保存</button></div></div>
+            : <p className="s" style={{ marginTop: 6 }}>{i.media === 'link' ? '🔗 ' : i.media === 'file' ? '📎 ' : ''}{i.text}{i.url && <> <a className="lnk xs" href={i.media === 'file' ? fileUrl(i.url) : i.url} target="_blank" rel="noreferrer noopener">{i.media === 'file' ? '打开文件' : '打开链接'}</a></>}</p>}
         </div>)}</div>
         {form?.section === sec ? <div className="kbform">
           <select className="fld sm" aria-label="类型" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value as KbKind })}>{kinds.map(k => <option key={k} value={k}>{KIND_NAME[k]}</option>)}</select>
@@ -55,6 +72,10 @@ function Kb() {
           <textarea className="fld" rows={3} autoFocus value={form.text} onChange={e => setForm({ ...form, text: e.target.value })} placeholder="一条只写一件事" />
           <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => setForm(null)}>取消</button><button className="btn y sm" data-kbsave={sec} disabled={!form.text.trim()} onClick={add}>保存</button></div>
         </div> : <button className="kbadd" data-kbadd={sec} onClick={() => setForm({ section: sec, kind: sec === 'brand' ? 'detail' : 'story', text: '' })}>＋ 加一条{SECTION_NAME[sec]}素材</button>}
+        {mods.on('kbImport') && (imp?.section === sec
+          ? <div className="kbform"><input className="fld sm" autoFocus data-kburl={sec} value={imp.url} onChange={e => setImp({ ...imp, url: e.target.value })} placeholder="https://… 公众号文章、案例页、主页链接" />
+            <div className="row" style={{ gap: 6 }}><button className="btn g sm" onClick={() => setImp(null)}>取消</button><button className="btn y sm" data-kburlgo={sec} disabled={!/^https?:\/\/\S+/i.test(imp.url.trim())} onClick={importLink}>存进来</button></div></div>
+          : <div className="row" style={{ gap: 12, marginTop: 6 }}><button className="lnk xs" data-kblink={sec} onClick={() => setImp({ section: sec, url: '' })}>贴链接</button><button className="lnk xs" data-kbfile={sec} onClick={() => importFile(sec)}>传文件</button></div>)}
       </div>;
     })}</div>
   </>;
@@ -64,11 +85,12 @@ function Avatars() {
   const { session, setGenSeed, nav } = useApp();
   const clone = useCloneVoice();
   const ws = session!.workspace, av = ws.avatars ?? { clone: 'none', photo: 'none' };
+  const mods = useMods();
   const tryIt = (kind: 'clone' | 'photo') => { setGenSeed({ copy: SAMPLE, type: 'talk', avatar: kind, voice: ws.voiceClone === 'ready' ? 'me' : 'p1', draft: true }); nav('gen'); };
   return <>
 
     <div className="mecards">
-      <div className="card" id="meVoice">
+      {mods.on('voiceClone') && <div className="card" id="meVoice">
         <div className="row" style={{ justifyContent: 'space-between' }}><p className="t2">我的声音</p><Src k={ST[ws.voiceClone][0]}>{ST[ws.voiceClone][1]}</Src></div>
         <p className="s m" style={{ marginTop: 8 }}>录 30 秒自然说话，复刻后配音就是你自己的声音。录音也会用来判断你的说话风格。</p>
         <ul className="xs m3 tips"><li>安静的房间，手机离嘴一拳</li><li>像平时讲解一样说，不用念稿</li><li>录完要确认是本人声音并同意授权</li></ul>
@@ -77,9 +99,9 @@ function Avatars() {
           <button className="btn g sm" onClick={() => speak(SAMPLE)}>试听示例</button>
         </div>
         <p className="xs m3" style={{ marginTop: 10 }}>配音服务（MiniMax speech-2.8-hd）接入前，复刻是示意流程，成片暂时用平台音色。</p>
-      </div>
-      <AvatarCard kind="clone" state={av.clone} onTry={() => tryIt('clone')} />
-      <AvatarCard kind="photo" state={av.photo} onTry={() => tryIt('photo')} />
+      </div>}
+      {mods.on('avatars') && <><AvatarCard kind="clone" state={av.clone} onTry={() => tryIt('clone')} />
+      <AvatarCard kind="photo" state={av.photo} onTry={() => tryIt('photo')} /></>}
     </div>
 
     <div className="card" style={{ marginTop: 16 }}>

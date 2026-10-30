@@ -111,17 +111,21 @@ export function makeRepo(db: DB) {
     /** 上传时读出来的时长和宽高 */
     setAssetMeta: (ws: string, id: string, m: { dur: number | null; width: number | null; height: number | null }) => { db.prepare('UPDATE assets SET dur=?, width=?, height=? WHERE ws=? AND id=?').run(m.dur, m.width, m.height, ws, id); },
     /* ---------- 知识库 ---------- */
-    kb(ws: string): KbItem[] { return (db.prepare('SELECT * FROM kb_items WHERE ws=? ORDER BY created_at DESC').all(ws) as Row[]).map(r => ({ id: r.id, section: r.section, kind: r.kind, text: r.text, tags: j(r.tags), source: r.source, used: r.used, lastUsed: r.last_used, createdAt: r.created_at })); },
-    addKb(ws: string, k: { section: string; kind: string; text: string; tags?: string[]; source?: string }) {
+    kb(ws: string): KbItem[] { return (db.prepare('SELECT * FROM kb_items WHERE ws=? ORDER BY created_at DESC').all(ws) as Row[]).map(r => ({ id: r.id, section: r.section, kind: r.kind, text: r.text, tags: j(r.tags), source: r.source, used: r.used, lastUsed: r.last_used, createdAt: r.created_at, media: r.media ?? 'text', url: r.url ?? null })); },
+    /** 知识库改了：记下时间，报告的标签旁边提示「可重新提取」 */
+    touchKb(ws: string) { db.prepare('UPDATE diagnosis SET kb_changed_at=? WHERE ws=?').run(now(), ws); },
+    addKb(ws: string, k: { section: string; kind: string; text: string; tags?: string[]; source?: string; media?: string; url?: string | null }) {
       const id = newId('kb');
-      db.prepare('INSERT INTO kb_items (id, ws, section, kind, text, tags, source, created_at) VALUES (?,?,?,?,?,?,?,?)').run(id, ws, k.section, k.kind, k.text, JSON.stringify(k.tags ?? []), k.source ?? '手动', now());
+      db.prepare('INSERT INTO kb_items (id, ws, section, kind, text, tags, source, created_at, media, url) VALUES (?,?,?,?,?,?,?,?,?,?)').run(id, ws, k.section, k.kind, k.text, JSON.stringify(k.tags ?? []), k.source ?? '手动', now(), k.media ?? 'text', k.url ?? null);
+      db.prepare('UPDATE diagnosis SET kb_changed_at=? WHERE ws=?').run(now(), ws);
       return id;
     },
     updateKb: (ws: string, id: string, p: { text?: string; kind?: string; section?: string; tags?: string[] }) => {
       const r = db.prepare('SELECT * FROM kb_items WHERE ws=? AND id=?').get(ws, id) as Row | undefined; if (!r) return false;
-      db.prepare('UPDATE kb_items SET text=?, kind=?, section=?, tags=? WHERE id=?').run(p.text ?? r.text, p.kind ?? r.kind, p.section ?? r.section, JSON.stringify(p.tags ?? j(r.tags)), id); return true;
+      db.prepare('UPDATE kb_items SET text=?, kind=?, section=?, tags=? WHERE id=?').run(p.text ?? r.text, p.kind ?? r.kind, p.section ?? r.section, JSON.stringify(p.tags ?? j(r.tags)), id);
+      db.prepare('UPDATE diagnosis SET kb_changed_at=? WHERE ws=?').run(now(), ws); return true;
     },
-    deleteKb: (ws: string, id: string) => db.prepare('DELETE FROM kb_items WHERE ws=? AND id=?').run(ws, id).changes > 0,
+    deleteKb: (ws: string, id: string) => { const ok = db.prepare('DELETE FROM kb_items WHERE ws=? AND id=?').run(ws, id).changes > 0; if (ok) db.prepare('UPDATE diagnosis SET kb_changed_at=? WHERE ws=?').run(now(), ws); return ok; },
     /** 写完一条文案：记下用了哪几条素材（轮换用） */
     markKbUsed(ws: string, ids: string[], kinds: string[]) {
       const st = db.prepare('UPDATE kb_items SET used = used + 1, last_used=? WHERE ws=? AND id=?'); const t = now(); ids.forEach(id => st.run(t, ws, id));
@@ -132,7 +136,7 @@ export function makeRepo(db: DB) {
     /** 最近 n 次写文案里有没有用过履历 */
     recentResume(ws: string, n = 4): boolean { return (db.prepare('SELECT kinds FROM copy_log WHERE ws=? ORDER BY id DESC LIMIT ?').all(ws, n) as Row[]).some(r => j(r.kinds).includes('resume')); },
     /* ---------- AI 面诊 ---------- */
-    diagnosis(ws: string): Diagnosis { const r = db.prepare('SELECT * FROM diagnosis WHERE ws=?').get(ws) as Row | undefined; return r ? { unlocked: !!r.unlocked, answers: j(r.answers), report: j(r.report) } : { unlocked: false, answers: {}, report: null }; },
+    diagnosis(ws: string): Diagnosis { const r = db.prepare('SELECT * FROM diagnosis WHERE ws=?').get(ws) as Row | undefined; return r ? { unlocked: !!r.unlocked, answers: j(r.answers), report: j(r.report), kbChangedAt: r.kb_changed_at ?? null } : { unlocked: false, answers: {}, report: null }; },
     saveDiagnosis(ws: string, d: Diagnosis) {
       db.prepare('INSERT INTO diagnosis (ws, unlocked, answers, report, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(ws) DO UPDATE SET unlocked=excluded.unlocked, answers=excluded.answers, report=excluded.report, updated_at=excluded.updated_at')
         .run(ws, d.unlocked ? 1 : 0, JSON.stringify(d.answers), d.report ? JSON.stringify(d.report) : null, now());

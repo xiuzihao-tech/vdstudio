@@ -72,6 +72,10 @@ const MIGRATIONS: string[] = [
    UPDATE assets SET note = NULL WHERE file IS NOT NULL;
    UPDATE assets SET source = '上传' WHERE source LIKE '!%E4%' ESCAPE '!';
    UPDATE assets SET source = '示例', note_src = 'sample' WHERE file IS NULL AND source = '项目上传';`,
+  // 7：10/27 纪要第 2、5 条：知识库每条可以是文字、文件或链接；知识库改了以后报告标签提示「可重新提取」
+  `ALTER TABLE kb_items ADD COLUMN media TEXT NOT NULL DEFAULT 'text';
+   ALTER TABLE kb_items ADD COLUMN url TEXT;
+   ALTER TABLE diagnosis ADD COLUMN kb_changed_at TEXT;`,
 ];
 
 export type DB = DatabaseSync;

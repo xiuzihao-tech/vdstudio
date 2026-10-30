@@ -1,25 +1,31 @@
 // AI 运营：先付费解锁，再做 AI 面诊（按大哲一对一定位的方法问三块：个人、专业、品牌），出面诊报告（三类标签 + 栏目规划），
 // 栏目直接变成运营计划。回答都存进知识库，后面写文案也会用。
+import { Mod, SoonBadge, useMods, useModOpen } from '../ui/mods.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
-import { Seg, Skel, Src } from '../ui/kit.tsx';
+import { Seg, Skel, Src, pickFiles } from '../ui/kit.tsx';
 import { OpsPlan } from './Ops.tsx';
-import { SECTION_NAME, type DiagColumn, type DiagQuestion, type DiagReport, type Diagnosis } from '../../shared/kb.ts';
+import { SECTION_NAME, reportStale, type DiagColumn, type DiagQuestion, type DiagReport, type Diagnosis } from '../../shared/kb.ts';
 import { typeOf } from '../../shared/video.ts';
 
 export function OpsPage() {
   const { route, nav } = useApp();
+  const mods = useMods();
   const d = useData(() => api.diagnosis(), []);
+  const dg0 = d.data?.diagnosis;
+  useModOpen(!dg0 ? 'unlock' : !dg0.unlocked ? 'unlock' : !dg0.report || route.sub === 'diag' ? 'diag' : route.sub === 'report' ? 'report' : 'plan', !!dg0);
   if (!d.data) return <section className="view on" id="v-ops"><div className="vb wrap" style={{ paddingTop: 60 }}><Skel h={320} /></div></section>;
   const { diagnosis: dg, questions, price } = d.data;
   const set = (x: Diagnosis) => d.set({ ...d.data!, diagnosis: x });
-  const tab = !dg.report || route.sub === 'diag' ? 'diag' : route.sub === 'report' ? 'report' : 'plan';
+  // 模块开关：报告、计划各自能关；计划关了就停在报告
+  const tab = !dg.report || route.sub === 'diag' ? 'diag' : route.sub === 'report' || !mods.on('plan') ? (mods.on('report') ? 'report' : 'diag') : 'plan';
+  const opsTabs = (['plan', 'report'] as const).filter(mods.on);
   return <section className="view on" id="v-ops"><div className="vb">
     <div className="hero tight">
       <p className="eyebrow">AI 运营 · 专家版</p>
       <h1 className="d2">{!dg.unlocked ? <>先定位，<em>再出片。</em></> : dg.report ? <>你的账号，<em>按栏目来做。</em></> : <>AI 面诊，<em>十分钟。</em></>}</h1>
-      {dg.report && <div style={{ marginTop: 22 }} id="opsTabs"><Seg value={tab === 'diag' ? 'report' : tab} options={['plan', 'report'] as const} render={v => v === 'plan' ? '运营计划' : '面诊报告'} onChange={v => nav({ view: 'ops', sub: v }, true)} /></div>}
+      {dg.report && opsTabs.length > 1 && <div style={{ marginTop: 22 }} id="opsTabs"><Seg value={tab === 'diag' ? 'report' : tab} options={opsTabs} render={v => v === 'plan' ? '运营计划' : '面诊报告'} onChange={v => nav({ view: 'ops', sub: v }, true)} /></div>}
     </div>
     {!dg.unlocked ? <Unlock price={price} onDone={set} />
       : tab === 'diag' ? <Interview dg={dg} questions={questions} onChange={set} />
@@ -53,6 +59,7 @@ function Unlock({ price, onDone }: { price: number; onDone: (d: Diagnosis) => vo
 
 function Interview({ dg, questions, onChange }: { dg: Diagnosis; questions: DiagQuestion[]; onChange: (d: Diagnosis) => void }) {
   const { fail, toast, nav } = useApp();
+  const mods = useMods();
   const firstOpen = questions.findIndex(q => !dg.answers[q.id]?.trim());
   const [i, setI] = useState(firstOpen < 0 ? questions.length - 1 : firstOpen);
   const [text, setText] = useState(dg.answers[questions[firstOpen < 0 ? questions.length - 1 : firstOpen]?.id] ?? '');
@@ -74,6 +81,8 @@ function Interview({ dg, questions, onChange }: { dg: Diagnosis; questions: Diag
   return <div className="wrap" style={{ maxWidth: 820 }}>
     <div className="diagbar"><span>已答 <b>{answered}</b> / {questions.length}</span><div className="bar"><i style={{ width: `${(answered / questions.length) * 100}%` }} /></div>
       {(['personal', 'pro', 'brand'] as const).map(s => <Src key={s} k={q.section === s ? 'real' : ''}>{SECTION_NAME[s]}</Src>)}</div>
+    {answered > 0 && firstOpen > 0 && <p className="xs m3" id="diagResume" style={{ margin: '10px 0 0' }}>接着上次聊：前面答过的 {answered} 题都存着，已经进了你的知识库。</p>}
+    <Mod id="diagLinks" soon={false}><Attach /></Mod>
     <div className="chat" id="diagChat">
       {questions.slice(0, i + 1).map((x, k) => <div key={x.id}>
         <div className="bub ai"><span className="who">AI 顾问</span>{x.q}<span className="hint">{x.hint}</span></div>
@@ -85,7 +94,7 @@ function Interview({ dg, questions, onChange }: { dg: Diagnosis; questions: Diag
       <textarea id="diagIn" value={text} onChange={e => setText(e.target.value)} placeholder="想到什么说什么，越具体越好：数字、案例、业主原话都行" rows={3}
         onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && text.trim()) void save(i + 1); }} />
       <div className="row" style={{ gap: 8 }}>
-        <button className="btn g sm" onClick={() => toast('语音回答在接入语音识别后开放：按住说话，自动转成文字，也会用来学你的说话方式')}>按住说话</button>
+        {mods.shown('diagVoice') && <button className="btn g sm" onClick={() => toast('语音回答在接入语音识别后开放：按住说话，自动转成文字，也会用来学你的说话方式')}>按住说话<SoonBadge id="diagVoice" /></button>}
         <button className="lnk xs" disabled={busy} onClick={() => { setText(''); void save(i + 1); }}>跳过这题</button>
         <span className="sp" />
         {answered >= 3 && <button className="btn g" id="diagReport" disabled={busy} onClick={report}>{busy ? '生成中…' : '先出报告'}</button>}
@@ -97,6 +106,26 @@ function Interview({ dg, questions, onChange }: { dg: Diagnosis; questions: Diag
   </div>;
 }
 
+/** 面诊传资料：贴主页链接、传账号截图或介绍资料，都存进知识库，报告拆账号现状时用 */
+function Attach() {
+  const { fail, toast } = useApp();
+  const d = useData(() => api.diagAttachments(), []);
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const items = d.data?.items ?? [];
+  const run = async (x: { url: string } | File) => { setBusy(true); try { d.set(await api.diagAttach(x)); toast('收到了，出报告时会一起看'); setUrl(''); } catch (e) { fail(e); } finally { setBusy(false); } };
+  return <div className="card attach" id="diagAttach">
+    <p className="t2">先给 AI 看看你的账号<span className="xs m3">（可选）</span></p>
+    <p className="xs m3" style={{ marginTop: 4 }}>贴抖音、小红书主页链接，或者传几张主页截图、公司介绍。报告里「账号现状拆解」会用上。</p>
+    <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'nowrap' }}>
+      <input className="fld" id="diagUrl" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://v.douyin.com/… 或小红书主页链接" />
+      <button className="btn g" id="diagUrlGo" disabled={busy || !/^https?:\/\/\S+/i.test(url.trim())} onClick={() => run({ url: url.trim() })}>贴上</button>
+      <button className="btn g" id="diagFile" disabled={busy} onClick={async () => { const fs = await pickFiles('image/*,.pdf,.txt,.md,.doc,.docx'); for (const f of fs.slice(0, 6)) await run(f); }}>传截图或资料</button>
+    </div>
+    {items.length > 0 && <div className="row" id="diagAttList" style={{ gap: 6, marginTop: 10 }}>{items.map(i => <span key={i.id} className="tag" title={i.url ?? ''}>{i.media === 'link' ? '🔗 ' : '📎 '}{i.text.slice(0, 18)}{i.text.length > 18 ? '…' : ''}</span>)}</div>}
+  </div>;
+}
+
 const KIND_CLASS: Record<DiagColumn['kind'], string> = { 流量: 'per', 转化: 'pro', 人设: 'brand' };
 function Report({ dg, onChange, onRedo }: { dg: Diagnosis; onChange: (d: Diagnosis) => void; onRedo: () => void }) {
   const { fail, toast, nav, bump } = useApp();
@@ -105,7 +134,10 @@ function Report({ dg, onChange, onRedo }: { dg: Diagnosis; onChange: (d: Diagnos
   const [tagIn, setTagIn] = useState('');
   const edit = async (p: Partial<Pick<DiagReport, 'tags' | 'columns'>>) => { try { onChange((await api.editReport(p)).diagnosis); bump(); } catch (e) { fail(e); } };
   const groups: [keyof DiagReport['tags'], string, string][] = [['personality', '个性标签', 'per'], ['pro', '专业标签', 'pro'], ['brand', '品牌标签', 'brand']];
+  const [redoing, setRedoing] = useState(false);
+  const reExtract = async () => { setRedoing(true); try { onChange((await api.makeReport()).diagnosis); bump(); toast('按最新的知识库重新提取好了'); } catch (e) { fail(e); } finally { setRedoing(false); } };
   return <div className="wrap" style={{ maxWidth: 1024 }} id="diagReportView">
+    {reportStale(dg) && <div className="gwarn" id="reStale" style={{ marginBottom: 12 }}><div><span style={{ flex: 1 }}>知识库在出报告之后改过，标签和栏目<b>可重新提取</b>。手动改过的标签会被新结果替换。</span><button className="btn y sm" disabled={redoing} onClick={reExtract}>{redoing ? '提取中…' : '重新提取'}</button></div></div>}
     <div className="card report">
       <p className="eyebrow">一句话定位</p><h2 className="d3" style={{ marginTop: 6 }}>{r.position}</h2>
       <div className="taggrid">{groups.map(([k, n, c]) => <div key={k}><p className="lb">{n}</p><div className="row" style={{ gap: 6 }}>

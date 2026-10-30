@@ -214,8 +214,11 @@ export function applyReport(repo: Repo, ws: Workspace, report: DiagReport, today
 export async function runDiagnosis(repo: Repo, providers: Providers, ws: Workspace) {
   const d = repo.diagnosis(ws.id);
   const qa = DIAG_QUESTIONS.filter(q => d.answers[q.id]?.trim()).map(q => ({ section: q.section, q: q.q, a: d.answers[q.id] }));
+  // 面诊时传的主页链接、截图、资料：一起交给 AI 拆账号现状
+  const att = repo.kb(ws.id).filter(i => i.source === '面诊:资料');
+  if (att.length) qa.push({ section: 'personal', q: '我传的账号资料', a: att.map(i => i.url && i.media === 'link' ? `${i.text}（${i.url}）` : i.text).join('；').slice(0, 1500) });
   const report = { ...(await providers.copy.diagnose({ persona: personaOf(ws.persona), positioning: ws.positioning }, qa)), createdAt: new Date().toISOString() };
-  repo.saveDiagnosis(ws.id, { ...d, report });
+  repo.saveDiagnosis(ws.id, { ...repo.diagnosis(ws.id), report });
   applyReport(repo, ws, report);
   await seedColumnTopics(repo, providers, repo.ws(ws.id)!, report.columns);
   return report;

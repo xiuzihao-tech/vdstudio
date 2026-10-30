@@ -1,4 +1,5 @@
 // 我的作品：作品（生成结果，点开进作品详情）、素材（上传 / 多选 / 送去生成 / 删除）。
+import { useMods, useModOpen } from '../ui/mods.tsx';
 import { useState } from 'react';
 import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
@@ -10,12 +11,34 @@ import { fileUrl } from '../config.ts';
 
 export function LibraryPage() {
   const { route, nav } = useApp();
-  const tab = route.sub === 'assets' ? 'assets' : 'works';
+  const mods = useMods();
+  const tabs = (['works', 'assets'] as const).filter(v => mods.on(v));
+  const want = route.sub === 'assets' ? 'assets' : 'works';
+  const tab = tabs.includes(want) ? want : tabs[0] ?? 'works';
+  useModOpen(tab);
   return <section className="view on" id="v-lib"><div className="vb wrap lib">
     <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>我的作品</h1>
-      <div id="libTabs"><Seg value={tab} options={['works', 'assets'] as const} render={v => v === 'works' ? '作品' : '素材'} onChange={v => nav({ view: 'lib', sub: v }, true)} /></div></div>
+      {tabs.length > 1 && <div id="libTabs"><Seg value={tab} options={tabs} render={v => v === 'works' ? '作品' : '素材'} onChange={v => nav({ view: 'lib', sub: v }, true)} /></div>}</div>
+    {mods.on('retention') && <StorageBar />}
     {tab === 'works' ? <Works /> : <Assets />}
   </div></section>;
+}
+
+/** 保存期限和容量：用了多少、哪些 7 天内到期（先下载） */
+function StorageBar() {
+  const d = useData(() => api.storage(), []);
+  const x = d.data;
+  if (!x || (!x.retentionDays && !x.capacityMb)) return null;
+  const mb = x.usedBytes / 1048576, pct = x.capacityMb ? Math.min(100, Math.round(mb / x.capacityMb * 100)) : 0;
+  return <div className="card storebar" id="storeBar">
+    <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
+      <span className="s" style={{ flex: 1, minWidth: 220 }}>{x.capacityMb ? <>已用 <b>{mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB</b> / {x.capacityMb} MB</> : <>已用 {mb.toFixed(1)} MB</>}{x.retentionDays ? <span className="xs m3"> · 上传的素材和生成的视频保存 {x.retentionDays} 天，到期自动删除</span> : null}</span>
+      {x.capacityMb > 0 && <span className="meter" aria-label={`已用 ${pct}%`}><i style={{ width: `${pct}%` }} className={pct > 90 ? 'hi' : ''} /></span>}
+    </div>
+    {x.expiring.length > 0 && <div className="list" id="expList" style={{ marginTop: 12 }}>{x.expiring.slice(0, 8).map(e => <div key={e.kind + e.id}>
+      <span>{e.name}<br /><span className="xs m3">{e.kind === 'video' ? '成片' : '素材'} · {e.daysLeft ? `${e.daysLeft} 天后到期` : '今天到期'}</span></span>
+      {e.url && <a className="btn g sm" href={fileUrl(e.url)} download>下载</a>}</div>)}</div>}
+  </div>;
 }
 
 function Works() {
@@ -28,7 +51,7 @@ function Works() {
     const o = j.output as VideoOutput;
     return <div className="wk" key={j.id}>{o.videoUrl ? <div className="ph" data-k="img"><video src={fileUrl(o.videoUrl)} controls playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} /></div> : <Ph k={o.shots[0]?.k ?? 'live'} tag="gen" />}
       <div className="b"><p className="s" style={{ fontWeight: 500 }}>{o.title}</p><p className="xs m3">{o.draft ? `样片 ${o.res}` : `成片 ${o.res}`} · {o.len} 秒 · {modelOf(o.model).n} · {new Date(j.createdAt).toLocaleDateString()}</p>
-        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.partial && <Src k="warn">部分镜头失败</Src>}<button className="lnk xs" data-open={j.id} onClick={() => nav({ view: 'gen', sub: 'job', id: j.id })}>打开</button>{o.videoUrl ? <a className="lnk xs" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
+        <div className="row" style={{ gap: 6, marginTop: 8 }}>{o.draft ? <Src k="warn">样片</Src> : <Src k="real">成片</Src>}{o.partial && <Src k="warn">部分镜头失败</Src>}<button className="lnk xs" data-open={j.id} onClick={() => nav({ view: 'gen', sub: 'job', id: j.id })}>打开</button>{(o as { expired?: boolean }).expired ? <span className="xs m3">已过保存期限，文件已删除</span> : o.videoUrl ? <a className="lnk xs" href={fileUrl(o.videoUrl)} download={`${o.title}.mp4`}>下载</a> : <button className="lnk xs" onClick={() => toast('Mock 模式没有真实视频可下载')}>下载</button>}</div></div></div>;
   })}</div>;
 }
 

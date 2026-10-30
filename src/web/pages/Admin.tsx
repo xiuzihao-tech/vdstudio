@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { api, type ModelList } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Empty, Seg, Skel, Src } from '../ui/kit.tsx';
+import { AdminModules } from './AdminModules.tsx';
 
-type Tab = 'overview' | 'users' | 'invites' | 'feedback' | 'ai' | 'redeem';
-const TABN: Record<Tab, string> = { overview: '概览', users: '用户', invites: '邀请码', redeem: '兑换码', feedback: '反馈', ai: 'AI 服务' };
+type Tab = 'overview' | 'modules' | 'users' | 'invites' | 'feedback' | 'ai' | 'redeem';
+const TABN: Record<Tab, string> = { overview: '概览', modules: '模块开关', users: '用户', invites: '邀请码', redeem: '兑换码', feedback: '反馈', ai: 'AI 服务' };
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function AdminPage() {
@@ -15,7 +16,7 @@ export function AdminPage() {
   return <section className="view on" id="v-admin"><div className="vb wrap" style={{ paddingTop: 40 }}>
     <div className="row" style={{ alignItems: 'flex-end' }}><h1 className="d2" style={{ flex: 1 }}>后台</h1>
       <Seg value={tab} options={Object.keys(TABN) as Tab[]} render={t => TABN[t]} onChange={t => nav({ view: 'admin', sub: t }, true)} /></div>
-    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : tab === 'redeem' ? <Redeem /> : tab === 'ai' ? <AiServices /> : <FeedbackList />}</div>
+    <div style={{ marginTop: 24 }}>{tab === 'overview' ? <Overview /> : tab === 'modules' ? <AdminModules /> : tab === 'users' ? <Users /> : tab === 'invites' ? <Invites /> : tab === 'redeem' ? <Redeem /> : tab === 'ai' ? <AiServices /> : <FeedbackList />}</div>
   </div></section>;
 }
 

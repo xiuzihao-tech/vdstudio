@@ -1,5 +1,6 @@
 // AI 运营 · 运营计划：按面诊报告的栏目排两周，学员通过选题、出片、发完点「已发布」、回填数据。10/27 会后取消了自动出样片。
 // 不照搬飞书表格；复盘数据可以一键导出表格给助教。
+import { useMods } from '../ui/mods.tsx';
 import { useEffect, useState } from 'react';
 import { api, type DayView, type PlanBundle } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
@@ -31,6 +32,7 @@ function stageNow(s: SlotView): string {
 
 export function OpsPlan({ report }: { report: DiagReport | null }) {
   const { session, toast, fail, nav, sheet, bump, setGenSeed } = useApp();
+  const mods = useMods();
   const data = useData(async () => {
     const [p, t, d, j] = await Promise.all([api.plans(), api.allTopics(), api.drafts(), api.jobs()]);
     return { plans: p.plans, did: p.did ?? [], topics: t.topics, drafts: d.drafts, jobs: j.jobs };
@@ -65,7 +67,7 @@ export function OpsPlan({ report }: { report: DiagReport | null }) {
   const fill = slots.filter(s => s.date < today && s.progress?.published && !s.progress.reviewed && Date.parse(today) - Date.parse(s.date) <= 7 * 864e5);
   const noCopy = p.auto === 'plan' ? slots.filter(s => s.date > today && s.pin === 'fixed' && !s.progress?.copy && Date.parse(s.date) - Date.parse(today) <= 3 * 864e5) : [];
   const gap = slots.filter(s => s.state === 'gap');
-  const todo = cand.length + review.length + pub.length + fill.length + noCopy.length + gap.length;
+  const todo = cand.length + review.length + pub.length + (mods.on('review') ? fill.length : 0) + noCopy.length + gap.length;
 
   const slotSheet = (s: SlotView) => {
     const d = stageDone(s), j = jobOf(s), o = j?.output as VideoOutput | null;
@@ -105,11 +107,11 @@ export function OpsPlan({ report }: { report: DiagReport | null }) {
         {plans.map((x, i) => <button key={x.plan.id} className="pill" aria-pressed={i === pi} onClick={() => setPi(i)}>{x.plan.account}</button>)}
         <button className="pill" onClick={() => sheet({ title: '加一个发布账号', body: <AddAccount onDone={r => { apply(r); setPi(r.plans.length - 1); sheet(null); toast('在「AI 打法」里设发布的日子和时间'); }} /> })}>＋ 账号</button>
       </div>
-      <div className="opsauto card">
+      {mods.on('autoCopy') && <div className="opsauto card">
         <div style={{ flex: 1, minWidth: 260 }}><p className="t2">托管程度</p><p className="xs m3" style={{ marginTop: 4 }}>{AUTO.find(a => a[0] === p.auto)?.[2]}。不会自动发布，没拍板的内容不往下走。</p></div>
         <div id="opsAuto"><Seg value={p.auto} options={AUTO.map(a => a[0])} render={v => AUTO.find(a => a[0] === v)![1]} onChange={v => patch({ auto: v })} /></div>
         <label className="row s" style={{ gap: 10 }}><span>{p.running ? '运行中' : '已暂停'}</span><input type="checkbox" className="sw" checked={p.running} onChange={e => patch({ running: e.target.checked })} /></label>
-      </div>
+      </div>}
       {did.length > 0 && <div className="gwarn" style={{ marginTop: 12 }}><div style={{ background: 'color-mix(in srgb,var(--real) 10%,var(--pn))' }}><span style={{ flex: 1 }}>AI 刚做了：{did.join('；')}</span><button className="btn g sm" onClick={() => setDid([])}>知道了</button></div></div>}
 
       <div className="row" style={{ margin: '36px 0 12px', alignItems: 'flex-end' }}><h2 className="t1" style={{ flex: 1 }}>今天要做的</h2><span className="xs m3" id="todoN">{todo ? `${todo} 件` : '都做完了'}</span></div>
@@ -119,7 +121,7 @@ export function OpsPlan({ report }: { report: DiagReport | null }) {
         {noCopy.map(s => <div className="tdc" key={`c${s.date}`}><div className="row"><Src k="warn">缺文案</Src><span className="s" style={{ flex: 1 }}>{s.label} 要发「{s.topic.title}」，还没写文案</span><button className="btn g sm" onClick={() => writeCopy(s)}>AI 写一版</button><button className="btn g sm" onClick={() => toGen(s)}>去生成</button></div></div>)}
         {review.map(s => <div className="tdc" key={`r${s.date}`}><div className="row"><Src k="gen">样片待确认</Src><span className="s" style={{ flex: 1 }}>{s.label}「{s.topic.title}」的样片好了</span><button className="btn g sm" onClick={() => toGen(s)}>改一改</button><button className="btn y sm" onClick={() => { const j = jobOf(s); if (j) nav({ view: 'gen', sub: 'job', id: j.id }); }}>看样片，出成片</button></div></div>)}
         {pub.map(s => <PublishCard key={`p${s.date}`} s={s} draft={draftOf(s.topicId)} job={jobOf(s)} onDone={() => act(s.date, 'publish')} />)}
-        {fill.map(s => <MetricsCard key={`m${s.date}`} s={s} onSave={m => api.slotMetrics(p.id, s.date, m).then(apply).catch(fail)} />)}
+        {mods.on('review') && fill.map(s => <MetricsCard key={`m${s.date}`} s={s} onSave={m => api.slotMetrics(p.id, s.date, m).then(apply).catch(fail)} />)}
         {gap.map(s => <div className="tdc" key={`g${s.date}`}><div className="row"><Src k="warn">素材不够</Src><span className="s" style={{ flex: 1 }}>{s.label}「{s.topic.title}」常用素材都用过 4 次了，补几张会更好</span><button className="btn g sm" onClick={() => nav({ view: 'lib', sub: 'assets' })}>补素材</button></div></div>)}
         {!todo && <p className="s m" style={{ padding: '14px 0' }}>没有要你处理的。AI 会按托管程度继续往下推。</p>}
       </div>

@@ -10,7 +10,9 @@ export const KIND_HINT: Record<KbKind, string> = {
   quote: '业主或客户说过的原话', resume: '资历、奖项、年限——最多偶尔提一次', habit: '口头禅、常用说法（只做语气参考，不写进内容）', avoid: '不想在视频里说的话题或词',
 };
 
-export interface KbItem { id: string; section: KbSection; kind: KbKind; text: string; tags: string[]; source: string; used: number; lastUsed: string | null; createdAt: string }
+/** 一条知识库：一段文字、一份文件或一个链接（10/27 纪要第 5 条） */
+export type KbMedia = 'text' | 'file' | 'link';
+export interface KbItem { id: string; section: KbSection; kind: KbKind; text: string; tags: string[]; source: string; used: number; lastUsed: string | null; createdAt: string; media?: KbMedia; url?: string | null }
 
 /** 按中文双字切词，粗略算两段文字有多相关（够用，不依赖向量库） */
 export function grams(s: string): Set<string> {
@@ -77,6 +79,8 @@ export interface DiagReport {
   columns: DiagColumn[];
   createdAt: string;
 }
-export interface Diagnosis { unlocked: boolean; answers: Record<string, string>; report: DiagReport | null }
+export interface Diagnosis { unlocked: boolean; answers: Record<string, string>; report: DiagReport | null; /** 知识库最后一次改动；比报告新就提示「可重新提取」 */ kbChangedAt?: string | null }
+/** 报告之后知识库改过：标签可以重新提取 */
+export const reportStale = (d: Diagnosis) => !!d.report && !!d.kbChangedAt && d.kbChangedAt > d.report.createdAt;
 /** 解锁 AI 运营（含 AI 面诊）的点数（示意，正式价格大哲定） */
 export const DIAG_PRICE = 300;

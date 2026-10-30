@@ -22,6 +22,8 @@ import { voiceSecs } from '../shared/video.ts';
 import { DIAG_PRICE, DIAG_QUESTIONS } from '../shared/kb.ts';
 import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
+import { MODULES, PRESETS, closedParents, moduleForApi, normalizeConfig, presetStates, viewFor, type ModuleConfig, type Preset } from '../shared/modules.ts';
+import { makeRetention } from './retention.ts';
 import type { CopyDraft, Workspace } from '../shared/types.ts';
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.map': 'application/json',
@@ -54,6 +56,22 @@ export function createApp(opts: AppOptions) {
   };
   const filesDir = join(o.dataDir, 'files');
   const storage = makeStorage(o.env ?? process.env, filesDir);
+  /* ---------- 模块开关、解锁价格、保存期限和容量（后台设置） ---------- */
+  let modCache: { raw: string | undefined; cfg: ModuleConfig } | null = null;
+  const modCfg = (): ModuleConfig => {
+    const raw = ops.getSetting('modules');
+    if (modCache && modCache.raw === raw) return modCache.cfg;
+    let parsed: unknown = null; try { parsed = raw ? JSON.parse(raw) : null; } catch { /* 坏了就按默认 */ }
+    const cfg = normalizeConfig(parsed, o.modulesPreset, DIAG_PRICE);
+    modCache = { raw, cfg }; return cfg;
+  };
+  const saveModCfg = (c: ModuleConfig) => ops.setSetting('modules', JSON.stringify(c));
+  const policy = () => { const c = modCfg(); return { retentionDays: c.retentionDays, capacityMb: c.capacityMb }; };
+  const retention = makeRetention(db, storage);
+  /** 面诊是不是专家版：不是的话不用解锁就能用 */
+  const diagOf = (wsId: string) => { const d = repo.diagnosis(wsId); return modCfg().pro.includes('diag') ? d : { ...d, unlocked: true }; };
+  // 到期文件每小时清一次
+  const purgeTimer = setInterval(() => { retention.purge(policy()).catch(e => console.warn('清理过期文件失败：', e.message)); }, 3600e3); purgeTimer.unref(); void retention.purge(policy()).catch(() => undefined);
   console.log(`文件存储：${storage.kind === 's3' ? `对象存储 ${(o.env ?? process.env).S3_BUCKET}` : filesDir}`);
   const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, musicDir: (o.env ?? process.env).MUSIC_DIR || join(o.dataDir, 'music'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, async a => {
     if (!a.url || !a.mime?.startsWith('image/')) return null;
@@ -104,7 +122,8 @@ export function createApp(opts: AppOptions) {
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
   const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
   const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
-    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: { ...providerInfo, firstFrame: firstFrameOk() }, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso() });
+    limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: { ...providerInfo, firstFrame: firstFrameOk() }, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso(),
+    modules: viewFor(modCfg(), ctx(req).user?.email ?? null), modulePro: modCfg().pro, storage: { ...policy(), usedBytes: retention.usedBytes(ctx(req).owner) } });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: withProgress(repo, ws, p, scheduleView(repo, ws, p)) }));
 
   const r = new Router();
@@ -213,32 +232,87 @@ export function createApp(opts: AppOptions) {
   r.put('/api/kb/:id', async req => { const ws = W(req), d = await body(req, kbSchema.partial()); if (!repo.updateKb(ws.id, req.params.id, d)) throw new HttpError(404, '这条不存在'); return { items: repo.kb(ws.id) }; });
   r.delete('/api/kb/:id', req => { const ws = W(req); repo.deleteKb(ws.id, req.params.id); return { items: repo.kb(ws.id) }; });
 
-  /* ---------- AI 面诊（AI 运营的入口，付费解锁） ---------- */
-  r.get('/api/diagnosis', req => ({ diagnosis: repo.diagnosis(W(req).id), questions: DIAG_QUESTIONS, price: DIAG_PRICE }));
-  r.post('/api/diagnosis/unlock', req => {
-    const ws = W(req), d = repo.diagnosis(ws.id);
-    if (!d.unlocked) {
-      if (!repo.charge(ws.id, DIAG_PRICE, '解锁 AI 运营（含 AI 面诊）', null)) throw new HttpError(402, `余额不足：需要 ${DIAG_PRICE} 点`);
-      repo.saveDiagnosis(ws.id, { ...d, unlocked: true }); ops.track(ctx(req).owner, ws.id, 'diag_unlocked');
+  /* ---------- 知识库资料导入 / 面诊传资料（10/27 纪要第 2、5 条）：一条可以是一段文字、一份文件或一个链接 ---------- */
+  const linkSchema = z.object({ url: z.string().trim().max(500).refine(u => /^https?:\/\/[^\s]+$/i.test(u), '链接要以 http:// 或 https:// 开头'), note: z.string().trim().max(300).default(''), section: z.enum(['personal', 'pro', 'brand']).default('personal') });
+  const IMPORT_LIMIT = 20 * 1024 * 1024;
+  const DOC_MIME = /^(image\/|text\/plain|text\/markdown|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.)/;
+  const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return '链接'; } };
+  const platformOf = (u: string) => /douyin|iesdouyin/.test(u) ? '抖音' : /xiaohongshu|xhslink/.test(u) ? '小红书' : /channels\.weixin|weixin\.qq/.test(u) ? '视频号' : /bilibili|b23\.tv/.test(u) ? 'B 站' : hostOf(u);
+  /** 收一份上传的文件：文字文件按段拆成几条，其余存成一条「文件」 */
+  async function importFile(req: Req, ws: Workspace, section: string, source: string) {
+    const mime = String(req.raw.headers['content-type'] ?? '').split(';')[0].trim();
+    if (!DOC_MIME.test(mime)) throw new HttpError(415, '支持文字、PDF、Word 和图片');
+    const name = (() => { try { return decodeURIComponent(String(req.raw.headers['x-file-name'] ?? '资料')); } catch { return '资料'; } })().slice(0, 80);
+    const buf = await readBuffer(req.raw, IMPORT_LIMIT);
+    if (mime.startsWith('text/')) {
+      const parts = buf.toString('utf8').split(/\n\s*\n|\r\n\s*\r\n/).map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x.length >= 6).slice(0, 30);
+      if (!parts.length) throw new HttpError(400, '文件里没有能用的文字');
+      for (const t of parts) repo.addKb(ws.id, { section, kind: 'detail', text: t.slice(0, 1000), source, media: 'text' });
+      return { added: parts.length, ids: [] as string[] };
     }
-    return { diagnosis: repo.diagnosis(ws.id) };
+    if (retention.wouldExceed(ctx(req).owner, buf.length, policy())) throw new HttpError(413, `空间满了：每个账号最多存 ${policy().capacityMb} MB`);
+    const ext = (extname(name) || '.' + (mime.split('/')[1] ?? 'bin')).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 8);
+    const file = `${ws.id}/${newId('f')}${ext}`;
+    await storage.put(file, buf, mime);
+    const isImg = mime.startsWith('image/');
+    const id = repo.addKb(ws.id, { section, kind: 'detail', text: `${isImg ? '图片' : '文件'}：${name}`, source, media: 'file', url: `/files/${file}` });
+    // 接了看图模型：截图、图片看一遍，把看到的写进这条
+    if (isImg && providers.vision) void providers.vision.describe([{ jpg: buf, at: 0 }], { name, type: '照片', dur: null })
+      .then(v => { if (v.note) repo.updateKb(ws.id, id, { text: `图片「${name}」：${v.note}`.slice(0, 1000) }); }).catch(e => console.warn('看图片失败：', e.message));
+    return { added: 1, ids: [id] };
+  }
+  r.post('/api/kb/import', async req => {
+    const ws = W(req), ct = String(req.raw.headers['content-type'] ?? '');
+    const section = (['personal', 'pro', 'brand'] as const).find(x => x === req.raw.headers['x-section']) ?? 'pro';
+    let added = 0;
+    if (ct.startsWith('application/json')) {
+      const d = await body(req, linkSchema);
+      repo.addKb(ws.id, { section: d.section, kind: 'detail', text: d.note || `${platformOf(d.url)}链接`, source: '导入:链接', media: 'link', url: d.url }); added = 1;
+    } else added = (await importFile(req, ws, section, '导入:文件')).added;
+    ops.track(ctx(req).owner, ws.id, 'kb_imported', { added });
+    return { added, items: repo.kb(ws.id) };
+  });
+  // 面诊时传资料：主页链接、账号截图、介绍资料；都进知识库（个人），报告拆账号现状时会用
+  r.post('/api/diagnosis/attach', async req => {
+    const ws = W(req);
+    if (!diagOf(ws.id).unlocked) throw new HttpError(402, '先解锁 AI 运营');
+    const ct = String(req.raw.headers['content-type'] ?? '');
+    if (ct.startsWith('application/json')) {
+      const d = await body(req, linkSchema);
+      repo.addKb(ws.id, { section: 'personal', kind: 'detail', text: d.note || `我的${platformOf(d.url)}主页`, source: '面诊:资料', media: 'link', url: d.url });
+    } else await importFile(req, ws, 'personal', '面诊:资料');
+    ops.track(ctx(req).owner, ws.id, 'diag_attached');
+    return { items: repo.kb(ws.id).filter(i => i.source === '面诊:资料') };
+  });
+  r.get('/api/diagnosis/attach', req => ({ items: repo.kb(W(req).id).filter(i => i.source === '面诊:资料') }));
+
+  /* ---------- AI 面诊（AI 运营的入口，付费解锁） ---------- */
+  r.get('/api/diagnosis', req => ({ diagnosis: diagOf(W(req).id), questions: DIAG_QUESTIONS, price: modCfg().price }));
+  r.post('/api/diagnosis/unlock', req => {
+    const ws = W(req), d = diagOf(ws.id);
+    if (!d.unlocked) {
+      const price = modCfg().price;
+      if (price > 0 && !repo.charge(ws.id, price, '解锁 AI 运营（含 AI 面诊）', null)) throw new HttpError(402, `余额不足：需要 ${price} 点`);
+      repo.saveDiagnosis(ws.id, { ...repo.diagnosis(ws.id), unlocked: true }); ops.track(ctx(req).owner, ws.id, 'diag_unlocked');
+    }
+    return { diagnosis: diagOf(ws.id) };
   });
   r.put('/api/diagnosis/answer', async req => {
     const ws = W(req), d = await body(req, z.object({ qid: z.string().max(10), text: z.string().max(2000) }));
-    if (!repo.diagnosis(ws.id).unlocked) throw new HttpError(402, '先解锁 AI 运营');
+    if (!diagOf(ws.id).unlocked) throw new HttpError(402, '先解锁 AI 运营');
     saveAnswer(repo, ws, d.qid, d.text.trim());
-    return { diagnosis: repo.diagnosis(ws.id) };
+    return { diagnosis: diagOf(ws.id) };
   });
   r.post('/api/diagnosis/report', async req => {
-    const ws = W(req), d = repo.diagnosis(ws.id);
+    const ws = W(req), d = diagOf(ws.id);
     if (!d.unlocked) throw new HttpError(402, '先解锁 AI 运营');
     if (Object.values(d.answers).filter(x => x.trim()).length < 3) throw new HttpError(400, '至少回答 3 个问题，报告才准');
     const report = await runDiagnosis(repo, providers, ws);
     ops.track(ctx(req).owner, ws.id, 'diag_report');
-    return { diagnosis: { ...repo.diagnosis(ws.id), report } };
+    return { diagnosis: { ...diagOf(ws.id), report } };
   });
   r.put('/api/diagnosis/report', async req => {
-    const ws = W(req), d = repo.diagnosis(ws.id);
+    const ws = W(req), d = diagOf(ws.id);
     if (!d.report) throw new HttpError(404, '还没有报告');
     const p = await body(req, z.object({ tags: z.object({ personality: z.array(z.string().max(20)).max(6), pro: z.array(z.string().max(20)).max(6), brand: z.array(z.string().max(20)).max(6) }).optional(),
       columns: z.array(z.object({ name: z.string().max(20), kind: z.enum(['流量', '转化', '人设']), type: z.string().max(10), perWeek: z.number().int().min(1).max(7), why: z.string().max(80) })).max(6).optional() }));
@@ -247,7 +321,7 @@ export function createApp(opts: AppOptions) {
     // 改了标签、栏目：写回人设档案，排期按新栏目重排；新加的栏目补几个选题
     applyReport(repo, ws, report);
     if (p.columns) { const old = new Set(d.report.columns.map(c => c.name)); await seedColumnTopics(repo, providers, repo.ws(ws.id)!, report.columns.filter(c => !old.has(c.name))); }
-    return { diagnosis: repo.diagnosis(ws.id) };
+    return { diagnosis: diagOf(ws.id) };
   });
 
   /* ---------- 写文案（知识库 → 文案） ---------- */
@@ -306,12 +380,14 @@ export function createApp(opts: AppOptions) {
   /* ---------- 素材 ---------- */
   // 素材都带一句「拍了什么」：看图模型看过的用模型的；没接看图模型时只按文件名和时长写，不编画面内容
   r.get('/api/assets', req => ({ assets: repo.assets(W(req).id).map(a => ({ ...a, note: describeAsset(a), noteSrc: a.noteSrc ?? (a.source === '示例' ? 'sample' : 'name') })) }));
+  r.get('/api/storage', req => ({ ...policy(), usedBytes: retention.usedBytes(ctx(req).owner), expiring: retention.expiring(ctx(req).owner, policy()) }));
   r.post('/api/assets/samples', req => { const ws = W(req); const n = addSampleAssets(repo, ws); ops.track(ctx(req).owner, ws.id, 'samples_added'); return { added: n }; });
   r.post('/api/assets', async req => {
     const ws = W(req), mime = String(req.raw.headers['content-type'] ?? 'application/octet-stream');
     if (!/^(image|video|audio)\//.test(mime)) throw new HttpError(415, '只支持图片、视频、音频');
     const name = decodeURIComponent(String(req.raw.headers['x-file-name'] ?? '未命名')).slice(0, 80);
     const buf = await readBuffer(req.raw, UPLOAD_LIMIT);
+    if (retention.wouldExceed(ctx(req).owner, buf.length, policy())) throw new HttpError(413, `空间满了：每个账号最多存 ${policy().capacityMb} MB，先下载并删掉一些旧素材`);
     const ext = (extname(name) || '.' + (mime.split('/')[1] ?? 'bin')).toLowerCase().replace(/[^.a-z0-9]/g, '');
     const file = `${ws.id}/${newId('f')}${ext}`;
     await storage.put(file, buf, mime);
@@ -444,6 +520,24 @@ export function createApp(opts: AppOptions) {
   /* ---------- 管理后台（ADMIN_EMAILS 里的账号） ---------- */
   const admin = (req: Req) => { if (!isAdmin(ctx(req).user)) throw new HttpError(403, '只有管理员能看'); };
   r.get('/api/admin/overview', req => { admin(req); const days = Math.min(90, Math.max(1, Number(req.query.get('days') ?? 7))); return { ...ops.overview(days), settings: { genPaused: ops.genPaused() }, config: { inviteRequired: o.inviteRequired, authRequired: !!o.authRequired, initialPoints: o.initialPoints, dailyJobsPerUser: o.dailyJobsPerUser, dailyBudget: o.dailyBudget }, ai: providerInfo }; });
+  r.get('/api/admin/modules', req => { admin(req); return { modules: MODULES, presets: PRESETS, config: modCfg(), usage: ops.moduleUsage() }; });
+  r.put('/api/admin/modules', async req => {
+    admin(req);
+    const st = z.enum(['on', 'beta', 'soon', 'off']);
+    const d = await body(req, z.object({ preset: z.enum(['phase1', 'phase2', 'all']).optional(), states: z.record(st).optional(), beta: z.array(z.string().max(120)).max(500).optional(), pro: z.array(z.string().max(40)).max(80).optional(),
+      price: z.number().int().min(0).max(100000).optional(), retentionDays: z.number().int().min(0).max(3650).optional(), capacityMb: z.number().int().min(0).max(1024 * 1024).optional(), withParents: z.boolean().optional() }));
+    let c = modCfg();
+    if (d.preset) c = { ...c, preset: d.preset as Preset, states: presetStates(d.preset as Preset) };
+    if (d.states) {
+      const states = { ...c.states, ...d.states };
+      // 打开子模块时父模块关着：带上 withParents 就一起打开
+      if (d.withParents) for (const [id, v] of Object.entries(d.states)) if (v !== 'off') for (const p of closedParents({ ...c, states }, id)) states[p] = v;
+      c = { ...c, states };
+    }
+    c = normalizeConfig({ ...c, ...(d.beta ? { beta: d.beta } : {}), ...(d.pro ? { pro: d.pro } : {}), ...(d.price !== undefined ? { price: d.price } : {}), ...(d.retentionDays !== undefined ? { retentionDays: d.retentionDays } : {}), ...(d.capacityMb !== undefined ? { capacityMb: d.capacityMb } : {}) }, o.modulesPreset, DIAG_PRICE);
+    saveModCfg(c);
+    return { config: modCfg(), warn: Object.entries(c.states).filter(([id, v]) => v !== 'off' && closedParents(c, id).length).map(([id]) => ({ id, parents: closedParents(c, id) })) };
+  });
   r.get('/api/admin/users', req => { admin(req); return { users: ops.users() }; });
   r.post('/api/admin/users/:id/points', async req => { admin(req); const { delta } = await body(req, z.object({ delta: z.number().int().min(-100000).max(100000) })); if (!ops.addPoints(req.params.id, delta)) throw new HttpError(404, '没有这个用户'); return { users: ops.users() }; });
   r.get('/api/admin/invites', req => { admin(req); return { invites: ops.listInvites() }; });
@@ -538,7 +632,12 @@ export function createApp(opts: AppOptions) {
         const m = r.match(req.method, req.path);
         if (!m) throw new HttpError(404, '接口不存在');
         req.params = m.params;
-        if (!req.path.startsWith('/api/auth/')) { const c = ctx(req); if (c.setCookie) res.setHeader('set-cookie', c.setCookie); }
+        if (!req.path.startsWith('/api/auth/')) {
+          const c = ctx(req); if (c.setCookie) res.setHeader('set-cookie', c.setCookie);
+          // 模块开关：隐藏、预告、不在内测名单的模块，接口直接拒绝（管理员不受限，方便预览）
+          const mid = moduleForApi(req.method, req.path);
+          if (mid && !isAdmin(c.user) && viewFor(modCfg(), c.user?.email ?? null)[mid] !== 'on') throw new HttpError(403, '这个功能还没开放');
+        }
         const out = await m.h(req, res);
         send(res, res.statusCode && res.statusCode !== 200 ? res.statusCode : 200, out);
         return;
@@ -557,5 +656,5 @@ export function createApp(opts: AppOptions) {
     } catch (e) { sendError(res, e, rid); }
   }
 
-  return { server: createServer((q, s) => { void handle(q, s); }), db, repo, ops, signedUrl, providerInfo };
+  return { server: createServer((q, s) => { void handle(q, s); }), db, repo, ops, signedUrl, providerInfo, retention, policy };
 }

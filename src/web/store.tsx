@@ -10,11 +10,11 @@ export interface Route { view: View; sub?: string; id?: string }
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
   const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin'];
-  // MVP：首页和排期不再单独出现——首页进生成视频，老的 /plan 链接进 AI 运营
-  const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'gen';
+  // 根路径是「今天」页（模块关了就显示生成视频）；老的 /plan 链接进 AI 运营
+  const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'home';
   return { view, sub: sub || undefined, id: id || undefined };
 }
-export const routePath = (r: Route) => r.view === 'gen' && !r.sub ? '/' : `/${[r.view === 'plan' ? 'ops' : r.view, r.sub, r.id].filter(Boolean).join('/')}`;
+export const routePath = (r: Route) => r.view === 'home' ? '/' : `/${[r.view === 'plan' ? 'ops' : r.view, r.sub, r.id].filter(Boolean).join('/')}`;
 
 /** 排期“从选题库挑”时带过去的目标格子 */
 export interface PlaceTarget { planId: string; date: string; label: string }

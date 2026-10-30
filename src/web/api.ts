@@ -1,5 +1,6 @@
 // 前端 API 客户端：所有请求都走这里，错误统一抛 ApiError（message 是可直接给用户看的中文）。
 import type { DiagQuestion, DiagReport, Diagnosis, KbItem } from '../shared/kb.ts';
+import type { ModState, ModView, ModuleConfig, ModuleDef, Preset } from '../shared/modules.ts';
 import type { SlotMetrics, Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
@@ -25,7 +26,12 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi'; tts: 'mock' | 'minimax' | 'none'; vision: 'llm' | 'none'; /** 素材图能否当首帧发给视频服务 */ firstFrame?: boolean }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi'; tts: 'mock' | 'minimax' | 'none'; vision: 'llm' | 'none'; /** 素材图能否当首帧发给视频服务 */ firstFrame?: boolean }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string;
+  /** 模块开关：每个模块对这个用户是能用 / 预告 / 看不到 */
+  modules: Record<string, ModView>; modulePro: string[];
+  storage: { retentionDays: number; capacityMb: number; usedBytes: number } }
+export interface ModuleUsage { opens: number; users: number; done: number | null }
+export interface StorageInfo { retentionDays: number; capacityMb: number; usedBytes: number; expiring: { kind: 'asset' | 'video'; id: string; name: string; url: string | null; expiresAt: string; daysLeft: number }[] }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }
@@ -64,6 +70,8 @@ export const api = {
     aiTest: () => call<{ ok: boolean; ms: number; model: string; reply: string | null; error: string | null }>('POST', '/api/admin/ai/test'),
     redeemCodes: () => call<{ codes: { code: string; points: number; maxUses: number; used: number; note: string; createdAt: string }[] }>('GET', '/api/admin/redeem'),
     createRedeem: (count: number, points: number, maxUses: number, note: string) => call<{ codes: string[] }>('POST', '/api/admin/redeem', { count, points, maxUses, note }),
+    modules: () => call<{ modules: ModuleDef[]; presets: Record<Preset, string>; config: ModuleConfig; usage: Record<string, ModuleUsage> }>('GET', '/api/admin/modules'),
+    saveModules: (p: Partial<Omit<ModuleConfig, 'states'>> & { states?: Record<string, ModState>; withParents?: boolean }) => call<{ config: ModuleConfig; warn: { id: string; parents: string[] }[] }>('PUT', '/api/admin/modules', p),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
   },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
@@ -93,6 +101,7 @@ export const api = {
   cloneVoice: (sample: Blob, demo: boolean) => call<{ voiceClone: string }>('POST', '/api/voice/clone', sample, { 'content-type': sample.type || 'audio/webm', 'x-consent': 'yes', ...(demo ? { 'x-sample': 'demo' } : {}) }),
 
   assets: () => call<{ assets: Asset[] }>('GET', '/api/assets'),
+  storage: () => call<StorageInfo>('GET', '/api/storage'),
   upload: (f: File, source = '上传') => call<Asset>('POST', '/api/assets', f, { 'content-type': f.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(f.name), 'x-source': encodeURIComponent(source) }),
   deleteAsset: (id: string) => call<{ ok: true }>('DELETE', `/api/assets/${id}`),
 
@@ -101,6 +110,15 @@ export const api = {
   updateKb: (id: string, k: Partial<Pick<KbItem, 'section' | 'kind' | 'text' | 'tags'>>) => call<{ items: KbItem[] }>('PUT', `/api/kb/${id}`, k),
   deleteKb: (id: string) => call<{ items: KbItem[] }>('DELETE', `/api/kb/${id}`),
   diagnosis: () => call<{ diagnosis: Diagnosis; questions: DiagQuestion[]; price: number }>('GET', '/api/diagnosis'),
+  /** 面诊传资料：主页链接，或截图 / 介绍资料文件 */
+  diagAttach: (x: { url: string; note?: string } | File) => x instanceof File
+    ? call<{ items: KbItem[] }>('POST', '/api/diagnosis/attach', x, { 'content-type': x.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(x.name) })
+    : call<{ items: KbItem[] }>('POST', '/api/diagnosis/attach', x),
+  diagAttachments: () => call<{ items: KbItem[] }>('GET', '/api/diagnosis/attach'),
+  /** 知识库资料导入：一个链接，或一份文件（文字文件按段拆成几条） */
+  kbImport: (x: { url: string; note?: string; section?: string } | File, section = 'pro') => x instanceof File
+    ? call<{ added: number; items: KbItem[] }>('POST', '/api/kb/import', x, { 'content-type': x.type || 'text/plain', 'x-file-name': encodeURIComponent(x.name), 'x-section': section })
+    : call<{ added: number; items: KbItem[] }>('POST', '/api/kb/import', { section, ...x }),
   unlock: () => call<{ diagnosis: Diagnosis }>('POST', '/api/diagnosis/unlock'),
   answer: (qid: string, text: string) => call<{ diagnosis: Diagnosis }>('PUT', '/api/diagnosis/answer', { qid, text }),
   makeReport: () => call<{ diagnosis: Diagnosis }>('POST', '/api/diagnosis/report'),

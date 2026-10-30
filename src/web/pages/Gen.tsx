@@ -8,6 +8,7 @@ import { ACCEPT, uploadFiles, useAssetPicker, useScheduleTopic } from '../ui/pic
 import { useCloneVoice } from './ip/More.tsx';
 import { BGMS, EMOTIONS, RATIOS, STYLES, VOICES } from '../../shared/catalog.ts';
 import { clampRes, draftResOf, genIssues, isDraft, modelOf, trimCopyToLen, videoModels } from '../../shared/gen.ts';
+import { useMods, useModOpen } from '../ui/mods.tsx';
 import { SUBTYPES, MOVES, SIZES, SOURCE_NAME, TRANSITIONS, VIDEO_TYPES, buildStoryboard, chars, costLines, costTotal, relock, splitSentences, suggestType, typeOf, voiceSecs, type ShotSource, type ShotSpec, type SubType, type VideoType } from '../../shared/video.ts';
 import { copyText, smartTitle } from '../../shared/copy.ts';
 import type { Asset, GenSettings, Job, VideoOutput } from '../../shared/types.ts';
@@ -119,6 +120,17 @@ export function GenPage() {
   /** 知识库写文案 / 实拍看素材写文案 */
   const [idea, setIdea] = useState('');
   const [useKb, setUseKb] = useState(true);
+  // 模块开关：实拍 / 口播 / AI 做画面三类入口，样片、声音复刻、数字人、高级参数各自能关
+  const mods = useMods();
+  const typeMod = (id: string) => id === 'real' ? 'real' : id === 'talk' ? 'talk' : 'aiVideo';
+  const types = VIDEO_TYPES.filter(x => mods.on(typeMod(x.id)));
+  useModOpen(typeMod(g.type ?? 'real'));
+  // 关掉的类型不能选；数字人、样片模块关了就不带这些设置去生成
+  useEffect(() => {
+    if (types.length && !types.some(x => x.id === g.type)) pickType(types[0].id);
+    else if (!mods.on('avatarShot') && g.avatar && g.avatar !== 'none') set({ avatar: 'none' });
+    else if (!mods.on('draft') && g.draft) set({ draft: false });
+  }, [types.map(x => x.id).join(), g.type, g.avatar, g.draft]); // eslint-disable-line react-hooks/exhaustive-deps
   const [writing, setWriting] = useState(false);
   const [usedKb, setUsedKb] = useState<{ kind: string; text: string }[]>([]);
   const aiWrite = async () => {
@@ -219,7 +231,7 @@ export function GenPage() {
       {session!.limits.genPaused && <div className="gwarn" style={{ marginTop: 20 }}><div><span>生成功能暂时关闭，管理员打开后就能用</span></div></div>}
 
       {step === 1 && <>
-        <div className="tcards" id="gTypes">{VIDEO_TYPES.map((x, i) => {
+        <div className="tcards" id="gTypes">{types.map((x, i) => {
           const rec = g.copy.trim() && suggestType(g.copy) === x.id;
           return <button key={x.id} data-ty={x.id} aria-pressed={g.type === x.id} onClick={() => pickType(x.id)}>
             <span className="row" style={{ justifyContent: 'space-between' }}><span className="tno">{g.type === x.id ? '✓ 已选' : String(i + 1).padStart(2, '0')}</span>{x.id === 'real' ? <Src k="real">推荐 · 最省钱</Src> : rec ? <Src k="real">推荐</Src> : null}</span>
@@ -227,13 +239,13 @@ export function GenPage() {
             <span className="xs tmeta">{x.voice} · {x.avatar === 'all' ? '数字人全程出镜' : x.avatar === 'some' ? '可本人出镜' : '不出镜'}</span>
           </button>;
         })}</div>
-        <div className="subpick card" id="gSub">
+        {mods.on('subtypes') && <div className="subpick card" id="gSub">
           <div style={{ flex: 1, minWidth: 260 }}>
             <p className="eyebrow">{t.n} · 选一个小类</p>
             <div className="pills" style={{ marginTop: 10 }}>{SUBTYPES[t.id].map(x => <button key={x.id} className="pill" data-sub={x.id} aria-pressed={sub?.id === x.id} onClick={() => set({ sub: x.id, shots: [] })}>{x.n}</button>)}</div>
           </div>
           {sub && <div className="shotlist"><p className="lb">去现场拍这些</p><ol>{sub.shots.map(x => <li key={x}>{x}</li>)}</ol></div>}
-        </div>
+        </div>}
         <div className="ctabar"><button className="btn cta" id="gToStep2" onClick={() => setStep(2)}>下一步：放内容 <span aria-hidden="true">→</span></button></div>
       </>}
 
@@ -250,7 +262,7 @@ export function GenPage() {
             {usedKb.length > 0 && <div className="row" style={{ gap: 6, marginTop: 10 }}><span className="xs m3">这条用了：</span>{usedKb.map((u, i) => <span key={i} className="tag" title={u.text}>{u.kind} · {u.text.slice(0, 14)}{u.text.length > 14 ? '…' : ''}</span>)}</div>}
           </div>
           <div className="aiact">
-            {t.id !== 'real' && <Toggle checked={useKb} onChange={setUseKb} label="用我的知识库" />}
+            {t.id !== 'real' && mods.on('copyKb') && <Toggle checked={useKb} onChange={setUseKb} label="用我的知识库" />}
             <button className="btn cta" id="gAiGo" disabled={writing || (t.id === 'real' && !media.length)} onClick={t.id === 'real' ? aiFootage : aiWrite}>{writing ? 'AI 在写…' : t.id === 'real' ? `看 ${media.length} 段素材写文案 →` : 'AI 写一版 →'}</button>
           </div>
         </div>
@@ -273,24 +285,24 @@ export function GenPage() {
           <div className="gbox"><div className="hd">画面</div>
             <p className="lb">比例</p><Pills value={g.ratio} options={RATIOS} disabled={v => !!m.ratios && !m.ratios.includes(v)} onChange={v => set({ ratio: v })} />
             {t.id === 'real' ? <p className="xs m3" style={{ marginTop: 12 }}>实拍原片直接用，不生成画面，不用先出样片。</p> : <>
-            <p className="lb" style={{ marginTop: 12 }}>画质</p><Seg value={g.draft && m.draft ? 'draft' : 'final'} options={['draft', 'final'] as const} render={v => v === 'draft' ? '先出样片' : '直接成片'} onChange={v => set({ draft: v === 'draft' })} />
-            <p className="xs m3" style={{ marginTop: 6 }}>{g.draft && m.draft ? `样片 ${draftResOf(g.model)}、便宜很多，满意再出成片` : `${g.res} 成片`}</p></>}</div>
+            {mods.on('draft') && <><p className="lb" style={{ marginTop: 12 }}>画质</p><Seg value={g.draft && m.draft ? 'draft' : 'final'} options={['draft', 'final'] as const} render={v => v === 'draft' ? '先出样片' : '直接成片'} onChange={v => set({ draft: v === 'draft' })} />
+            <p className="xs m3" style={{ marginTop: 6 }}>{g.draft && m.draft ? `样片 ${draftResOf(g.model)}、便宜很多，满意再出成片` : `${g.res} 成片`}</p></>}</>}</div>
           <div className="gbox"><div className="hd">字幕和音乐</div>
             <Toggle checked={g.subs} onChange={v => set({ subs: v })} label="字幕" hint="按句出，跟着说话的节奏" />
             <p className="lb" style={{ marginTop: 12 }}>背景音乐</p><Pills value={g.bgm} options={BGMS} onChange={v => set({ bgm: v })} /></div>
-          <div className="gbox"><div className="hd">声音<button className="lnk xs" id="gClone" onClick={clone}>{vc === 'ready' ? '重新复刻' : '复刻我的声音'}</button></div>
+          <div className="gbox"><div className="hd">声音{mods.on('voiceClone') && <button className="lnk xs" id="gClone" onClick={clone}>{vc === 'ready' ? '重新复刻' : '复刻我的声音'}</button>}</div>
             {!ttsOn && <p className="xs" style={{ color: 'var(--warn)', marginBottom: 8 }}>配音服务还没接：成片暂时没有配音，字幕照常，也不收配音费。</p>}
-            <div className="vlist">{VOICES.map(v => <button key={v.id} data-gk="voice" data-v={v.id} aria-pressed={g.voice === v.id} onClick={() => set({ voice: v.id })}>
+            <div className="vlist">{VOICES.filter(v => v.id !== 'me' || mods.on('voiceClone')).map(v => <button key={v.id} data-gk="voice" data-v={v.id} aria-pressed={g.voice === v.id} onClick={() => set({ voice: v.id })}>
               <span className="av">{v.k ? <Ph k={v.k} /> : '—'}</span><span><b>{v.n}</b><span>{v.id === 'me' ? (vc === 'ready' ? '复刻 · 已授权' : vc === 'busy' ? '复刻中…' : '还没复刻') : v.d}</span></span></button>)}</div></div>
-          <div className="gbox w2"><div className="hd">数字人出镜<button className="lnk xs" onClick={() => nav('me')}>管理形象</button></div>
+          {mods.on('avatarShot') && <div className="gbox w2"><div className="hd">数字人出镜<button className="lnk xs" onClick={() => nav('me')}>管理形象</button></div>
             {t.avatar === 'none' ? <p className="s m">{t.n}默认不出镜。</p> : <div className="vlist">
               {([['none', '不出镜', '只用画面和配音'], ['clone', '真人分身', av.clone === 'ready' ? '可用 · 只改嘴型，最真实' : av.clone === 'busy' ? '审核中…' : '还没建：拍 1 分钟正脸视频'], ['photo', '照片形象', av.photo === 'ready' ? '可用 · 一张照片驱动' : av.photo === 'busy' ? '审核中…' : '还没建：传一张照片']] as const).map(([id, n, d]) =>
                 <button key={id} data-av={id} aria-pressed={(g.avatar ?? 'none') === id} onClick={() => set({ avatar: id, shots: [] })}><span className="av">{id === 'none' ? '—' : <Ph k="person" />}</span><span><b>{n}</b><span>{d}</span></span></button>)}
               <p className="xs m3">{t.avatar === 'all' ? '全程出镜：整条配音一次驱动数字人，插入画面盖在上面，口型始终对得上。' : '模板里「本人出镜」的那几镜用数字人。'}</p>
-            </div>}</div>
+            </div>}</div>}
         </div>
 
-        <details className="gshots adv" id="gAdv">
+        {mods.on('proMode') && <details className="gshots adv" id="gAdv">
           <summary>高级参数 <span className="xs m3">模型、清晰度、语速、情绪、停顿、音量、环境声、风格、画面要求、随机种子</span></summary>
           <div className="advg">
             <div className="w2"><p className="lb">视频模型</p><div className="gm">{videoModels().map(x => <button key={x.id} data-gk="model" data-v={x.id} aria-pressed={g.model === x.id} aria-disabled={x.off || undefined} onClick={() => x.off ? toast('这个模型还没接入') : set({ model: x.id, draft: x.draft && g.draft })}>
@@ -305,7 +317,7 @@ export function GenPage() {
               <Toggle checked={!!g.seed} onChange={v => set({ seed: v })} label="固定随机种子" hint="重做时画面更接近上一版" /></div>
             <div className="w2"><p className="lb">全片画面要求（加到每一镜的描述后面）</p><textarea className="fld" rows={2} value={g.prompt} onChange={e => set({ prompt: e.target.value })} placeholder={`比如：${session!.persona.proj}，${session!.persona.read[1][1]}，真实自然光`} /></div>
           </div>
-        </details>
+        </details>}
 
         <div className="gfoot"><div><p className="t2">{t.n} · {t.id === 'real' ? `${media.length} 段素材` : `${sentences.length} 句 · 约 ${estSecs} 秒`}</p><p className="xs m3">{VOICES.find(v => v.id === g.voice)?.n} · {avatarOn ? (g.avatar === 'clone' ? '真人分身出镜' : '照片形象出镜') : '不出镜'} · {t.id === 'real' ? '实拍原片，不生成画面' : m.n}</p></div><span className="sp" />
           <button className="btn g" onClick={() => setStep(1)}>上一步</button>{t.id === 'real' && !g.copy.trim()

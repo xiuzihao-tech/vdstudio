@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
 import { Pills } from './kit.tsx';
+import { useMods } from './mods.tsx';
 import type { PersonaId } from '../../shared/types.ts';
 
 const PLATFORMS = ['抖音', '小红书', '视频号', 'B 站'];
@@ -34,6 +35,7 @@ const EX: Record<string, { who: string; aud: string; goal: string }> = {
 
 function Profile() {
   const { session, sheet, nav, fail, setSession, toast, bump } = useApp();
+  const mods = useMods();
   const s0 = session!, p = s0.workspace.positioning;
   // 填过才回显；新账号全部留空，只给例子
   const filled = !!p.name;
@@ -50,8 +52,8 @@ function Profile() {
   if (step === 2) return <>
     <p className="s">文案和分镜会自动用上这份档案。接下来两件事能让视频更像你，都可以以后再做：</p>
     <div className="list" style={{ marginTop: 14 }}>
-      <button onClick={() => { done(); sheet(null); nav({ view: 'me', sub: 'avatar' }); }}><span>录 30 秒声音<br /><span className="xs m3">复刻后配音就是你自己的声音</span></span><span className="v">去录 ›</span></button>
-      <button onClick={() => { done(); sheet(null); nav({ view: 'me', sub: 'avatar' }); }}><span>拍 1 分钟正脸视频<br /><span className="xs m3">建真人分身，口播视频由它出镜</span></span><span className="v">去拍 ›</span></button>
+      {mods.on('voiceClone') && <button onClick={() => { done(); sheet(null); nav({ view: 'me', sub: 'avatar' }); }}><span>录 30 秒声音<br /><span className="xs m3">复刻后配音就是你自己的声音</span></span><span className="v">去录 ›</span></button>}
+      {mods.on('avatars') && <button onClick={() => { done(); sheet(null); nav({ view: 'me', sub: 'avatar' }); }}><span>拍 1 分钟正脸视频<br /><span className="xs m3">建真人分身，口播视频由它出镜</span></span><span className="v">去拍 ›</span></button>}
     </div>
     <div className="sf" style={{ margin: '18px -24px -18px', paddingBottom: 18 }}><button className="btn y" id="onbLater" onClick={() => { done(); sheet(null); }}>以后再说，先去出片</button></div>
   </>;
@@ -64,7 +66,8 @@ function Profile() {
       if (persona !== s.workspace.persona) { s = await api.switchPersona(persona); mark(s.workspace.id); setSession(s); }
       const cur = s.workspace.positioning;
       s = await api.savePositioning({ ...cur, name: who.trim().slice(0, 40), aud: split(aud).slice(0, 6).length ? split(aud).slice(0, 6) : cur.aud, goal: goal.trim().slice(0, 40), platforms: plat });
-      setSession(s); mark(s0.workspace.id, s.workspace.id); bump(); toast('人设档案存好了'); setStep(2);
+      setSession(s); mark(s0.workspace.id, s.workspace.id); bump(); toast('人设档案存好了');
+      if (mods.any('voiceClone', 'avatars')) setStep(2); else { sheet(null); nav('home'); }
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
   return <>

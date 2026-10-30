@@ -6,11 +6,12 @@ import { Src } from './kit.tsx';
 import { AuthForm } from './auth.tsx';
 import { PointsSheet } from './points.tsx';
 import type { Job } from '../../shared/types.ts';
+import { SoonBadge, setAsStudent, useMods } from './mods.tsx';
 
-// MVP 导航：4 个入口。选题文案、制作台、首页先隐藏（代码保留，选题和文案在 dazheip 做）
-const TABS: [View, string, string][] = [['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['me', '知识库与形象', '知识库'], ['lib', '我的作品', '作品']];
-const MOBILE: View[] = ['gen', 'ops', 'me', 'lib'];
-const ICON: Record<string, string> = { gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
+// 导航：按模块开关排——某个区的模块全关了，入口就不出现。选题文案、制作台先隐藏（代码保留，选题和文案在 dazheip 做）
+export const TAB_MODS: Record<string, string[]> = { home: ['today'], gen: ['real', 'talk', 'aiVideo'], ops: ['unlock'], me: ['kb', 'voiceClone', 'avatars'], lib: ['works', 'assets'] };
+const TABS: [View, string, string][] = [['home', '今天', '今天'], ['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['me', '知识库与形象', '知识库'], ['lib', '我的作品', '作品']];
+const ICON: Record<string, string> = { home: 'i-home', gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
 const THEMES: [string, string][] = [['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
@@ -18,6 +19,10 @@ export function Header() {
   const { session, route, nav, sheet, setSession, fail, toast, jobsVersion, bump, reloadSession } = useApp();
   const [jobs, setJobs] = useState<Job[]>([]);
   const running = jobs.filter(j => j.status === 'queued' || j.status === 'running').length;
+  const mods = useMods();
+  const tabs = TABS.filter(([v]) => mods.anyShown(...TAB_MODS[v]));
+  // 「生成视频」整区只是预告时，角标挂在第一个模块上
+  const badge = (v: string) => mods.any(...TAB_MODS[v]) ? null : <SoonBadge id={TAB_MODS[v][0]} />;
 
   useEffect(() => {
     let live = true, h: ReturnType<typeof setTimeout>;
@@ -65,8 +70,9 @@ export function Header() {
     <header className="gbar">
       <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲</span></div>
       <nav className="tabs" aria-label="主导航">
-        {TABS.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}>{n}</button>)}
+        {tabs.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}>{n}{badge(v)}</button>)}
         {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
+        {session?.isAdmin && <button id="asStudent" className={mods.student ? 'on' : ''} title="管理员预览：和学员看到的一样" onClick={() => setAsStudent(!mods.student)}>{mods.student ? '按学员看 ✓' : '按学员看'}</button>}
       </nav>
       <span className="sp" />
       <button className="pts" id="ptsBtn" onClick={() => session && sheet({ title: '点数', body: <PointsSheet /> })}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</button>
@@ -75,7 +81,7 @@ export function Header() {
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>
     </header>
     <nav className="tbar" aria-label="主导航（手机）">
-      {TABS.filter(t => MOBILE.includes(t[0])).map(([v, , m]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg><use href={`#${ICON[v]}`} /></svg>{m}</button>)}
+      {tabs.map(([v, , m]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg><use href={`#${ICON[v]}`} /></svg>{m}</button>)}
     </nav>
   </>;
 }
@@ -83,6 +89,7 @@ export function Header() {
 export function Icons() {
   return (
     <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-6.5 8 6.5M6.5 9.5V19h11V9.5" /></symbol>
       <symbol id="i-make" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16" /></symbol>
       <symbol id="i-wb" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M7 20h10M9 8v4M12 7v6M15 9v2" /></symbol>
       <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3" /><path d="M3.5 10h17M8 3v4M16 3v4" /></symbol>
