@@ -6,4 +6,5 @@ export const API_BASE = (process.env.API_BASE ?? '').replace(/\/$/, '');
 /** 跨域部署时请求要带上 Cookie */
 export const CREDENTIALS: RequestCredentials = API_BASE ? 'include' : 'same-origin';
 /** 后端返回的 /files/... 地址补上后端域名；完整网址原样返回 */
-export const fileUrl = (u: string | null | undefined): string | undefined => (!u ? undefined : u.startsWith('/') ? `${API_BASE}${u}` : u);
+const offlineFile = typeof window !== 'undefined' ? (window as unknown as { __offlineFileUrl?: (u: string) => string | undefined }).__offlineFileUrl : undefined;
+export const fileUrl = (u: string | null | undefined): string | undefined => (!u ? undefined : offlineFile && u.startsWith('/files/') ? offlineFile(u) : u.startsWith('/') ? `${API_BASE}${u}` : u);

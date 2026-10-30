@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node build.mjs --watch & tsx watch src/server/index.ts",
     "build": "node build.mjs",
+    "build:offline": "node offline/build.mjs",
     "start": "node --no-warnings=ExperimentalWarning dist/server.js",
     "local": "node scripts/local.mjs",
     "start:env": "node --no-warnings=ExperimentalWarning --env-file=.env dist/server.js",
@@ -29,8 +30,12 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "buffer": "^6.0.3",
     "esbuild": "^0.28.2",
+    "js-sha256": "^0.11.0",
+    "path-browserify": "^1.0.1",
     "playwright": "1.56.0",
+    "sql.js": "^1.11.0",
     "tsx": "^4.23.12",
     "typescript": "^5.9.0 || ^6.0.3"
   }

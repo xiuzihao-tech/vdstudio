@@ -7,6 +7,10 @@ import type { GenSettings, Topic } from '../shared/types.ts';
 export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin';
 export interface Route { view: View; sub?: string; id?: string }
 
+/** 离线单文件版（file:// 打开）用 #/gen 这样的地址；正常部署用 /gen */
+const HASH = typeof window !== 'undefined' && !!(window as unknown as { __HASH_ROUTES?: boolean }).__HASH_ROUTES;
+export const curPath = () => HASH ? (location.hash.slice(1) || '/') : location.pathname;
+
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
   const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin'];
@@ -45,7 +49,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [session, setSessionRaw] = useState<Session | null>(null);
   /** 换会话时同步视频档位目录（服务端按接入的中转站给出实际能力），保证前后端校验一致 */
   const setSession = useCallback((s: Session | null) => { if (s?.models) setVideoModels(s.models); setSessionRaw(s); }, []);
-  const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
+  const [route, setRoute] = useState<Route>(() => parseRoute(curPath()));
   const [toastMsg, setToast] = useState<{ m: string; n: number } | null>(null);
   const [sheetSpec, setSheet] = useState<SheetSpec | null>(null);
   const [genSeed, setGenSeed] = useState<Partial<GenSettings> | null>(null);
@@ -63,14 +67,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setSession]);
   useEffect(() => { void reloadSession(); }, [reloadSession]);
   useEffect(() => { if (session) document.body.dataset.theme = session.workspace.theme; }, [session]);
-  useEffect(() => { const f = () => setRoute(parseRoute(location.pathname)); addEventListener('popstate', f); return () => removeEventListener('popstate', f); }, []);
+  useEffect(() => { const f = () => setRoute(parseRoute(curPath())); addEventListener('popstate', f); if (HASH) addEventListener('hashchange', f); return () => { removeEventListener('popstate', f); removeEventListener('hashchange', f); }; }, []);
   // 埋点：每次切页记一次（只记页面名，不记内容）
   useEffect(() => { if (session) void api.track('page_view', { view: route.view, sub: route.sub ?? '' }); }, [route.view, route.sub, !!session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nav = useCallback((r: Route | View, replace = false) => {
     const next = typeof r === 'string' ? { view: r } : r;
     const p = routePath(next);
-    if (p !== location.pathname) (replace ? history.replaceState : history.pushState).call(history, null, '', p);
+    if (p !== curPath()) (replace ? history.replaceState : history.pushState).call(history, null, '', HASH ? `#${p}` : p);
     setRoute(next); setSheet(null); window.scrollTo(0, 0);
   }, []);
   const toast = useCallback((m: string) => setToast({ m, n: Date.now() }), []);
