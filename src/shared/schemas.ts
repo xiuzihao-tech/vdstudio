@@ -55,11 +55,12 @@ export const shotSpecSchema = z.object({
   id: z.string().max(20), line: z.string().max(400), dur: z.number().int().min(1).max(30), lock: z.boolean(),
   source: z.enum(['ai', 'frame', 'clip', 'avatar']), assetId: z.string().max(40).nullable(), lastId: z.string().max(40).nullable(), refIds: z.array(z.string().max(40)).max(30),
   prompt: z.string().max(600), size: z.string().max(10), move: z.string().max(10), model: z.string().max(20), trans: z.string().max(10),
+  start: z.number().min(0).max(3600).optional(),
 });
 export const genSettingsSchema = z.object({
   copy: z.string().max(3000), prompt: z.string().max(1000).default(''), title: z.string().max(80).default(''),
   topicId: z.string().nullable().default(null), assetIds: z.array(z.string()).max(30).default([]),
-  model: z.string(), len: z.number().int().min(10).max(120), ratio: z.enum(['9:16', '16:9', '1:1', '3:4']),
+  model: z.string(), len: z.number().int().min(1).max(300), ratio: z.enum(['9:16', '16:9', '1:1', '3:4']),
   res: z.enum(['480p', '720p', '1080p', '4K']), draft: z.boolean(),
   voice: z.enum(['me', 'p1', 'p2', 'p3', 'none']), speed: z.number().min(0.8).max(1.3),
   bgm: z.string(), subs: z.boolean(), ambience: z.boolean(), cover: z.boolean(), style: z.string().default('AI 推荐'),

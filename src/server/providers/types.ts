@@ -1,7 +1,9 @@
 // AI 供应方接口。页面和路由只依赖这些接口；接真实服务时新增一个实现，在 providers/index.ts 里切换。
 import type { CopyDraft, CopyKind, CopyLen, Persona, PlannedShot, Positioning, Tone, Topic, GenSettings } from '../../shared/types.ts';
 import type { Rewrite } from '../../shared/copy.ts';
-import type { DiagReport } from '../../shared/kb.ts';
+import type { DiagColumn, DiagReport } from '../../shared/kb.ts';
+import type { TtsProvider } from './tts.ts';
+import type { VisionProvider } from './vision.ts';
 
 export interface TopicDraft { title: string; hook: string; dir: string; type: 0 | 1 | 2; heat: 1 | 2 | 3; k: string; why: string }
 export interface Ctx { persona: Persona; positioning: Positioning }
@@ -12,6 +14,8 @@ export interface TopicProvider {
   analyzeBenchmark(ctx: Ctx, input: { url: string; learn: string[] }): Promise<{ platform: string; rows: [string, string][]; topic: TopicDraft }>;
   fromMaterials(ctx: Ctx, input: { keys: string[]; note: string }): Promise<TopicDraft>;
   angles(ctx: Ctx, t: Topic): Promise<{ label: string; title: string }[]>;
+  /** 面诊报告里的一个栏目 → 几个具体选题（按本人知识库，不编数字） */
+  forColumn(ctx: Ctx, col: Pick<DiagColumn, 'name' | 'kind' | 'type' | 'why'>, materials: string[]): Promise<{ title: string; hook: string }[]>;
 }
 
 /** 文案大模型 */
@@ -21,8 +25,11 @@ export interface CopyProvider {
     /** 本人的说话习惯：只做语气参考 */ habits?: string[]; /** 不说的话 */ avoid?: string[]; column?: string; tags?: string[] }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
   /** AI 面诊：按回答出 IP 定位报告 */
   diagnose(ctx: Ctx, qa: { section: string; q: string; a: string }[]): Promise<Omit<DiagReport, 'createdAt'>>;
-  /** 实拍出片：每段素材写一句画外音（返回的句数 = 素材数） */
-  footage(ctx: Ctx, clips: { type: string; note: string }[], idea: string, materials: string[]): Promise<string[]>;
+  /**
+   * 实拍出片：每段素材写一句画外音（返回的句数 = 素材数），外加一个标题。
+   * clips[i].noteSrc = 'name' 表示只知道文件名、不知道画面内容：台词不能描述看不到的东西。dur = 这段素材多长（秒），台词要说得完。
+   */
+  footage(ctx: Ctx, clips: { type: string; note: string; noteSrc?: string | null; dur?: number | null }[], idea: string, materials: string[]): Promise<{ title: string; lines: string[] }>;
   rewrite(ctx: Ctx, d: CopyDraft, how: Rewrite, hook: string): Promise<{ draft: CopyDraft; changed: number }>;
   humanize(ctx: Ctx, text: string): Promise<string>;
 }
@@ -49,4 +56,10 @@ export interface VoiceProvider { clone(sample: { bytes: number; mime: string }):
 /** 语音转写 / 视频提文案 */
 export interface TranscribeProvider { transcribe(ctx: Ctx, src: { kind: 'audio' | 'video'; ref: string }): Promise<string> }
 
-export interface Providers { topics: TopicProvider; copy: CopyProvider; video: VideoProvider; voice: VoiceProvider; transcribe: TranscribeProvider }
+export interface Providers {
+  topics: TopicProvider; copy: CopyProvider; video: VideoProvider; voice: VoiceProvider; transcribe: TranscribeProvider;
+  /** 配音：没有 = 视频是真实服务但没接配音（成片不带配音、也不收配音费）；Mock = 静音占位 */
+  tts?: TtsProvider | null;
+  /** 看懂素材：没有 = 素材说明只按文件名 */
+  vision?: VisionProvider | null;
+}

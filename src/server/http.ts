@@ -56,7 +56,7 @@ export function send(res: ServerResponse, status: number, data: unknown) {
 
 export function sendError(res: ServerResponse, e: unknown, rid?: string) {
   if (e instanceof HttpError) return send(res, e.status, { error: e.message });
-  if (e instanceof ZodError) return send(res, 400, { error: '参数不对', issues: e.issues.map(i => ({ path: i.path.join('.'), message: i.message })) });
+  if (e instanceof ZodError) return send(res, 400, { error: `参数不对：${e.issues[0] ? `${e.issues[0].path.join('.')} ${e.issues[0].message}` : '格式不对'}`, issues: e.issues.map(i => ({ path: i.path.join('.'), message: i.message })) });
   console.error(`[${rid ?? '-'}]`, e);
   send(res, 500, { error: `服务器出错了，稍后再试${rid ? `（编号 ${rid}）` : ''}`, rid });
 }

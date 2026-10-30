@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, type DayView, type PlanBundle } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Ph, Seg, Skel, Src } from '../ui/kit.tsx';
-import { AddAccount, BudgetNote, Mix, TimeLine, TopicPick } from './Plan.tsx';
+import { AddAccount, Mix, TimeLine, TopicPick } from './Plan.tsx';
 import { hourLabel } from '../../shared/schedule.ts';
 import { WEEKDAYS } from '../../shared/catalog.ts';
 import { copyText } from '../../shared/copy.ts';
@@ -141,8 +141,8 @@ export function OpsPlan({ report }: { report: DiagReport | null }) {
           <p className="t2">什么时候发</p>
           <div className="wkd" id="wkd">{WEEKDAYS.map((w, i) => <button key={w} aria-pressed={p.weekdays.includes(i)} aria-label={w} onClick={() => patch({ weekdays: p.weekdays.includes(i) ? p.weekdays.filter(x => x !== i) : [...p.weekdays, i].sort() })}>{w.slice(1)}</button>)}</div>
           <TimeLine hour={p.hour} onChange={h => patch({ hour: h })} />
-          <div className="row" style={{ marginTop: 18, justifyContent: 'space-between' }}><span className="s">每月最多花</span><span className="row" style={{ gap: 6 }}><button className="btn g sm" aria-label="减少" onClick={() => patch({ budget: Math.max(100, p.budget - 100) })}>−</button><b className="ro" style={{ minWidth: 64, textAlign: 'center' }}>{p.budget} 点</b><button className="btn g sm" aria-label="增加" onClick={() => patch({ budget: p.budget + 100 })}>＋</button></span></div>
-          <BudgetNote plan={p} />
+          {/* 10/27 会后取消了自动出样片：托管不会花点数，「每月最多花」去掉了 */}
+          <p className="xs m3" style={{ marginTop: 16 }}>托管只会排计划、写文案，不会自动花点数生成视频。</p>
         </div>
       </div>
 

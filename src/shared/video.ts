@@ -68,6 +68,8 @@ export interface ShotSpec {
   /** 单镜换模型；空 = 跟全片 */
   model: string;
   trans: string;
+  /** 素材原片从第几秒开始用（秒） */
+  start?: number;
 }
 
 const FR: Record<string, string> = { wide: '远景', full: '全景', mid: '中景', mcu: '近景', cu: '特写', ecu: '大特写' };
@@ -105,7 +107,7 @@ export function fitDur(voice: number, m: Pick<VideoModel, 'min' | 'max'>): numbe
   return Math.min(m.max, Math.max(m.min, Math.ceil(voice + 0.3)));
 }
 
-export interface BoardAsset { id: string; type: string }
+export interface BoardAsset { id: string; type: string; /** 视频时长（秒），知道的话实拍镜头按它截 */ dur?: number | null; best?: [number, number] | null }
 export interface BoardOpts {
   type: VideoType; model: VideoModel; assets: BoardAsset[];
   /** 数字人是否可用（有形象，且用户选了出镜） */
@@ -119,7 +121,9 @@ export interface BoardOpts {
  * 一句话都不会丢：所有句子都会落到某一镜里。
  */
 export function buildStoryboard(sentences: string[], o: BoardOpts): ShotSpec[] {
-  const m = o.model, speed = o.speed ?? 1;
+  const speed = o.speed ?? 1;
+  // 实拍出片不生成画面：镜头长短跟着配音走，不受视频模型「最短 4–5 秒」的限制（以前一句 2 秒的话也占满 5 秒）
+  const m = typeOf(o.type).id === 'real' ? { ...o.model, min: 2 } : o.model;
   const cap = Math.min(m.max, 15);
   const secsOf = (s: string, i: number) => o.voice?.[i] ?? voiceSecs(s, speed);
   // 1) 拆超长句
@@ -166,8 +170,13 @@ export function buildStoryboard(sentences: string[], o: BoardOpts): ShotSpec[] {
     const asset = source === 'frame' || source === 'clip' ? media[mi++ % Math.max(1, media.length)] ?? null : null;
     // 实拍：视频直接用原片，照片做首帧；工地记录里的视频素材也直接用原片
     if (asset && (real || spec.id === 'site')) source = asset.type === '视频' ? 'clip' : 'frame';
+    // 素材原片：从看图模型推荐的那一段开始，最长不超过素材剩下的长度
+    const start = source === 'clip' && asset?.best ? Math.max(0, Math.floor(asset.best[0])) : 0;
+    const dur = source === 'clip'
+      ? Math.max(1, Math.min(Math.floor(Math.min(cap, asset?.dur ? asset.dur - start : cap)), Math.max(2, Math.ceil(g.secs + 0.3))))
+      : fitDur(g.secs, { min: source === 'frame' || source === 'ai' ? o.model.min : m.min, max: cap });
     return {
-      id: `s${i + 1}`, line: g.text, dur: fitDur(g.secs, { min: m.min, max: cap }), lock: true,
+      id: `s${i + 1}`, line: g.text, dur, lock: true, ...(start ? { start } : {}),
       source, assetId: asset?.id ?? null, lastId: null, refIds: [],
       prompt: source === 'clip' ? '用这段实拍原片' : source === 'avatar' ? '本人正对镜头讲解，自然手势，背景简洁' : t.md === 'ref' ? '和这句台词相关的空间或细节画面，不出现人脸' : t.d, size: FR[t.fr] ?? '中景', move: MV[t.mv] ?? '固定', model: '', trans: '硬切',
     };

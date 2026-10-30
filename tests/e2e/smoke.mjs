@@ -1,6 +1,6 @@
 // 端到端冒烟：启动构建后的服务（临时数据目录），用 Playwright 走一遍主链路，并截图。
 // 用法：npm run build && npm run test:e2e   （SHOTS=目录 可指定截图位置）
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,6 +36,33 @@ await run('导航：4 个入口，选题文案和制作台已隐藏', async () =
   const tabs = await $('.tabs [data-go]').allTextContents();
   for (const t of ['生成视频', 'AI 运营', '我的作品', '知识库与形象']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
   if (tabs.includes('制作台') || tabs.includes('选题文案')) throw new Error('隐藏的入口还在：' + tabs.join(','));
+});
+const hasFf = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+await run('实拍出片（默认）：上传区是主角、看素材写文案、镜头不超过素材长度、成片说明配音和音乐', async () => {
+  await $('#gTypes [data-ty=real][aria-pressed=true]').waitFor();
+  await $('#gToStep2').click();
+  await $('#gDrop').waitFor();
+  if (!(await $('#gNext').isDisabled())) throw new Error('没放素材也能下一步');
+  if (!hasFf) return;
+  // Playwright 往文件框塞中文文件名会静默失败（真实浏览器没这个问题），测试里用英文名
+  const clips = [['hall-wide.mp4', 5], ['door-edge-closeup.mp4', 3]].map(([n, d]) => { const f = join(data, n); spawnSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=size=360x640:rate=25:duration=${d}`, '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', f]); return f; });
+  const chooser = page.waitForEvent('filechooser'); await $('#gUpload').click(); await (await chooser).setFiles(clips);
+  await page.waitForFunction(() => document.querySelectorAll('#gDrop .slots li.on').length === 2, null, { timeout: 15000 });
+  await shot('00a_real_upload');
+  await $('#gNext').click();
+  await $('#gBoard .sbrow').first().waitFor({ timeout: 15000 });
+  if (!(await $('#gBoard [aria-label=从第几秒开始]').count())) throw new Error('实拍镜头没有「从第几秒开始」');
+  if (await $('#gBoard [aria-label=景别]').count()) throw new Error('实拍镜头还显示景别');
+  const durs = await $('#gBoard [aria-label="时长（秒）"]').evaluateAll(t => t.map(x => Number(x.value)));
+  if (durs[1] > 3) throw new Error('第二镜比素材还长：' + durs.join(','));
+  await shot('00b_real_board');
+  await $('#gGo').click(); await $('#payOk').click();
+  await $('#gResult').waitFor({ timeout: 30000 });
+  await $('#gAudioNote').waitFor({ timeout: 5000 });
+  const note = await $('#gAudioNote').textContent();
+  if (!/配音/.test(note)) throw new Error('成片没说明配音情况：' + note);
+  await shot('00c_real_result');
+  await $('[data-gs="1"]').click();
 });
 await run('生成第 1 步：8 种类型（实拍出片排第一）、小类带镜头清单', async () => {
   await $('#gTypes [data-ty]').nth(7).waitFor();

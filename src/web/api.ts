@@ -25,7 +25,7 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
   return json as T;
 }
 
-export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi'; /** 素材图能否当首帧发给视频服务 */ firstFrame?: boolean }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
+export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi'; tts: 'mock' | 'minimax' | 'none'; vision: 'llm' | 'none'; /** 素材图能否当首帧发给视频服务 */ firstFrame?: boolean }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
 export type DayView = SlotView | EmptyDay;
 export interface PlanBundle { plan: Plan; slots: DayView[] }
@@ -105,8 +105,9 @@ export const api = {
   answer: (qid: string, text: string) => call<{ diagnosis: Diagnosis }>('PUT', '/api/diagnosis/answer', { qid, text }),
   makeReport: () => call<{ diagnosis: Diagnosis }>('POST', '/api/diagnosis/report'),
   editReport: (p: Partial<Pick<DiagReport, 'tags' | 'columns'>>) => call<{ diagnosis: Diagnosis }>('PUT', '/api/diagnosis/report', p),
-  writeCopy: (o: { idea?: string; topicId?: string; len?: number; kb?: boolean; column?: string }) => call<{ draft: CopyDraft; used: { id: string; kind: string; text: string }[]; cliches: string[] }>('POST', '/api/copy/write', o),
-  footage: (assetIds: string[], idea: string) => call<{ lines: string[]; assets: { id: string; note: string }[]; used: { id: string; kind: string; text: string }[] }>('POST', '/api/gen/footage', { assetIds, idea }),
+  writeCopy: (o: { idea?: string; topicId?: string; len?: number; kb?: boolean; column?: string }) => call<{ draft: CopyDraft; used: { id: string; kind: string; text: string }[]; cliches: string[]; column: string | null }>('POST', '/api/copy/write', o),
+  footage: (assetIds: string[], idea: string) => call<{ title: string; lines: string[]; assets: { id: string; note: string; noteSrc: string; dur: number | null; best: [number, number] | null }[]; used: { id: string; kind: string; text: string }[] }>('POST', '/api/gen/footage', { assetIds, idea }),
+  addSamples: () => call<{ added: number }>('POST', '/api/assets/samples'),
   genVoice: (lines: string[], speed: number, voice: string) => call<{ provider: string; secs: number[] }>('POST', '/api/gen/voice', { lines, speed, voice }),
   createAvatar: (kind: 'clone' | 'photo', file: Blob | null) => call<{ avatars: Workspace['avatars'] }>('POST', '/api/avatars', file ?? new Blob(['demo']), { 'content-type': file?.type || 'application/octet-stream', 'x-kind': kind, 'x-consent': 'yes', ...(file ? {} : { 'x-sample': 'demo' }) }),
   deleteAvatar: (kind: 'clone' | 'photo') => call<{ avatars: Workspace['avatars'] }>('DELETE', `/api/avatars/${kind}`),

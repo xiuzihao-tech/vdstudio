@@ -73,10 +73,10 @@ function Assets() {
   return <>
     <div className="row" style={{ marginTop: 24 }}><p className="s m" style={{ flex: 1 }}>照片、视频和人物素材。照片可以做首帧，视频可以直接当某一镜的原片。</p><button className="btn y sm" id="upBtn" disabled={!!busy} onClick={upload}>{busy ?? '导入素材'}</button></div>
     <div className="row" style={{ marginTop: 28, alignItems: 'flex-end' }}><div style={{ flex: 1 }}><h2 className="t1">项目素材</h2><p className="xs m3" style={{ marginTop: 4 }}>点一下选中，可多选 · 支持 JPG、PNG、WebP、MP4、MOV，单个不超过 200MB</p></div><button className="lnk s" id="aAll" onClick={() => setSel(sel.length === A.length ? [] : A.map(a => a.id))}>{sel.length === A.length && A.length ? '取消全选' : '全选'}</button></div>
-    {!d.data ? <Skel h={200} /> : <div className="wgrid" id="assets" style={{ marginTop: 14 }}>{A.map(a => (
+    {!d.data ? <Skel h={200} /> : !A.length ? <Empty title="素材库还是空的" action={<div className="row" style={{ gap: 8, justifyContent: 'center' }}><button className="btn y" onClick={upload}>上传素材</button><button className="btn g" id="addSamples" onClick={async () => { try { const r = await api.addSamples(); d.reload(); toast(`放了 ${r.added} 段示例素材，标着「示例」`); } catch (e) { fail(e); } }}>放几段示例素材试试</button></div>}>把工地、案例、门店拍的视频和照片传进来，生成时直接用原片。</Empty> : <div className="wgrid" id="assets" style={{ marginTop: 14 }}>{A.map(a => (
       <button key={a.id} className="wk pickable" data-as={a.id} aria-pressed={sel.includes(a.id)} aria-label={`选择 ${a.name}`} onClick={() => toggle(a.id)}>
         <Ph k={a.k} asset={a} /><span className="ck" aria-hidden="true">{sel.includes(a.id) ? '✓' : ''}</span><span className="ty">{a.type}</span>
-        <div className="b"><p className="s">{a.name}</p>{a.note && <p className="xs m3 anote">{a.note}</p>}<p className="xs" style={{ color: a.used >= 4 ? 'var(--warn)' : 'var(--tx3)' }}>{a.used >= 4 ? '已用 4 次 · 建议补拍' : `已用 ${a.used} 次`} · {a.source}{a.size ? ` · ${(a.size / 1024 / 1024).toFixed(1)}MB` : ''}</p></div>
+        <div className="b"><p className="s">{a.name}</p>{a.note && <p className="xs m3 anote">{a.note}{a.noteSrc === 'ai' ? ' · AI 看过' : a.noteSrc === 'name' ? ' · 按文件名' : ''}</p>}<p className="xs" style={{ color: a.used >= 4 ? 'var(--warn)' : 'var(--tx3)' }}>{a.used >= 4 ? '已用 4 次 · 建议补拍' : `已用 ${a.used} 次`} · {a.source}{a.dur ? ` · ${a.dur} 秒` : ''}{a.size ? ` · ${(a.size / 1024 / 1024).toFixed(1)}MB` : ''}</p></div>
       </button>))}</div>}
     {sel.length > 0 && <div className="selbar" id="aSel">
       <span>已选 <b>{sel.length}</b> 份</span><span className="sp" />

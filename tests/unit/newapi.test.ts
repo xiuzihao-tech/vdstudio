@@ -100,7 +100,7 @@ test('土豆视频：一镜失败（重试一次仍失败）不拖累其他镜�
 test('供应方选择：配了 VIDEO_* 走土豆，档位映射可在运行时改', () => {
   let saved: string | undefined;
   const a = loadProviders({ VIDEO_BASE_URL: base, VIDEO_API_KEY: 'k', LLM_BASE_URL: base, LLM_API_KEY: 'k', LLM_MODEL: 'gpt-5.6-terra' }, { get: k => (k === 'video_models' ? saved : k === 'llm_model' ? 'deepseek-v4' : undefined) });
-  assert.deepEqual(a.info, { copy: 'llm', video: 'newapi' });
+  assert.deepEqual(a.info, { copy: 'llm', video: 'newapi', tts: 'none', vision: 'none' });
   assert.equal(a.status().copy.model, 'deepseek-v4', '后台选的模型优先于 .env');
   assert.equal(a.status().video.models!.s25, 'seedance-2.5');
   saved = JSON.stringify({ s25: 'seedance-2.5-c' });
@@ -134,6 +134,7 @@ test('后台 AI 服务：拉模型列表、切换文案模型、连通测试', a
     const sess = (await call('GET', '/api/session')).json;
     assert.equal(sess.ai.video, 'newapi');
     assert.equal(sess.ai.firstFrame, false, '本机没有公网地址、土豆又不收 base64：首帧用不了');
+    await call('POST', '/api/assets/samples');
     const as = (await call('GET', '/api/assets')).json.assets.filter((a: any) => a.type !== '人物').slice(0, 1).map((a: any) => a.id);
     const chk = await call('POST', '/api/gen/check', { ...g, ratio: '3:4', res: '720p', assetIds: as });
     const codes = chk.json.issues.map((i: any) => i.code);

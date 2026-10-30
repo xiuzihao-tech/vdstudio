@@ -63,6 +63,15 @@ const MIGRATIONS: string[] = [
    CREATE TABLE copy_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ws TEXT NOT NULL, kinds TEXT NOT NULL, created_at TEXT NOT NULL);
    ALTER TABLE assets ADD COLUMN note TEXT;
    UPDATE plans SET auto='copy' WHERE auto='sample';`,
+  // 6：10/29 修复：素材时长与宽高、说明来源（看图模型 / 文件名 / 示例）、推荐片段；清掉以前按场景随便配的说明；修好显示成乱码的「上传」
+  `ALTER TABLE assets ADD COLUMN dur REAL;
+   ALTER TABLE assets ADD COLUMN width INTEGER;
+   ALTER TABLE assets ADD COLUMN height INTEGER;
+   ALTER TABLE assets ADD COLUMN note_src TEXT;
+   ALTER TABLE assets ADD COLUMN best TEXT;
+   UPDATE assets SET note = NULL WHERE file IS NOT NULL;
+   UPDATE assets SET source = '上传' WHERE source LIKE '!%E4%' ESCAPE '!';
+   UPDATE assets SET source = '示例', note_src = 'sample' WHERE file IS NULL AND source = '项目上传';`,
 ];
 
 export type DB = DatabaseSync;

@@ -117,7 +117,7 @@ function Create({ kind }: { kind: 'clone' | 'photo' }) {
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const isClone = kind === 'clone';
-  const name = session!.user?.name ?? session!.workspace.positioning.name;
+  const name = session!.user?.name || session!.workspace.positioning.name || '（你的名字）';
   const go = async (demo: boolean) => {
     setBusy(true);
     try { await api.createAvatar(kind, demo ? null : file); await reloadSession(); sheet(null); toast('提交了，审核好了就能出镜'); setTimeout(() => void reloadSession(), 3500); }

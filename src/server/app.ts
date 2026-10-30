@@ -1,6 +1,7 @@
 // 应用：组装数据库、供应方、路由，处理静态文件。createApp 便于测试时用内存库启动。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { openDb, newId } from './db.ts';
@@ -13,9 +14,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { makeRepo } from './repo.ts';
 import { loadProviders } from './providers/index.ts';
 import { HttpError, Router, body, parseCookies, readBuffer, send, sendError, type Req } from './http.ts';
-import { JobRunner, opsTick, withProgress, writeCopy, runDiagnosis, saveAnswer, footageCopy, describeAsset, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule } from './services.ts';
+import { JobRunner, opsTick, withProgress, writeCopy, runDiagnosis, saveAnswer, footageCopy, describeAsset, catIndex, personaOf, published, replaceWithNext, scheduleIndex, scheduleView, seedWorkspace, setDay, todayIso, ensureSchedule, syncPlans, applyReport, seedColumnTopics, addSampleAssets, probeAsset, lookAtAsset, nextColumn } from './services.ts';
 import { PERSONAS, MODELS, CADENCE, TUDOU_CAPS, withCaps } from '../shared/catalog.ts';
-import { checkCopy, findBanned } from '../shared/copy.ts';
+import { checkCopy, findBanned, smartTitle } from '../shared/copy.ts';
 import { genCost, genIssues, setVideoModels, shotsOf, videoModels } from '../shared/gen.ts';
 import { voiceSecs } from '../shared/video.ts';
 import { DIAG_PRICE, DIAG_QUESTIONS } from '../shared/kb.ts';
@@ -39,7 +40,7 @@ export function createApp(opts: AppOptions) {
   const { providers, info: providerInfo } = ai;
   // 视频档位按实际接入的服务显示能力（土豆：Seedance 系列最高 720p 等）；没接真实服务时用通用目录
   setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
-  console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}`);
+  console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}，配音 ${providerInfo.tts}，看素材 ${providerInfo.vision}`);
   /** 素材图能不能当首帧发给视频服务：有对象存储签名链接、有公网地址，或视频服务接受 base64 */
   const firstFrameOk = () => !!storage.directUrl || !!o.publicBaseUrl || !!providers.video.inlineImages;
   /** 签名文件链接：给视频服务取首帧用，默认 2 小时有效 */
@@ -54,7 +55,7 @@ export function createApp(opts: AppOptions) {
   const filesDir = join(o.dataDir, 'files');
   const storage = makeStorage(o.env ?? process.env, filesDir);
   console.log(`文件存储：${storage.kind === 's3' ? `对象存储 ${(o.env ?? process.env).S3_BUCKET}` : filesDir}`);
-  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, async a => {
+  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, musicDir: (o.env ?? process.env).MUSIC_DIR || join(o.dataDir, 'music'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, async a => {
     if (!a.url || !a.mime?.startsWith('image/')) return null;
     const key = a.url.slice(7);
     // 有公网地址：给签名链接（对象存储直接给它的签名链接）；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务
@@ -117,7 +118,7 @@ export function createApp(opts: AppOptions) {
     repo.setCurrentWs(owner, ws.id);
     return session(ws, req);
   });
-  r.put('/api/workspace/positioning', async req => { const p = await body(req, S.positioningSchema); repo.setPositioning(W(req).id, p); return session(W(req), req); });
+  r.put('/api/workspace/positioning', async req => { const p = await body(req, S.positioningSchema); repo.setPositioning(W(req).id, p); syncPlans(repo, W(req), p); return session(W(req), req); });
   r.put('/api/workspace/theme', async req => { const { theme } = await body(req, z.object({ theme: z.enum(['studio', 'cinema', 'glass', 'poster']) })); repo.setTheme(W(req).id, theme); return { ok: true }; });
 
   /* ---------- 账号 ---------- */
@@ -241,25 +242,29 @@ export function createApp(opts: AppOptions) {
     if (!d.report) throw new HttpError(404, '还没有报告');
     const p = await body(req, z.object({ tags: z.object({ personality: z.array(z.string().max(20)).max(6), pro: z.array(z.string().max(20)).max(6), brand: z.array(z.string().max(20)).max(6) }).optional(),
       columns: z.array(z.object({ name: z.string().max(20), kind: z.enum(['流量', '转化', '人设']), type: z.string().max(10), perWeek: z.number().int().min(1).max(7), why: z.string().max(80) })).max(6).optional() }));
-    const report = { ...d.report, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)) };
+    const report = { ...d.report, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)) } as typeof d.report;
     repo.saveDiagnosis(ws.id, { ...d, report });
-    if (p.columns) { const w = [0.8, 0.6, 0.45, 0.3, 0.2]; for (const plan of repo.plans(ws.id)) repo.savePlan(ws.id, { ...plan, mix: p.columns.slice(0, 5).map((c, i) => ({ n: c.name, v: w[i] })) }); }
+    // 改了标签、栏目：写回人设档案，排期按新栏目重排；新加的栏目补几个选题
+    applyReport(repo, ws, report);
+    if (p.columns) { const old = new Set(d.report.columns.map(c => c.name)); await seedColumnTopics(repo, providers, repo.ws(ws.id)!, report.columns.filter(c => !old.has(c.name))); }
     return { diagnosis: repo.diagnosis(ws.id) };
   });
 
   /* ---------- 写文案（知识库 → 文案） ---------- */
   r.post('/api/copy/write', async req => {
     const ws = W(req), d = await body(req, z.object({ idea: z.string().max(200).default(''), topicId: z.string().optional(), len: z.union([z.literal(30), z.literal(45), z.literal(60), z.literal(90)]).default(45), kb: z.boolean().default(true), column: z.string().max(20).optional() }));
-    const t = d.topicId ? topicOr404(ws, d.topicId) : repo.insertTopic(ws.id, { cat: catIndex(ws.persona), title: (d.idea || personaOf(ws.persona).focus).slice(0, 60), hook: '', why: '自己的想法', dir: '项目案例', type: 0, heat: 1, k: personaOf(ws.persona).att[0], ageMonths: 0, source: 'ai' });
-    const out = await writeCopy(repo, providers, ws, t, { len: d.len, kb: d.kb, column: d.column });
+    // 没写想法：按面诊栏目轮到的那个写；还没面诊就按人设档案的定位写（不再用行业模板里的示例项目）
+    const col = d.column ?? (d.idea ? undefined : nextColumn(repo, ws)?.name);
+    const t = d.topicId ? topicOr404(ws, d.topicId) : repo.insertTopic(ws.id, { cat: catIndex(ws.persona), title: (d.idea || col || ws.positioning.line || '这周想讲的一件事').slice(0, 60), hook: '', why: d.idea ? '自己的想法' : col ? `栏目「${col}」` : '人设档案', dir: col ?? '项目案例', type: 0, heat: 1, k: personaOf(ws.persona).att[0], ageMonths: 0, source: 'ai' });
+    const out = await writeCopy(repo, providers, ws, t, { len: d.len, kb: d.kb, column: col });
     ops.track(ctx(req).owner, ws.id, 'copy_written', { kb: d.kb, used: out.used.length });
     return { draft: out.draft, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })), cliches: out.cliches };
   });
   r.post('/api/gen/footage', async req => {
     const ws = W(req), d = await body(req, z.object({ assetIds: z.array(z.string()).min(1).max(20), idea: z.string().max(200).default('') }));
-    const out = await footageCopy(repo, providers, ws, d.assetIds, d.idea);
+    const out = await footageCopy(repo, providers, ws, d.assetIds, d.idea, a => (a.url ? storage.get(a.url.slice(7).split('?')[0]).catch(() => null) : Promise.resolve(null)));
     ops.track(ctx(req).owner, ws.id, 'footage_copy', { clips: d.assetIds.length });
-    return { lines: out.lines, assets: out.assets, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })) };
+    return { title: out.title, lines: out.lines, assets: out.assets, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })) };
   });
 
   /* ---------- 数字人形象 ---------- */
@@ -299,8 +304,9 @@ export function createApp(opts: AppOptions) {
   });
 
   /* ---------- 素材 ---------- */
-  // 素材都带一句「拍了什么」（AI 看懂后的说明；接上看视频的模型前按场景和文件名给）
-  r.get('/api/assets', req => ({ assets: repo.assets(W(req).id).map(a => ({ ...a, note: a.note || describeAsset(a) })) }));
+  // 素材都带一句「拍了什么」：看图模型看过的用模型的；没接看图模型时只按文件名和时长写，不编画面内容
+  r.get('/api/assets', req => ({ assets: repo.assets(W(req).id).map(a => ({ ...a, note: describeAsset(a), noteSrc: a.noteSrc ?? (a.source === '示例' ? 'sample' : 'name') })) }));
+  r.post('/api/assets/samples', req => { const ws = W(req); const n = addSampleAssets(repo, ws); ops.track(ctx(req).owner, ws.id, 'samples_added'); return { added: n }; });
   r.post('/api/assets', async req => {
     const ws = W(req), mime = String(req.raw.headers['content-type'] ?? 'application/octet-stream');
     if (!/^(image|video|audio)\//.test(mime)) throw new HttpError(415, '只支持图片、视频、音频');
@@ -309,11 +315,16 @@ export function createApp(opts: AppOptions) {
     const ext = (extname(name) || '.' + (mime.split('/')[1] ?? 'bin')).toLowerCase().replace(/[^.a-z0-9]/g, '');
     const file = `${ws.id}/${newId('f')}${ext}`;
     await storage.put(file, buf, mime);
-    const keys = ['entry', 'live', 'kit', 'bed', 'stone', 'site', 'soft', 'store', 'hotel', 'new'];
     ops.track(ctx(req).owner, ws.id, 'asset_uploaded', { mime, size: buf.length });
-    const a = repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: keys[repo.assets(ws.id).length % keys.length], file, mime, size: buf.length, source: String(req.raw.headers['x-source'] ?? '上传').slice(0, 20) });
-    repo.setAssetNote(ws.id, a.id, describeAsset(a));
-    return { ...a, note: describeAsset(a) };
+    // 来源前端是编码过的（中文放不进请求头），这里解码（以前没解，素材库里显示成 %E4%B8%8A…）
+    const source = (() => { try { return decodeURIComponent(String(req.raw.headers['x-source'] ?? '上传')); } catch { return '上传'; } })().slice(0, 20) || '上传';
+    let a = repo.insertAsset(ws.id, { type: ASSET_TYPE(mime), name, k: ASSET_TYPE(mime) === '视频' ? 'site' : 'live', file, mime, size: buf.length, source });
+    // 读时长和宽高；说明先按文件名写，接了看图模型就在后台看一遍再更新
+    const tmpFile = join(tmpdir(), `findai-up-${a.id}${ext}`);
+    try { writeFileSync(tmpFile, buf); a = probeAsset(repo, ws.id, a, tmpFile); } catch { /* 读不了就算了 */ } finally { rmSync(tmpFile, { force: true }); }
+    repo.setAssetNote(ws.id, a.id, describeAsset(a), 'name');
+    if (providers.vision) void lookAtAsset(repo, providers, ws.id, a, buf);
+    return { ...a, note: describeAsset(a), noteSrc: 'name' };
   });
   r.delete('/api/assets/:id', async req => {
     const ws = W(req), a = repo.assetsByIds(ws.id, [req.params.id])[0];
@@ -326,7 +337,7 @@ export function createApp(opts: AppOptions) {
   r.post('/api/gen/check', async req => {
     const ws = W(req), g = await body(req, S.genSettingsSchema);
     const assets = repo.assetsByIds(ws.id, g.assetIds);
-    return { issues: genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }), shots: shotsOf(g, assets, personaOf(ws.persona).att), cost: genCost(g), finalCost: genCost(g, true) };
+    return { issues: genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }), shots: shotsOf(g, assets, personaOf(ws.persona).att), cost: genCost(g, false, { voice: !!providers.tts }), finalCost: genCost(g, true, { voice: !!providers.tts }) };
   });
   /** 试听 / 定时长：按句配音，返回每句时长。接上配音服务前按字数估（前端用浏览器朗读试听） */
   r.post('/api/gen/voice', async req => {
@@ -341,7 +352,7 @@ export function createApp(opts: AppOptions) {
     if (o.dailyBudget && ops.spentToday() >= o.dailyBudget) throw new HttpError(503, '今天的试用额度已经用完，明天再来');
     const blocking = genIssues(d.settings, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }).filter(i => i.blocking);
     if (blocking.length) throw new HttpError(422, blocking.map(i => i.text).join('；'));
-    const title = d.title || d.settings.title || d.settings.copy.split('\n')[0]?.slice(0, 20) || '未命名';
+    const title = d.title || d.settings.title || smartTitle(d.settings.copy) || '未命名';
     const out = runner.startVideo(ws, d.settings, d.final, title);
     if (!out.ok) throw new HttpError(402, out.error);
     ops.track(owner, ws.id, d.final ? 'final_started' : 'gen_started', { model: d.settings.model, len: d.settings.len, cost: out.job.cost });

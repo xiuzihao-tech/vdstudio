@@ -53,7 +53,11 @@ export interface CopyDraft {
 export type AssetType = '照片' | '视频' | '人物' | '音频';
 export interface Asset {
   id: string; type: AssetType; name: string; k: SceneKey;
-  url: string | null; /** AI 看懂后的说明：拍了什么 */ note?: string | null; mime: string | null; size: number; used: number; source: string; createdAt: string;
+  url: string | null; /** 一句「拍了什么」 */ note?: string | null;
+  /** 说明从哪来：ai = 看图模型看过；name = 只按文件名（没接看图模型）；sample = 示例素材 */ noteSrc?: 'ai' | 'name' | 'sample' | null;
+  /** 视频时长（秒）、宽高：上传时读出来 */ dur?: number | null; width?: number | null; height?: number | null;
+  /** 看图模型推荐的最好那一段（秒） */ best?: [number, number] | null;
+  mime: string | null; size: number; used: number; source: string; createdAt: string;
 }
 
 /* ---------- 生成 ---------- */
@@ -84,6 +88,8 @@ export interface PlannedShot {
   /** 中转站原始链接（会过期，仅留档） */ sourceUrl?: string;
   /** 第 3 步的逐镜参数（新链路才有） */
   source?: ShotSource; assetId?: string | null; prompt?: string; size?: string; move?: string; model?: string; trans?: string;
+  /** 素材原片从第几秒开始用 */ start?: number;
+  /** 这一镜配音文件（本站地址） */ voiceUrl?: string | null;
   /** 这一镜沿用上一版、不重新生成 */ reused?: boolean;
   /** 这一镜生成失败（其余镜照常出片，这一镜的点数已退） */ failed?: string;
 }
@@ -100,7 +106,7 @@ export interface Job {
 }
 /** 生成任务在视频服务那边的记录：每镜的任务 ID（没提交为 null）和当时的分镜，重启后靠它接着查 */
 export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; final: boolean }
-export interface VideoOutput { /** 有镜头失败、其余照常出片 */ partial?: boolean; type?: string; draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
+export interface VideoOutput { /** 配音、音乐没进成片的原因（没接配音服务、曲库里没有这首） */ audioNote?: string; /** 有镜头失败、其余照常出片 */ partial?: boolean; type?: string; draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */
 /** 托管程度：plan 只排计划；copy 自动写文案（10/27 会后取消了自动出样片） */

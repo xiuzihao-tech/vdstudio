@@ -46,15 +46,17 @@ export function shotsOf(g: GenSettings, assets: { id: string; k: SceneKey }[], f
   return g.shots.map((s, i) => ({
     dur: s.dur, line: s.line, k: kOf(s.assetId) ?? fallbackKeys[i % Math.max(1, fallbackKeys.length)] ?? 'live',
     generated: s.source === 'ai' || s.source === 'avatar', source: s.source, assetId: s.assetId, prompt: s.prompt, size: s.size, move: s.move, model: s.model || undefined, trans: s.trans,
+    ...(s.source === 'clip' && s.start ? { start: s.start } : {}),
     ...(g.reuse?.[i] ? { videoUrl: g.reuse[i], reused: true } : {}),
   }));
 }
 
 /** 封面：接上图像模型之前不收费也不出（以前勾了会白扣 4 点） */
 export const COVER_COST = 0;
-export function genCost(g: Pick<GenSettings, 'model' | 'len' | 'draft' | 'cover'> & Partial<Pick<GenSettings, 'shots' | 'type' | 'voice' | 'reuse' | 'remix'>>, final = false): number {
+/** o.voice=false：没接配音服务，成片不带配音，不收配音费 */
+export function genCost(g: Pick<GenSettings, 'model' | 'len' | 'draft' | 'cover'> & Partial<Pick<GenSettings, 'shots' | 'type' | 'voice' | 'reuse' | 'remix'>>, final = false, o: { voice?: boolean } = {}): number {
   if (g.shots?.length) {
-    return costTotal(costLines(g.shots, { model: modelOf, base: g.model, draft: !final && g.draft, type: typeOf(g.type).id, voice: g.voice !== 'none' && g.remix !== 'music', reuse: g.reuse?.map(Boolean) }));
+    return costTotal(costLines(g.shots, { model: modelOf, base: g.model, draft: !final && g.draft, type: typeOf(g.type).id, voice: (o.voice ?? true) && g.voice !== 'none' && g.remix !== 'music', reuse: g.reuse?.map(Boolean) }));
   }
   const m = modelOf(g.model);
   const price = !final && g.draft && m.draft ? m.pd : m.pf;
@@ -95,7 +97,9 @@ export function genIssues(g: GenSettings, voiceClone: VoiceCloneState, env: { fi
     if (st === 'busy') out.push({ code: 'avatar_busy', blocking: true, text: `你的${name}还在审核，好了就能出镜`, fixes: [{ id: 'avatar:none', label: '这次不出镜' }] });
     else if (st !== 'ready') out.push({ code: 'avatar_missing', blocking: true, text: `还没有${name}，出镜的镜头没法生成`, fixes: [{ id: 'goto:me', label: '去建形象' }, { id: 'avatar:none', label: '这次不出镜' }] });
   }
-  if (!g.assetIds.length) out.push({ code: 'no_assets', blocking: false, text: '没放素材，画面会全部由 AI 生成', fixes: [{ id: 'pick:assets', label: '从素材库导入' }] });
+  if (!g.assetIds.length) out.push(g.type === 'real'
+    ? { code: 'no_assets', blocking: true, text: '实拍出片要先放几段你拍的视频或照片', fixes: [{ id: 'pick:assets', label: '放素材' }] }
+    : { code: 'no_assets', blocking: false, text: '没放素材，画面会全部由 AI 生成', fixes: [{ id: 'pick:assets', label: '从素材库导入' }] });
   return out;
 }
 

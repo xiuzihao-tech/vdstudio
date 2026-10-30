@@ -899,9 +899,6 @@ body[data-theme=poster] .btn.cta{box-shadow:6px 6px 0 #000;border:2px solid #000
 .tcards .tno{font-size:12px;font-weight:700;color:var(--tx3);font-variant-numeric:tabular-nums}
 .tcards b{font-size:19px;letter-spacing:-.02em}
 .tcards .tmeta{margin-top:auto;color:var(--tx2)}
-.tcards button.hot{background:#141414;color:#F5F5F7;border-color:#141414}
-.tcards button.hot .s,.tcards button.hot .tmeta{color:#D8D8DD} .tcards button.hot .m3,.tcards button.hot .tno{color:#A1A1A6}
-.tcards button.hot[aria-pressed="true"]{box-shadow:0 0 0 3px var(--ac),0 22px 44px -18px rgba(0,0,0,.45)}
 .subpick{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-top:16px}
 .shotlist{min-width:240px;padding:14px 18px;border-radius:var(--r1);background:var(--pn2)}
 .shotlist ol{margin:6px 0 0 18px;padding:0;display:grid;gap:4px;font-size:14px}
@@ -967,3 +964,38 @@ body[data-theme=poster] .btn.cta{box-shadow:6px 6px 0 #000;border:2px solid #000
 .bub.ai .hint{text-align:left}
 .bub.me{margin-top:0}
 .bub.ai{align-self:flex-start}
+
+/* ===== 10/29 第 3 轮：选中状态统一、实拍上传区、实拍镜头 ===== */
+/* 选中 = 黑底白字（全站一种）；「推荐」只用小标签 */
+.tcards button[aria-pressed="true"]{background:#141414;color:#F5F5F7;border-color:#141414;box-shadow:0 0 0 3px var(--ac),0 22px 44px -18px rgba(0,0,0,.4)}
+.tcards button[aria-pressed="true"] .s,.tcards button[aria-pressed="true"] .tmeta{color:#D8D8DD}
+.tcards button[aria-pressed="true"] .m3{color:#A1A1A6}
+.tcards button[aria-pressed="true"] .tno{color:var(--ac)}
+body[data-theme=cinema] .tcards button[aria-pressed="true"]{background:var(--ac);color:var(--actx);border-color:var(--ac)}
+.hero.slim{padding-top:24px}
+.hero.slim .steps{margin-top:0}
+/* 实拍出片第 2 步：上传区 + 拍摄清单格子 */
+.realdrop{margin-top:24px;padding:22px;border:2px dashed color-mix(in srgb,var(--tx) 22%,transparent);background:var(--pn)}
+.realdrop .btn.y{height:48px;padding:0 22px;font-size:16px}
+.slots{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.slots li{display:flex;gap:12px;align-items:center;padding:10px;border-radius:var(--r1);background:var(--pn2);border:1px solid transparent}
+.slots li.on{background:var(--pn);border-color:var(--ln)}
+.slth{position:relative;flex:none;width:56px;height:72px;border-radius:10px;overflow:hidden;background:color-mix(in srgb,var(--tx) 6%,transparent);display:grid;place-items:center}
+.slth .num{font-size:20px;font-weight:700;color:var(--tx3)}
+.slb{flex:1;min-width:0}
+.slb .s{font-size:14.5px;line-height:1.4}
+.ellip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#gCopy.short{min-height:84px}
+/* 实拍镜头：素材说明 + 起点 */
+.cliptxt{margin:6px 2px 0}
+.clipctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.clipctl label{display:inline-flex;align-items:center;gap:6px}
+@media (max-width:860px){
+  .realdrop{padding:16px}
+  .realdrop .row .btn{flex:1}
+  .slots{grid-template-columns:1fr}
+}
+.realdrop.over{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--pn))}
+.slth .ph{position:absolute;inset:0;aspect-ratio:auto;height:100%}
+.slth .ph::after{display:none}
+.slth .ph .src{display:none}
