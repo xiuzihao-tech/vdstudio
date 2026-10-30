@@ -12,6 +12,16 @@ export const charCount = (s: string) => String(s || '').replace(/\s/g, '').lengt
 export const copyLines = (c: Pick<CopyDraft, 'hook' | 'body' | 'cta'>) => [c.hook, ...c.body, c.cta].map(s => s.trim()).filter(Boolean);
 export const copyText = (c: Pick<CopyDraft, 'hook' | 'body' | 'cta'>) => copyLines(c).join('\n');
 
+/** 从文案取一个标题：第一句；太长就在逗号处断，断不开才截断加省略号（以前固定截 20 个字，常常是半句话） */
+export function smartTitle(copy: string, max = 22): string {
+  const first = String(copy || '').split(/\n+/).map(x => x.trim()).find(Boolean) ?? '';
+  const sent = first.split(/[。！？!?]/)[0].trim();
+  if ([...sent].length <= max) return sent;
+  let out = '';
+  for (const part of sent.split(/[，,；;]/)) { if ([...(out ? `${out}，${part}` : part)].length > max) break; out = out ? `${out}，${part}` : part; }
+  return out && [...out].length >= 6 ? out : `${[...sent].slice(0, max - 1).join('')}…`;
+}
+
 /** 不算违规的上下文：“第一段/第一次”是序数，“唯一的缺点”之类不是绝对化宣传 */
 const NOT_AD: Record<string, RegExp> = {
   '第一': /第一(?=[段步次个天条处句眼时期遍层道件章节集位])/g,

@@ -5,6 +5,7 @@
 // 各家网关返回字段略有出入，这里对任务 ID、状态、视频地址做兼容解析。
 // 环境变量：VIDEO_BASE_URL、VIDEO_API_KEY；档位到模型名的映射可在后台「AI 服务」里改。
 import { draftResOf, isDraft, modelOf } from '../../shared/gen.ts';
+import { shotPrompt } from '../../shared/video.ts';
 import { frameSize } from '../compose.ts';
 import type { VideoProvider } from './types.ts';
 
@@ -99,47 +100,69 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
     resumable: true,
     inlineImages: false, // 土豆文档：图片必须是公网 URL，不接受本地路径或 base64
     async run({ settings: g, shots, frames, final, known, onTask }, onStep) {
-      const m = modelOf(g.model), map = models(), draft = !final && isDraft(g);
-      const model = (draft && map.draft) || map[g.model];
-      if (!model) throw new Error(`没有为「${m.n}」配置视频模型，请在后台「AI 服务」里设置`);
+      const map = models(), draft = !final && isDraft(g);
+      // 每镜可以单独换模型；样片模式统一用最便宜的样片模型
+      const modelFor = (id: string) => (draft && map.draft) || map[id];
+      if (!modelFor(g.model)) throw new Error(`没有为「${modelOf(g.model).n}」配置视频模型，请在后台「AI 服务」里设置`);
+      for (const s of shots) if (!s.reused && s.source !== 'clip' && !modelFor(s.model || g.model)) throw new Error(`没有为「${modelOf(s.model || g.model).n}」配置视频模型，请在后台「AI 服务」里设置`);
       const resolution = draft ? draftResOf(g.model) : g.res === '4K' ? '1080p' : g.res;
       const [width, height] = frameSize(g.ratio, resolution);
       onStep(1);
-      const urls: (string | null)[] = shots.map(() => null);
+      const urls: (string | null)[] = shots.map(s => (s.reused ? s.videoUrl ?? null : null));
+      const errors: (string | null)[] = shots.map(() => null);
+      const todo = shots.map((s, i) => i).filter(i => !shots[i].reused && shots[i].source !== 'clip');
       let done = 0;
       const deadline = Date.now() + (cfg.timeoutMs ?? 20 * 60e3);
-      const one = async (i: number) => {
-        const s = shots[i];
-        const prompt = [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
+      const submit = (i: number) => {
+        const s = shots[i], m = modelOf(s.model || g.model);
+        // 新链路：画面描述 + 景别运镜 + 台词；旧链路只有台词
+        const prompt = s.prompt !== undefined ? shotPrompt({ prompt: s.prompt, size: s.size ?? '中景', move: s.move ?? '固定', line: s.line, source: s.source ?? 'ai' }, g)
+          : [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
         const duration = Math.min(m.max, Math.max(m.min, Math.round(s.dur)));
-        const id = known?.[i] || await create({
-          model, prompt, duration, seconds: String(duration), width, height, size: `${width}x${height}`,
-          resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false,
+        // 环境声：插入画面按用户设置，数字人出镜的镜头不要（之后要对口型）
+        const audio = !!g.ambience && s.source !== 'avatar';
+        return create({
+          model: modelFor(s.model || g.model), prompt, duration, seconds: String(duration), width, height, size: `${width}x${height}`,
+          resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: audio, watermark: false,
           ...(frames[i] ? { input_reference: frames[i], images: [frames[i]], image: frames[i] } : {}),
           // 土豆文档建议比例、清晰度也放进 extra；其他 new-api 网关读 metadata
           extra: { aspect_ratio: g.ratio, resolution, ...(frames[i] ? { images: [frames[i]] } : {}) },
-          metadata: { resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: false, watermark: false },
+          metadata: { resolution, ratio: g.ratio, aspect_ratio: g.ratio, generate_audio: audio, watermark: false },
         });
-        if (!known?.[i]) onTask?.(i, id);
-        for (;;) {
-          if (Date.now() > deadline) throw new Error('视频生成超时');
-          await sleep(cfg.pollMs ?? 8000);
-          const t = await get(id);
-          const st = pickStatus(t);
-          if (DONE.includes(st)) {
-            const url = pickVideoUrl(t);
-            if (!url) throw new Error(`第 ${i + 1} 镜完成了，但没拿到视频地址`);
-            urls[i] = url; break;
+      };
+      const one = async (i: number) => {
+        let id = known?.[i] || null;
+        // 失败自动重试 1 次（重新提交），再失败就记下原因，不拖累其他镜
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            if (!id) { id = await submit(i); onTask?.(i, id); }
+            for (;;) {
+              if (Date.now() > deadline) throw new Error('视频生成超时');
+              await sleep(cfg.pollMs ?? 8000);
+              const t = await get(id);
+              const st = pickStatus(t);
+              if (DONE.includes(st)) {
+                const url = pickVideoUrl(t);
+                if (!url) throw new Error('完成了，但没拿到视频地址');
+                urls[i] = url; break;
+              }
+              if (FAIL.includes(st)) throw new Error(`生成失败${errText(t) ? `：${errText(t)}` : ''}`);
+            }
+            errors[i] = null; break;
+          } catch (e) {
+            errors[i] = String((e as Error).message ?? e);
+            id = null;
+            if (attempt === 0) console.warn(`第 ${i + 1} 镜失败，重试一次：${errors[i]}`);
           }
-          if (FAIL.includes(st)) throw new Error(`第 ${i + 1} 镜生成失败${errText(t) ? `：${errText(t)}` : ''}`);
         }
         done++;
-        onStep(done === shots.length ? 4 : done * 2 >= shots.length ? 3 : 2);
+        onStep(done === todo.length ? 4 : done * 2 >= todo.length ? 3 : 2);
       };
-      const queue = shots.map((_, i) => i);
-      await Promise.all(Array.from({ length: Math.min(cfg.concurrency ?? 2, shots.length) }, async () => { while (queue.length) await one(queue.shift()!); }));
+      const queue = [...todo];
+      await Promise.all(Array.from({ length: Math.min(cfg.concurrency ?? 2, Math.max(1, todo.length)) }, async () => { while (queue.length) await one(queue.shift()!); }));
+      if (todo.length && todo.every(i => errors[i])) throw new Error(todo.length === 1 ? `第 ${todo[0] + 1} 镜${errors[todo[0]]}` : `所有镜头都没生成成功：第 ${todo[0] + 1} 镜${errors[todo[0]]}`);
       onStep(5);
-      return { shotVideos: urls };
+      return { shotVideos: urls, errors };
     },
   };
 }

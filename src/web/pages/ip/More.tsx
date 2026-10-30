@@ -102,7 +102,7 @@ function CloneBody() {
   const [demo, setDemo] = useState(false);
   const [ok, setOk] = useState(false);
   const mr = useRef<MediaRecorder | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval>>();
+  const timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   useEffect(() => () => { clearInterval(timer.current); mr.current?.stream.getTracks().forEach(t => t.stop()); }, []);
   const start = async () => {
     setBlob(null); setSec(0);

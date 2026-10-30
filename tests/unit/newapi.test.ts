@@ -80,16 +80,27 @@ test('土豆视频：按档位选模型、带首帧（按土豆文档的字段�
   assert.equal(steps.at(-1), 5);
 });
 
-test('土豆视频：失败说明是哪一镜；没配模型给出可操作的提示', async () => {
+test('土豆视频：一镜失败（重试一次仍失败）不拖累其他镜，并说明原因；全失败才报错；没配模型给出可操作的提示', async () => {
   const v = makeNewApiVideo({ baseUrl: base, apiKey: 'k', models: { s25: 'seedance-2.5' }, pollMs: 5, concurrency: 1 });
-  await assert.rejects(v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true }, { dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {}), /第 2 镜生成失败：内容审核未通过/);
+  const before = reqs.filter(r => r.method === 'POST').length;
+  const r = await v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true }, { dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {});
+  assert.ok(r && r.shotVideos?.[0]?.startsWith('https://'));
+  assert.equal(r!.shotVideos?.[1], null);
+  assert.match(r!.errors![1]!, /生成失败：内容审核未通过/);
+  assert.equal(reqs.filter(q => q.method === 'POST').length - before, 3, '坏镜头自动重交了一次');
+  await assert.rejects(v.run({ settings: g, final: true, frames: [null], shots: [{ dur: 5, line: '坏镜头', k: 'b', generated: true }] }, () => {}), /第 1 镜生成失败：内容审核未通过/);
+  // 沿用上一版的镜头不重新提交
+  const before2 = reqs.filter(q => q.method === 'POST').length;
+  const r2 = await v.run({ settings: g, final: true, frames: [null, null], shots: [{ dur: 5, line: '好', k: 'a', generated: true, reused: true, videoUrl: '/files/x.mp4' }, { dur: 5, line: '新', k: 'b', generated: true }] }, () => {});
+  assert.equal(reqs.filter(q => q.method === 'POST').length - before2, 1);
+  assert.equal(r2!.shotVideos![0], '/files/x.mp4');
   await assert.rejects(makeNewApiVideo({ baseUrl: base, apiKey: 'k', models: {}, pollMs: 5 }).run({ settings: { ...g, model: 'wan' }, final: true, frames: [], shots: [] }, () => {}), /AI 服务/);
 });
 
 test('供应方选择：配了 VIDEO_* 走土豆，档位映射可在运行时改', () => {
   let saved: string | undefined;
   const a = loadProviders({ VIDEO_BASE_URL: base, VIDEO_API_KEY: 'k', LLM_BASE_URL: base, LLM_API_KEY: 'k', LLM_MODEL: 'gpt-5.6-terra' }, { get: k => (k === 'video_models' ? saved : k === 'llm_model' ? 'deepseek-v4' : undefined) });
-  assert.deepEqual(a.info, { copy: 'llm', video: 'newapi' });
+  assert.deepEqual(a.info, { copy: 'llm', video: 'newapi', tts: 'none', vision: 'none' });
   assert.equal(a.status().copy.model, 'deepseek-v4', '后台选的模型优先于 .env');
   assert.equal(a.status().video.models!.s25, 'seedance-2.5');
   saved = JSON.stringify({ s25: 'seedance-2.5-c' });
@@ -123,6 +134,7 @@ test('后台 AI 服务：拉模型列表、切换文案模型、连通测试', a
     const sess = (await call('GET', '/api/session')).json;
     assert.equal(sess.ai.video, 'newapi');
     assert.equal(sess.ai.firstFrame, false, '本机没有公网地址、土豆又不收 base64：首帧用不了');
+    await call('POST', '/api/assets/samples');
     const as = (await call('GET', '/api/assets')).json.assets.filter((a: any) => a.type !== '人物').slice(0, 1).map((a: any) => a.id);
     const chk = await call('POST', '/api/gen/check', { ...g, ratio: '3:4', res: '720p', assetIds: as });
     const codes = chk.json.issues.map((i: any) => i.code);

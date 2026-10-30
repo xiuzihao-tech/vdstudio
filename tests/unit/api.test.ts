@@ -31,9 +31,16 @@ test('首次访问自动建工作区并带种子数据', async () => {
   assert.equal(s.json.workspace.persona, 'designer');
   assert.ok(cookie.startsWith('fid='));
   const t = await api('GET', '/api/topics/all');
-  assert.equal(t.json.topics.length, 29);
-  const a = await api('GET', '/api/assets');
-  assert.ok(a.json.assets.length >= 6);
+  assert.equal(t.json.topics.length, 26, '只有热门选题（示意），不再带演示项目的选题');
+  // 新账号不带演示素材、不带演示账号名；示例素材要用户自己点才加，并标着「示例」
+  assert.equal((await api('GET', '/api/assets')).json.assets.length, 0);
+  assert.equal(s.json.workspace.positioning.name, '');
+  const plans = (await api('GET', '/api/plans')).json.plans;
+  assert.deepEqual(plans.map((p: any) => p.plan.account), ['我的抖音', '我的小红书']);
+  assert.ok(plans.every((p: any) => p.slots.every((d: any) => d.empty || d.date >= s.json.today)), '不排过去的日子');
+  assert.equal((await api('POST', '/api/assets/samples')).json.added > 0, true);
+  const a = (await api('GET', '/api/assets')).json.assets;
+  assert.ok(a.length >= 3 && a.every((x: any) => x.source === '示例' && x.noteSrc === 'sample'));
 });
 
 test('选题组合筛选', async () => {

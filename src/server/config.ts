@@ -19,6 +19,8 @@ export interface Config {
   logRequests: boolean;
   /** 反向代理后面时信任 X-Forwarded-For 取真实 IP */
   trustProxy: boolean;
+  /** 模块开关的默认分期（后台没改过时用）：phase1 只开一期 / phase2 开一二期 / all 全部打开 */
+  modulesPreset: 'phase1' | 'phase2' | 'all';
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
@@ -37,6 +39,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     subtitleFont: env.SUBTITLE_FONT || undefined,
     rateLimit: num('RATE_LIMIT_PER_MIN', 120),
     corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
+    modulesPreset: (['phase1', 'phase2', 'all'] as const).find(v => v === env.MODULES_PRESET) ?? 'all',
     cookieSameSite: (['Lax', 'Strict', 'None'] as const).find(v => v.toLowerCase() === (env.COOKIE_SAMESITE ?? '').toLowerCase()) ?? 'Lax',
     logRequests: env.LOG_REQUESTS ? env.LOG_REQUESTS === '1' : env.NODE_ENV === 'production',
     trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === '1' : env.NODE_ENV === 'production',

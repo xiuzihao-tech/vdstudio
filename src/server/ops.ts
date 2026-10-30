@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 
 type Row = Record<string, any>;
 /** 前端允许上报的事件（其余在服务端关键动作里记） */
-export const CLIENT_EVENTS = ['page_view', 'copy_to_gen', 'copy_to_wb', 'video_played', 'download'] as const;
+export const CLIENT_EVENTS = ['module_open', 'page_view', 'copy_to_gen', 'copy_to_wb', 'video_played', 'download'] as const;
 
 /** 漏斗：每一步“至少做过一次”的账号数 */
 export const FUNNEL: [string, string[]][] = [
@@ -37,6 +37,14 @@ export function makeOps(db: DB) {
     },
     setFeedback(id: string, status: string) { return db.prepare('UPDATE feedback SET status=? WHERE id=?').run(status, id).changes > 0; },
 
+    /** 每个模块的打开次数（前端进入模块时记 module_open）和用完次数（对应的完成事件） */
+    moduleUsage(days = 30) {
+      const since = new Date(Date.now() - days * 86400e3).toISOString();
+      const opens = Object.fromEntries((db.prepare(`SELECT json_extract(props, '$.id') AS id, COUNT(*) AS n, COUNT(DISTINCT owner_id) AS u FROM events WHERE name='module_open' AND created_at >= ? GROUP BY id`).all(since) as Row[]).map(r => [r.id, { opens: Number(r.n), users: Number(r.u) }]));
+      const DONE: Record<string, string> = { unlock: 'diag_unlocked', diag: 'diag_report', report: 'diag_report', kb: 'kb_added', kbImport: 'kb_imported', diagLinks: 'diag_attached', copyKb: 'copy_written', real: 'gen_done', aiVideo: 'gen_done', works: 'download', review: 'slot_published', assets: 'asset_uploaded' };
+      const counts = Object.fromEntries((db.prepare(`SELECT name, COUNT(*) AS n FROM events WHERE created_at >= ? AND name IN (${Object.values(DONE).map(() => '?').join(',')}) GROUP BY name`).all(since, ...Object.values(DONE)) as Row[]).map(r => [r.name, Number(r.n)]));
+      return Object.fromEntries(Object.keys({ ...opens, ...DONE }).map(id => [id, { opens: opens[id]?.opens ?? 0, users: opens[id]?.users ?? 0, done: DONE[id] ? counts[DONE[id]] ?? 0 : null }]));
+    },
     getSetting: get,
     setSetting(k: string, v: string | null) {
       if (v === null) db.prepare('DELETE FROM settings WHERE k=?').run(k);

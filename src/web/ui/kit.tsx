@@ -12,7 +12,7 @@ export function Src({ k = '', children }: { k?: string; children?: ReactNode }) 
 /** 画面：有真实文件显示文件，否则用场景占位 */
 export function Ph({ k, tag, asset, className }: { k: string; tag?: string; asset?: Asset | null; className?: string }) {
   if (asset?.url && asset.mime?.startsWith('image/')) return <div className={`ph ${className ?? ''}`} data-k="img"><img src={fileUrl(asset.url)} alt={asset.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
-  if (asset?.url && asset.mime?.startsWith('video/')) return <div className={`ph ${className ?? ''}`} data-k="img"><video src={fileUrl(asset.url)} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
+  if (asset?.url && asset.mime?.startsWith('video/')) return <div className={`ph ${className ?? ''}`} data-k="img"><video src={`${fileUrl(asset.url)}#t=0.1`} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />{tag && <Src k={tag} />}</div>;
   return <div className={`ph ${className ?? ''}`} data-k={k}>{k === 'person' && <i />}{tag && <Src k={tag} />}</div>;
 }
 
@@ -98,11 +98,17 @@ export function Skel({ h = 18, w = '100%' }: { h?: number; w?: string | number }
 }
 
 /** 文件选择：返回一个打开系统选择框的函数 */
+/** 正在等用户选文件的输入框：留一个引用，免得对话框开着时被浏览器回收，选完文件却收不到 change 事件 */
+const pendingInputs = new Set<HTMLInputElement>();
+/** 选文件（点了上传、选了文件却没反应，多半是输入框被回收了，所以这里一直拿着它，选完或取消后再放开） */
 export function pickFiles(accept: string, multiple = true): Promise<File[]> {
   return new Promise(resolve => {
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = accept; inp.multiple = multiple;
-    inp.onchange = () => resolve([...(inp.files ?? [])]);
+    pendingInputs.add(inp);
+    const drop = () => pendingInputs.delete(inp);
+    inp.addEventListener('change', () => { drop(); resolve([...(inp.files ?? [])]); }, { once: true });
+    setTimeout(drop, 10 * 60_000);
     inp.click();
   });
 }

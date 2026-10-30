@@ -11,6 +11,7 @@ export const positioningSchema = z.object({
   pillars: z.array(z.string().max(20)).max(8),
   tone: toneSchema,
   tags: z.array(z.string().trim().min(1).max(12)).max(5),
+  goal: z.string().max(40).optional(), platforms: z.array(z.string().max(10)).max(6).optional(),
 });
 
 export const topicFilterSchema = z.object({
@@ -50,13 +51,25 @@ export const copyDraftSchema = z.object({
   live: z.number().min(0).max(100), version: z.number().int(), assetIds: z.array(z.string()).max(30),
 });
 
+export const shotSpecSchema = z.object({
+  id: z.string().max(20), line: z.string().max(400), dur: z.number().int().min(1).max(30), lock: z.boolean(),
+  source: z.enum(['ai', 'frame', 'clip', 'avatar']), assetId: z.string().max(40).nullable(), lastId: z.string().max(40).nullable(), refIds: z.array(z.string().max(40)).max(30),
+  prompt: z.string().max(600), size: z.string().max(10), move: z.string().max(10), model: z.string().max(20), trans: z.string().max(10),
+  start: z.number().min(0).max(3600).optional(),
+});
 export const genSettingsSchema = z.object({
   copy: z.string().max(3000), prompt: z.string().max(1000).default(''), title: z.string().max(80).default(''),
   topicId: z.string().nullable().default(null), assetIds: z.array(z.string()).max(30).default([]),
-  model: z.string(), len: z.number().int().min(10).max(120), ratio: z.enum(['9:16', '16:9', '1:1', '3:4']),
+  model: z.string(), len: z.number().int().min(1).max(300), ratio: z.enum(['9:16', '16:9', '1:1', '3:4']),
   res: z.enum(['480p', '720p', '1080p', '4K']), draft: z.boolean(),
   voice: z.enum(['me', 'p1', 'p2', 'p3', 'none']), speed: z.number().min(0.8).max(1.3),
   bgm: z.string(), subs: z.boolean(), ambience: z.boolean(), cover: z.boolean(), style: z.string().default('AI 推荐'),
+  type: z.enum(['real', 'talk', 'tour', 'house', 'product', 'site', 'story', 'vlog']).optional(), sub: z.string().max(30).optional(),
+  avatar: z.enum(['none', 'clone', 'photo']).optional(),
+  emotion: z.string().max(10).optional(), pause: z.number().min(0).max(1).optional(), bgmVol: z.number().min(0).max(1).optional(), seed: z.boolean().optional(),
+  shots: z.array(shotSpecSchema).max(40).optional(),
+  reuse: z.array(z.string().max(500).nullable()).max(40).optional(),
+  remix: z.enum(['music']).optional(),
 });
 
 export const planPatchSchema = z.object({
@@ -65,9 +78,11 @@ export const planPatchSchema = z.object({
   hour: z.number().min(6).max(23.5).multipleOf(0.5).optional(),
   needOk: z.boolean().optional(), budget: z.number().int().min(0).max(100000).optional(), running: z.boolean().optional(),
   mix: z.array(z.object({ n: z.string(), v: z.number().min(0.05).max(1) })).max(8).optional(),
+  auto: z.enum(['plan', 'copy']).optional(),
 });
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const slotActionSchema = z.object({
-  action: z.enum(['approve', 'next', 'unpin', 'set', 'skip', 'add']),
+  action: z.enum(['approve', 'next', 'unpin', 'set', 'skip', 'add', 'publish', 'unpublish', 'metrics']),
   topicId: z.string().optional(),
+  metrics: z.object({ views: z.number().int().min(0), likes: z.number().int().min(0), comments: z.number().int().min(0), leads: z.number().int().min(0) }).optional(),
 });

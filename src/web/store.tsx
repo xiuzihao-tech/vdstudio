@@ -4,22 +4,25 @@ import { api, ApiError, type Session } from './api.ts';
 import { setVideoModels } from '../shared/gen.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
-export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'lib' | 'admin';
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin';
 export interface Route { view: View; sub?: string; id?: string }
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
-  const views: View[] = ['home', 'ip', 'gen', 'wb', 'plan', 'lib', 'admin'];
-  return { view: (views as string[]).includes(v) ? (v as View) : 'home', sub: sub || undefined, id: id || undefined };
+  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin'];
+  // 根路径是「今天」页（模块关了就显示生成视频）；老的 /plan 链接进 AI 运营
+  const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'home';
+  return { view, sub: sub || undefined, id: id || undefined };
 }
-export const routePath = (r: Route) => r.view === 'home' ? '/' : `/${[r.view, r.sub, r.id].filter(Boolean).join('/')}`;
+export const routePath = (r: Route) => r.view === 'home' ? '/' : `/${[r.view === 'plan' ? 'ops' : r.view, r.sub, r.id].filter(Boolean).join('/')}`;
 
 /** 排期“从选题库挑”时带过去的目标格子 */
 export interface PlaceTarget { planId: string; date: string; label: string }
 /** 制作台的输入：一组带台词的镜头 + 全片设置 */
 export interface WbSeed { title: string; lines: string[]; assetIds: string[]; settings?: Partial<GenSettings>; topicId?: string | null }
 
-interface SheetSpec { title: string; body: ReactNode; foot?: ReactNode; wide?: boolean }
+/** onClose：用户自己关掉（点 ×、点背景、按 Esc）时调用；程序里 sheet(null) 不算 */
+interface SheetSpec { title: string; body: ReactNode; foot?: ReactNode; wide?: boolean; onClose?: () => void }
 interface Ctx {
   session: Session | null; reloadSession: () => Promise<void>; setSession: (s: Session) => void;
   /** 强制登录模式下未登录 */
@@ -83,7 +86,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!s && lastFocus.current && document.contains(lastFocus.current)) lastFocus.current.focus();
   }, [sheetSpec]);
   useEffect(() => { if (!toastMsg) return; const h = setTimeout(() => setToast(null), 2600); return () => clearTimeout(h); }, [toastMsg]);
-  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(null); }; addEventListener('keydown', f); return () => removeEventListener('keydown', f); }, []);
+  const specRef = useRef<SheetSpec | null>(null);
+  specRef.current = sheetSpec;
+  const dismiss = useCallback(() => { specRef.current?.onClose?.(); sheet(null); }, [sheet]);
+  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape' && specRef.current) dismiss(); }; addEventListener('keydown', f); return () => removeEventListener('keydown', f); }, [dismiss]);
 
   const value = useMemo<Ctx>(() => ({
     session, reloadSession, setSession, needLogin, route, nav, toast, fail, sheet, genSeed, setGenSeed, wbSeed, setWbSeed, place, setPlace, matSeed, setMatSeed,
@@ -93,10 +99,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <C.Provider value={value}>
       {children}
-      <div className={`scrim${sheetSpec ? ' on' : ''}`} onClick={() => sheet(null)} />
+      <div className={`scrim${sheetSpec ? ' on' : ''}`} onClick={dismiss} />
       <div className={`sheet${sheetSpec ? ' on' : ''}`} role="dialog" aria-modal="true" aria-labelledby="shT" aria-hidden={!sheetSpec}>
         {sheetSpec && <>
-          <div className="shh"><h2 id="shT">{sheetSpec.title}</h2><button className="cls" id="shX" aria-label="关闭" autoFocus onClick={() => sheet(null)}>×</button></div>
+          <div className="shh"><h2 id="shT">{sheetSpec.title}</h2><button className="cls" id="shX" aria-label="关闭" autoFocus onClick={dismiss}>×</button></div>
           <div className="sb" id="shB">{sheetSpec.body}</div>
           {sheetSpec.foot && <div className="sf" id="shF">{sheetSpec.foot}</div>}
         </>}
