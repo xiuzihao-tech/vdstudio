@@ -9,7 +9,9 @@ export interface Route { view: View; sub?: string; id?: string }
 
 /** 离线单文件版（file:// 打开）用 #/gen 这样的地址；正常部署用 /gen */
 const HASH = typeof window !== 'undefined' && !!(window as unknown as { __HASH_ROUTES?: boolean }).__HASH_ROUTES;
-export const curPath = () => HASH ? (location.hash.slice(1) || '/') : location.pathname;
+// 离线 / 在线演示版的地址写成 #ops--report（页面托管方只认字母、数字和连字符）
+const toHash = (p: string) => `#${p.slice(1).split('/').join('--')}`;
+export const curPath = () => HASH ? `/${decodeURIComponent(location.hash.slice(1)).replace(/^\//, '').split('--').join('/')}` : location.pathname;
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
@@ -74,7 +76,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const nav = useCallback((r: Route | View, replace = false) => {
     const next = typeof r === 'string' ? { view: r } : r;
     const p = routePath(next);
-    if (p !== curPath()) (replace ? history.replaceState : history.pushState).call(history, null, '', HASH ? `#${p}` : p);
+    if (p !== curPath()) (replace ? history.replaceState : history.pushState).call(history, null, '', HASH ? (p === '/' ? location.pathname + location.search : toHash(p)) : p);
     setRoute(next); setSheet(null); window.scrollTo(0, 0);
   }, []);
   const toast = useCallback((m: string) => setToast({ m, n: Date.now() }), []);

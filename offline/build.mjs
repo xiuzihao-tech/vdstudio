@@ -14,6 +14,7 @@ const idx = readFileSync('src/web/index.html', 'utf8');
 const head = (idx.match(/<head>([\s\S]*?)<\/head>/) ?? [, ''])[1].replace(/<link[^>]*styles\.css[^>]*>/g, '').replace(/<script[^>]*src=[^>]*><\/script>/g, '').replace(/<link[^>]*(fonts\.googleapis|fonts\.gstatic)[^>]*>/g, '');
 const bodyTag = (idx.match(/<body[^>]*>/) ?? ['<body>'])[0];
 const esc = s => s.replace(/<\/script/gi, '<\\/script');
+const new_btn_html = `<button id="offReset" style="position:fixed;right:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="if(this.dataset.armed){window.__offlineReset&&window.__offlineReset()}else{this.dataset.armed=1;this.textContent='再点一次：清空演示数据';setTimeout(()=>{delete this.dataset.armed;this.textContent='演示版 · 清空演示数据'},4000)}">演示版 · 清空演示数据</button>`;
 const html = `<!doctype html>
 <html lang="zh-CN"><head>${head}
 <title>FIND AI × 大哲 · 视频站（离线版）</title>
@@ -22,10 +23,24 @@ const html = `<!doctype html>
 </head>${bodyTag}
 <div id="boot">正在启动（第一次打开要几秒）…</div>
 <div id="root"></div>
-<button id="offReset" style="position:fixed;left:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.85);color:#555;cursor:pointer" onclick="if(confirm('清空这台电脑上的演示数据，回到新账号？'))window.__offlineReset&&window.__offlineReset()">离线版 · 清空演示数据</button>
+<button id="offReset" style="position:fixed;right:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="if(this.dataset.armed){window.__offlineReset&&window.__offlineReset()}else{this.dataset.armed=1;this.textContent='再点一次：清空演示数据';setTimeout(()=>{delete this.dataset.armed;this.textContent='演示版 · 清空演示数据'},4000)}">演示版 · 清空演示数据</button>
 <script type="text/plain" id="webapp">${esc(web.outputFiles[0].text)}</script>
 <script>${esc(server.outputFiles[0].text)}</script>
 </body></html>`;
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/视频站-离线版.html', html);
 console.log(`dist/视频站-离线版.html  ${(html.length / 1e6).toFixed(2)} MB`);
+
+// 在线演示版（发成 claude.ai 的页面）：发布时会自动套上 <html><head><body>，这里只给内容；body 上的主题属性用脚本补
+const attrs = [...bodyTag.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, k, v]) => `document.body.setAttribute(${JSON.stringify(k)},${JSON.stringify(v)});`).join('');
+const page = `<title>大哲 IP · 视频 IP 演示</title>
+<style>${css.outputFiles[0].text}</style>
+<style>#boot{position:fixed;inset:0;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f5f4f0;z-index:100}</style>
+<script>${attrs}</script>
+<div id="boot">正在启动（第一次打开要几秒）…</div>
+<div id="root"></div>
+${new_btn_html}
+<script type="text/plain" id="webapp">${esc(web.outputFiles[0].text)}</script>
+<script>${esc(server.outputFiles[0].text)}</script>`;
+writeFileSync('dist/视频站-在线演示.html', page);
+console.log(`dist/视频站-在线演示.html  ${(page.length / 1e6).toFixed(2)} MB`);
