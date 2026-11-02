@@ -8,3 +8,6 @@ export const CREDENTIALS: RequestCredentials = API_BASE ? 'include' : 'same-orig
 /** 后端返回的 /files/... 地址补上后端域名；完整网址原样返回 */
 const offlineFile = typeof window !== 'undefined' ? (window as unknown as { __offlineFileUrl?: (u: string) => string | undefined }).__offlineFileUrl : undefined;
 export const fileUrl = (u: string | null | undefined): string | undefined => (!u ? undefined : offlineFile && u.startsWith('/files/') ? offlineFile(u) : u.startsWith('/') ? `${API_BASE}${u}` : u);
+
+/** 大哲 IP 研究院主站（菜单里原有的入口都跳回这里）。和主站同一个域名部署时设 DAZHEIP_URL=''，链接就在同一个窗口打开 */
+export const DAZHEIP_URL = (process.env.DAZHEIP_URL ?? 'https://www.dazheip.com').replace(/\/$/, '');

@@ -12,6 +12,7 @@ import { LoginScreen } from './ui/auth.tsx';
 import { AdminPage } from './pages/Admin.tsx';
 import { FeedbackButton } from './ui/feedback.tsx';
 import { TodayPage } from './pages/Today.tsx';
+import { TalkPage } from './pages/Talk.tsx';
 import { SoonCard, useMods } from './ui/mods.tsx';
 import { TAB_MODS } from './ui/shell.tsx';
 
@@ -32,6 +33,7 @@ function Pages() {
   </div></section>;
   switch (route.view) {
     case 'home': return <TodayPage key={k} />;
+    case 'talk': return <TalkPage key={k} />;
     case 'ip': return <IpPage key={k} />;
     case 'gen': return <GenPage key={k} />;
     case 'wb': return <Workbench key={k} />;

@@ -219,7 +219,7 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   await a.locator('#v-admin .seg button', { hasText: '模块开关' }).click();
   await a.locator('#modAdmin [data-preset=phase1]').click();
   await a.waitForTimeout(300);
-  await a.locator('[data-mod=voiceClone] [data-st=off][aria-pressed=true]').waitFor();
+  await a.locator('[data-mod=cover] [data-st=off][aria-pressed=true]').waitFor();
   await a.locator('[data-mod=extend] [data-st=soon]').click(); await a.waitForTimeout(300);
   await a.screenshot({ path: join(shots, '12_modules.png'), fullPage: true });
   // 学员（另一个浏览器，没登录）
@@ -234,9 +234,8 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   await s.locator('.tabs [data-go=gen]').click();
   await s.locator('#gTypes').waitFor();
   await s.locator('#gToStep2').click(); await s.locator('#gCtl').waitFor();
-  if (await s.locator('#gClone').count()) throw new Error('一期还显示声音复刻');
   await s.locator('.tabs [data-go=me]').click(); await s.locator('#kbGrid').waitFor();
-  if (await s.locator('#meTabs').count()) throw new Error('形象与声音没隐藏');
+  if (!(await s.locator('.tabs [data-go=talk]').count())) throw new Error('菜单里没有口播数字人');
   await s.locator('[data-kblink=pro]').click(); await s.locator('[data-kburl=pro]').fill('https://example.com/case/123'); await s.locator('[data-kburlgo=pro]').click();
   await s.locator('#kbGrid', { hasText: '打开链接' }).waitFor();
   await s.locator('#todayDiag').count();
@@ -251,7 +250,7 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   await a.locator('#asStudent').click();
   await a.locator('.tabs [data-go=admin]').click(); await a.locator('#v-admin .seg button', { hasText: '模块开关' }).click();
   await a.locator('#modAdmin [data-preset=all]').click(); await a.waitForTimeout(300);
-  await s.reload(); await s.locator('.tabs [data-go=me]').click(); await s.locator('#meTabs').waitFor();
+  await s.reload(); await s.locator('.tabs [data-go=talk]').click(); await s.locator('#v-talk #talkStyles').waitFor();
   await ctx3.close(); await ctx4.close();
 });
 

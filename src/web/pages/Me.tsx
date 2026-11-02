@@ -116,7 +116,7 @@ function Avatars() {
   </>;
 }
 
-function AvatarCard({ kind, state, onTry }: { kind: 'clone' | 'photo'; state: string; onTry: () => void }) {
+export function AvatarCard({ kind, state, onTry }: { kind: 'clone' | 'photo'; state: string; onTry: () => void }) {
   const { sheet, toast, fail, reloadSession } = useApp();
   const isClone = kind === 'clone';
   const del = async () => { try { await api.deleteAvatar(kind); await reloadSession(); toast('已删除'); } catch (e) { fail(e); } };

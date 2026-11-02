@@ -15,7 +15,7 @@ const web = {
   jsx: 'automatic',
   sourcemap: true,
   minify: !watch,
-  define: { 'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'), 'process.env.API_BASE': JSON.stringify(process.env.API_BASE ?? '') },
+  define: { 'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'), 'process.env.API_BASE': JSON.stringify(process.env.API_BASE ?? ''), 'process.env.DAZHEIP_URL': JSON.stringify(process.env.DAZHEIP_URL ?? 'https://www.dazheip.com') },
   logLevel: 'info',
 };
 const server = {

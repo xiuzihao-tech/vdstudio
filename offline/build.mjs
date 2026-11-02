@@ -8,7 +8,7 @@ const S = new URL('./shims/', import.meta.url).pathname;
 const alias = { 'node:fs': S + 'vfs.ts', fs: S + 'vfs.ts', 'node:fs/promises': S + 'fs-promises.ts', 'node:sqlite': S + 'sqlite.ts', 'node:crypto': S + 'crypto.ts', 'node:os': S + 'misc.ts', 'node:util': S + 'misc.ts', 'node:child_process': S + 'misc.ts', 'node:http': S + 'misc.ts', 'node:path': require.resolve('path-browserify'), path: require.resolve('path-browserify'), crypto: S + 'crypto.ts' };
 const common = { bundle: true, write: false, platform: 'browser', format: 'iife', target: 'es2020', minify: true, legalComments: 'none', logLevel: 'warning', charset: 'utf8' };
 const server = await esbuild.build({ ...common, entryPoints: ['offline/server.ts'], alias, inject: [S + 'timers.ts'], define: { 'import.meta.url': '"file:///offline.js"', global: 'globalThis' } });
-const web = await esbuild.build({ ...common, entryPoints: ['src/web/main.tsx'], jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"', 'process.env.API_BASE': '""' } });
+const web = await esbuild.build({ ...common, entryPoints: ['src/web/main.tsx'], jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"', 'process.env.API_BASE': '""', 'process.env.DAZHEIP_URL': '"https://www.dazheip.com"' } });
 const css = await esbuild.build({ ...common, entryPoints: ['src/web/styles.css'], format: undefined, loader: { '.css': 'css' } });
 const idx = readFileSync('src/web/index.html', 'utf8');
 const head = (idx.match(/<head>([\s\S]*?)<\/head>/) ?? [, ''])[1].replace(/<link[^>]*styles\.css[^>]*>/g, '').replace(/<script[^>]*src=[^>]*><\/script>/g, '').replace(/<link[^>]*(fonts\.googleapis|fonts\.gstatic)[^>]*>/g, '');

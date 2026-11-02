@@ -4,7 +4,7 @@ import { api, ApiError, type Session } from './api.ts';
 import { setVideoModels } from '../shared/gen.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
-export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin';
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk';
 export interface Route { view: View; sub?: string; id?: string }
 
 /** 离线单文件版（file:// 打开）用 #/gen 这样的地址；正常部署用 /gen */
@@ -13,7 +13,7 @@ export const curPath = () => HASH ? (location.hash.slice(1) || '/') : location.p
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
-  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin'];
+  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin', 'talk'];
   // 根路径是「今天」页（模块关了就显示生成视频）；老的 /plan 链接进 AI 运营
   const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'home';
   return { view, sub: sub || undefined, id: id || undefined };

@@ -11,19 +11,19 @@ process.env.MOCK_DELAY_MS = '0';
 process.env.AI_PROVIDER = 'mock';
 const { createApp } = await import('../../src/server/app.ts');
 
-test('模块清单：50 个，一期 28 / 二期 15 / 三期 7，先做 6 个，依赖都存在', () => {
-  assert.equal(MODULES.length, 50);
-  assert.deepEqual([1, 2, 3].map(p => MODULES.filter(m => m.phase === p).length), [28, 15, 7]);
+test('模块清单：51 个，一期 32 / 二期 14 / 三期 5（口播数字人提到一期），先做 6 个，依赖都存在', () => {
+  assert.equal(MODULES.length, 51);
+  assert.deepEqual([1, 2, 3].map(p => MODULES.filter(m => m.phase === p).length), [32, 14, 5]);
   assert.equal(MODULES.filter(m => m.first).length, 6);
   const ids = new Set(MODULES.map(m => m.id));
-  assert.equal(ids.size, 50);
+  assert.equal(ids.size, 51);
   for (const m of MODULES) if (m.parent) assert.ok(ids.has(m.parent), `${m.id} 的父模块 ${m.parent} 不存在`);
 });
 
 test('算状态：一期隐藏二三期；父模块关了或是预告，子模块看不到；内测只给名单里的人', () => {
   const c = defaultConfig('phase1');
   const v = viewFor(c, null);
-  assert.equal(v.real, 'on'); assert.equal(v.cover, 'off'); assert.equal(v.voiceClone, 'off'); assert.equal(v.avatarShot, 'off');
+  assert.equal(v.real, 'on'); assert.equal(v.cover, 'off'); assert.equal(v.voiceClone, 'on'); assert.equal(v.avatarStudio, 'on'); assert.equal(v.extend, 'off');
   const c2 = { ...c, states: { ...c.states, diag: 'off' as const } };
   assert.equal(viewFor(c2, null).diagLinks, 'off', '父模块关了');
   assert.equal(viewFor(c2, null).plan, 'off', '依赖链一路关掉');
@@ -37,7 +37,7 @@ test('算状态：一期隐藏二三期；父模块关了或是预告，子模�
 
 test('配置：未知模块丢掉，缺的按套用补；接口归属', () => {
   const c = normalizeConfig({ preset: 'phase2', states: { nope: 'on', real: 'off' }, pro: ['diag', 'nope'], price: 99 }, 'all', 300);
-  assert.equal(c.states.real, 'off'); assert.equal(c.states.voiceClone, 'on'); assert.equal(c.states.avatars, 'off');
+  assert.equal(c.states.real, 'off'); assert.equal(c.states.cover, 'on'); assert.equal(c.states.dealer, 'off');
   assert.ok(!('nope' in c.states)); assert.deepEqual(c.pro, ['diag']); assert.equal(c.price, 99);
   assert.equal(moduleForApi('PUT', '/api/diagnosis/report'), 'report');
   assert.equal(moduleForApi('POST', '/api/diagnosis/report'), 'diag');
@@ -66,8 +66,7 @@ const stu = client(), boss = client(), vip = client();
 
 test('只开一期：二三期的接口被拒，一期的照常', async () => {
   const s = await stu('GET', '/api/session');
-  assert.equal(s.json.modules.today, 'on'); assert.equal(s.json.modules.voiceClone, 'off');
-  assert.equal((await stu('POST', '/api/voice/clone', {})).status, 403);
+  assert.equal(s.json.modules.today, 'on'); assert.equal(s.json.modules.cover, 'off'); assert.equal(s.json.modules.avatarStudio, 'on');
   assert.equal((await stu('GET', '/api/covers')).status, 403);
   assert.match((await stu('GET', '/api/covers')).json.error, /还没开放/);
   assert.equal((await stu('GET', '/api/kb')).status, 200);
@@ -78,13 +77,13 @@ test('后台：改状态立刻生效；管理员不受开关限制；内测名�
   assert.equal((await stu('GET', '/api/admin/modules')).status, 403);
   await boss('POST', '/api/auth/register', { email: 'boss@x.com', password: 'secret123', name: '老板' });
   const m = await boss('GET', '/api/admin/modules');
-  assert.equal(m.status, 200); assert.equal(m.json.modules.length, 50); assert.equal(m.json.config.preset, 'phase1');
+  assert.equal(m.status, 200); assert.equal(m.json.modules.length, 51); assert.equal(m.json.config.preset, 'phase1');
   assert.equal((await boss('GET', '/api/covers')).status, 200, '管理员能预览隐藏的模块');
   // 打开子模块，带上父模块
   const r = await boss('PUT', '/api/admin/modules', { states: { extend: 'soon' } });
   assert.equal(r.json.config.states.extend, 'soon');
-  await boss('PUT', '/api/admin/modules', { states: { voiceClone: 'on', kbImport: 'beta' }, beta: ['vip@x.com'] });
-  assert.equal((await stu('GET', '/api/session')).json.modules.voiceClone, 'on');
+  await boss('PUT', '/api/admin/modules', { states: { cover: 'on', kbImport: 'beta' }, beta: ['vip@x.com'] });
+  assert.equal((await stu('GET', '/api/session')).json.modules.cover, 'on');
   assert.equal((await stu('GET', '/api/session')).json.modules.kbImport, 'off');
   assert.equal((await stu('POST', '/api/kb/import', { url: 'https://example.com/a' })).status, 403);
   await vip('POST', '/api/auth/register', { email: 'vip@x.com', password: 'secret123', name: '内测' });
@@ -92,7 +91,7 @@ test('后台：改状态立刻生效；管理员不受开关限制；内测名�
   assert.equal((await vip('POST', '/api/kb/import', { url: 'https://example.com/a' })).status, 200);
   // 套用「全部打开」
   await boss('PUT', '/api/admin/modules', { preset: 'all' });
-  assert.equal((await stu('GET', '/api/session')).json.modules.avatars, 'on');
+  assert.equal((await stu('GET', '/api/session')).json.modules.dealer, 'on');
   await boss('PUT', '/api/admin/modules', { preset: 'phase1' });
   // 打开记次数
   await stu('POST', '/api/events', { name: 'module_open', props: { id: 'real' } });

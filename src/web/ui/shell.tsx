@@ -7,11 +7,16 @@ import { AuthForm } from './auth.tsx';
 import { PointsSheet } from './points.tsx';
 import type { Job } from '../../shared/types.ts';
 import { SoonBadge, setAsStudent, useMods } from './mods.tsx';
+import { DAZHEIP_URL } from '../config.ts';
 
 // 导航：按模块开关排——某个区的模块全关了，入口就不出现。选题文案、制作台先隐藏（代码保留，选题和文案在 dazheip 做）
-export const TAB_MODS: Record<string, string[]> = { home: ['today'], gen: ['real', 'talk', 'aiVideo'], ops: ['unlock'], me: ['kb', 'voiceClone', 'avatars'], lib: ['works', 'assets'] };
+export const TAB_MODS: Record<string, string[]> = { home: ['today'], gen: ['real', 'talk', 'aiVideo'], talk: ['avatarStudio'], ops: ['unlock'], me: ['kb', 'voiceClone', 'avatars'], lib: ['works', 'assets'] };
+/** dazheip 现有的菜单（原样保留，点了回主站）；「视频 IP」「口播数字人」插在「制作封面图文」后面 */
+const DZ_BEFORE: [string, string, string][] = [['开始创作文案', '/', 'i-pen'], ['查找选题灵感', '/topics', 'i-target'], ['制作封面图文', '/covers', 'i-flame']];
+const DZ_AFTER: [string, string, string][] = [['常用创作工具', '/tools', 'i-tool'], ['大哲实战课堂', '/classroom', 'i-cap'], ['家居IP资讯', '/news', 'i-news'], ['我的资产', '/assets', 'i-box']];
 const TABS: [View, string, string][] = [['home', '今天', '今天'], ['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['me', '知识库与形象', '知识库'], ['lib', '我的作品', '作品']];
-const ICON: Record<string, string> = { home: 'i-home', gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
+const TALK: [View, string, string] = ['talk', '口播数字人', '数字人'];
+const ICON: Record<string, string> = { home: 'i-home', gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make', talk: 'i-person' };
 const THEMES: [string, string][] = [['dazhe', '大哲'], ['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
@@ -21,6 +26,9 @@ export function Header() {
   const running = jobs.filter(j => j.status === 'queued' || j.status === 'running').length;
   const mods = useMods();
   const tabs = TABS.filter(([v]) => mods.anyShown(...TAB_MODS[v]));
+  const talkOn = mods.anyShown(...TAB_MODS.talk);
+  const dzLink = ([n, path, ic]: [string, string, string]) => <a key={path} className="dzl" href={`${DAZHEIP_URL}${path}`} target={DAZHEIP_URL ? '_blank' : undefined} rel="noopener"><svg className="nav-ic" aria-hidden="true"><use href={`#${ic}`} /></svg>{n}{DAZHEIP_URL && <span className="ext" aria-label="在大哲 IP 主站打开">↗</span>}</a>;
+  const tabBtn = ([v, n]: [View, string, string]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg className="nav-ic" aria-hidden="true"><use href={`#${ICON[v]}`} /></svg>{n}{badge(v)}</button>;
   // 「生成视频」整区只是预告时，角标挂在第一个模块上
   const badge = (v: string) => mods.any(...TAB_MODS[v]) ? null : <SoonBadge id={TAB_MODS[v][0]} />;
 
@@ -70,19 +78,23 @@ export function Header() {
     <header className="gbar">
       <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲<br className="sub" />IP研究院</span><span className="sub">视频工作室 · FIND AI 联合出品</span></div>
       <p className="menu-lb">菜单 / MODULES</p>
+      <div className="dzlinks">{DZ_BEFORE.map(dzLink)}</div>
+      <p className="dzg"><svg className="nav-ic" aria-hidden="true"><use href="#i-play" /></svg>视频 IP<span className="new">新</span></p>
       <nav className="tabs" aria-label="主导航">
-        {tabs.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg className="nav-ic" aria-hidden="true"><use href={`#${ICON[v]}`} /></svg>{n}{badge(v)}</button>)}
+        {tabs.map(tabBtn)}
+        {talkOn && <span className="dzsolo">{tabBtn(TALK)}<span className="new">新</span></span>}
         {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
         {session?.isAdmin && <button id="asStudent" className={mods.student ? 'on' : ''} title="管理员预览：和学员看到的一样" onClick={() => setAsStudent(!mods.student)}>{mods.student ? '按学员看 ✓' : '按学员看'}</button>}
       </nav>
+      <div className="dzlinks">{DZ_AFTER.map(dzLink)}</div>
       <span className="sp" />
       <button className="pts" id="ptsBtn" onClick={() => session && sheet({ title: '点数', body: <PointsSheet /> })}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点</button>
       {session && !session.user && <button className="btn g sm" id="loginBtn" onClick={() => sheet({ title: '登录', body: <AuthForm onDone={() => sheet(null)} /> })}>登录</button>}
       <button className="who" id="whoBtn" aria-label="切换身份和账号" onClick={whoSheet} disabled={!session}>{session ? `${session.user ? `${session.user.name} · ` : ''}${session.persona.n}` : '…'}</button>
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>
     </header>
-    <nav className="tbar" aria-label="主导航（手机）">
-      {tabs.map(([v, , m]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg><use href={`#${ICON[v]}`} /></svg>{m}</button>)}
+    <nav className="tbar" style={{ gridTemplateColumns: `repeat(${tabs.length + (talkOn ? 1 : 0)},1fr)` }} aria-label="主导航（手机）">
+      {[...tabs, ...(talkOn ? [TALK] : [])].map(([v, , m]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg><use href={`#${ICON[v]}`} /></svg>{m}</button>)}
     </nav>
   </>;
 }
@@ -90,6 +102,15 @@ export function Header() {
 export function Icons() {
   return (
     <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+      <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4zM14 6l3 3" /></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="1" /></symbol>
+      <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3c1 4 5 6 5 11a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 4 0-3-1-5 0-8z" /></symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14 6a4 4 0 0 0 5 5l-9 9-3-3 9-9a4 4 0 0 1-2-2z" /></symbol>
+      <symbol id="i-cap" viewBox="0 0 24 24"><path d="M3 9l9-4 9 4-9 4-9-4zM7 11v4c2 2 8 2 10 0v-4" /></symbol>
+      <symbol id="i-news" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></symbol>
+      <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8zM4 8l8 4 8-4M12 12v8" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9z" /></symbol>
+      <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c1-4 4-6 7-6s6 2 7 6" /></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-6.5 8 6.5M6.5 9.5V19h11V9.5" /></symbol>
       <symbol id="i-make" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16" /></symbol>
       <symbol id="i-wb" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M7 20h10M9 8v4M12 7v6M15 9v2" /></symbol>

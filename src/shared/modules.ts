@@ -30,7 +30,8 @@ export const MODULES: ModuleDef[] = [
   { id: 'teleprompter', zone: '做视频', n: '提词器自拍', d: '手机上看稿录一段，自动去停顿、配字幕', phase: 2, parent: 'talk', src: '方案' },
   { id: 'aiVideo', zone: '做视频', n: 'AI 做画面', d: '空间漫游、改造前后、产品种草、案例故事、工地记录、Vlog', phase: 1, src: '原有' },
   { id: 'draft', zone: '做视频', n: '样片模式', d: '先出低价样片，满意后再出 1080p；用户点了才出', phase: 1, parent: 'aiVideo', src: '原有' },
-  { id: 'avatarShot', zone: '做视频', n: '数字人出镜', d: '口播由真人分身或照片形象出镜', phase: 3, parent: 'avatars', src: '原有' },
+  { id: 'avatarShot', zone: '做视频', n: '数字人出镜', d: '口播由真人分身或照片形象出镜', phase: 1, parent: 'avatars', src: '原有' },
+  { id: 'avatarStudio', zone: '做视频', n: '口播数字人', d: '建形象、按风格写口播稿、数字人出镜出片（dazheip 菜单里单独一个入口）', phase: 1, parent: 'avatars', src: '用户 11/2' },
   { id: 'proMode', zone: '做视频', n: '专业模式', d: '分镜表格和高级参数（模型、景别、运镜、语速、种子……）', phase: 1, src: '原有' },
 
   { id: 'firstCut', zone: '初版与修改', n: '初版页', d: '播放器 + 镜头卡 + 设置条，一个主按钮', phase: 1, src: '方案' },
@@ -65,8 +66,8 @@ export const MODULES: ModuleDef[] = [
   { id: 'kb', zone: '我的', n: '知识库', d: '个人 / 专业 / 品牌三块，增删改；改了提示「可重新提取」', phase: 1, src: '会议 5' },
   { id: 'kbImport', zone: '我的', n: '资料导入', d: '一条可以是一份文件或一个链接', phase: 1, parent: 'kb', src: '会议 5' },
   { id: 'xhsCollect', zone: '我的', n: '一键采集小红书', d: '贴小红书笔记链接，一键收进来做参考', phase: 3, parent: 'kbImport', src: '会议' },
-  { id: 'voiceClone', zone: '我的', n: '声音复刻', d: '录 30 秒，配音用本人声音', phase: 2, src: '原有' },
-  { id: 'avatars', zone: '我的', n: '数字人形象', d: '真人分身、照片形象，带本人授权', phase: 3, src: '原有' },
+  { id: 'voiceClone', zone: '我的', n: '声音复刻', d: '录 30 秒，配音用本人声音', phase: 1, src: '原有' },
+  { id: 'avatars', zone: '我的', n: '数字人形象', d: '真人分身、照片形象，带本人授权', phase: 1, src: '原有' },
 
   { id: 'login', zone: '账号与点数', n: '登录注册', d: '手机号验证码或微信登录', phase: 1, src: '原有' },
   { id: 'points', zone: '账号与点数', n: '点数和兑换码', d: '余额、流水、兑换码', phase: 1, src: '原有' },
