@@ -64,7 +64,7 @@ export const mockProviders: Providers = {
     },
   },
   copy: {
-    async generate(ctx, t, { kind, len, tone, version, materials }) {
+    async generate(ctx, t, { kind, len, tone, version, materials, style }) {
       await delay(400);
       const p = ctx.persona, c = catOf(ctx), b = bare(t.title), biz = p.biz[0];
       const base = [
@@ -83,6 +83,11 @@ export const mockProviders: Providers = {
       const mats = (materials ?? []).map(m => m.text.replace(/\s+/g, '').slice(0, 60)).filter(Boolean);
       if (mats.length) base.splice(1, mats.length, ...mats.map((m, i) => (i === 0 ? `说个真事：${m}` : m)));
       let body = base.slice(0, PARA[len] ?? 4).map(fx[tone]);
+      // 风格：模拟版只做看得出的差别（模型版按风格的写法整条重写）
+      const sid = style?.n ?? '';
+      if (/一条/.test(sid)) body = body.map((x, i) => (i === 0 ? `我一直觉得，${b}这件事，要从住在里面的人说起。` : x.replace(/^先说结论：/, '').replace(/，能保证/, '，希望')));
+      else if (/观点口播/.test(sid)) body = body.map((x, i) => (i === 0 ? `说个判断：${b}，大多数人都做反了。` : i <= 3 ? `第${'一二三'[i - 1]}，${x.replace(/^(说个真事：)?/, '')}` : x));
+      else if (/电影感/.test(sid)) body = body.map(x => x.replace(/，.*$/, '。'));
       if (version > 1) body = body.slice(1).concat(body[0]);
       const fam = FAMILIES[biz.tpl];
       const titles = [t.title, `${b}｜${first(themeOf(ctx), 12)}`, `${ctx.positioning.aud[0] ?? '准备装修的你'}一定要看：${b}`];
@@ -124,9 +129,9 @@ export const mockProviders: Providers = {
         ],
       };
     },
-    async footage(ctx, clips, idea) {
+    async footage(ctx, clips, idea, _materials, style) {
       await delay(400);
-      const open = idea ? `${idea.replace(/[。！？]$/, '')}，带你看一下。` : '今天带你看一下我们的现场。';
+      const open = /一条/.test(style?.n ?? '') ? `${idea ? idea.replace(/[。！？]$/, '') + '，' : ''}我想从这个家的主人说起。` : /观点口播/.test(style?.n ?? '') ? `说个判断：${idea ? idea.replace(/[。！？]$/, '') : '这一步'}，大多数人都做错了。` : idea ? `${idea.replace(/[。！？]$/, '')}，带你看一下。` : '今天带你看一下我们的现场。';
       const mid = ['先看这里，{x}。', '再往里走，{x}。', '注意这个细节，{x}。', '这一步很多人会忽略，{x}。', '还有这里，{x}。'];
       // 说明来自文件名时：括号里是用户自己起的名字，只用它，不编画面
       const lines = clips.map((c, i) => {

@@ -4,6 +4,7 @@
 //   请求体同时带常见的几种写法（duration/seconds、ratio/aspect_ratio、image/images），网关各取所需。
 // 各家网关返回字段略有出入，这里对任务 ID、状态、视频地址做兼容解析。
 // 环境变量：VIDEO_BASE_URL、VIDEO_API_KEY；档位到模型名的映射可在后台「AI 服务」里改。
+import { styleVisual } from '../../shared/styles.ts';
 import { draftResOf, isDraft, modelOf } from '../../shared/gen.ts';
 import { shotPrompt } from '../../shared/video.ts';
 import { frameSize } from '../compose.ts';
@@ -117,7 +118,7 @@ export function makeNewApiVideo(cfg: NewApiVideoConfig): VideoProvider {
         const s = shots[i], m = modelOf(s.model || g.model);
         // 新链路：画面描述 + 景别运镜 + 台词；旧链路只有台词
         const prompt = s.prompt !== undefined ? shotPrompt({ prompt: s.prompt, size: s.size ?? '中景', move: s.move ?? '固定', line: s.line, source: s.source ?? 'ai' }, g)
-          : [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
+          : [s.line && `画面配合这句口播：${s.line}`, g.prompt, styleVisual(g), '真实自然光，画面干净，无文字无水印'].filter(Boolean).join('。');
         const duration = Math.min(m.max, Math.max(m.min, Math.round(s.dur)));
         // 环境声：插入画面按用户设置，数字人出镜的镜头不要（之后要对口型）
         const audio = !!g.ambience && s.source !== 'avatar';

@@ -75,6 +75,7 @@ export interface ComposeInput {
   /** 每镜保留的秒数（生成时向上取整，合成时裁掉多余的；素材不够长时定格最后一帧补足） */ durs?: number[];
   /** 素材原片从第几秒开始用 */ starts?: number[];
   ratio: string; res: string; outFile: string; font?: string | null; subtitles?: boolean; fetch?: typeof fetch;
+  /** 字幕样式（跟视频风格走）：doc 小号白字；key 大字黄底；plain 默认 */ subStyle?: 'doc' | 'key' | 'plain';
   /** 每镜配音（本机文件），null = 这一镜不说话。配音比画面长时，画面定格补到说完 */ voices?: (string | null)[];
   /** 背景音乐（本机文件），说话时自动压低 */ music?: string | null; musicVol?: number;
   /** 哪几镜保留素材原声（现场声），以及原声音量 */ keepOrig?: boolean[]; origVol?: number;
@@ -110,9 +111,13 @@ export async function composeVideo(o: ComposeInput): Promise<{ secs: number; dur
       const line = (o.lines[i] ?? '').trim();
       if (font && line) {
         const txt = join(dir, `t${i}.txt`);
-        writeFileSync(txt, wrapLine(line, Math.max(8, Math.floor((w * 0.86) / fontSize))));
+        const fs = Math.round(fontSize * (o.subStyle === 'doc' ? 0.8 : o.subStyle === 'key' ? 1.15 : 1));
+        writeFileSync(txt, wrapLine(line, Math.max(8, Math.floor((w * 0.86) / fs))));
         const esc = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:');
-        vf.push(`drawtext=fontfile='${esc(font)}':textfile='${esc(txt)}':fontsize=${fontSize}:fontcolor=white:line_spacing=${Math.round(fontSize * 0.3)}:borderw=${Math.max(2, Math.round(fontSize / 12))}:bordercolor=black@0.85:x=(w-text_w)/2:y=h-text_h-${Math.round(h * 0.12)}`);
+        const look = o.subStyle === 'key'
+          ? `fontcolor=0x0B0B0C:box=1:boxcolor=0xFFCB05@0.95:boxborderw=${Math.round(fs * 0.35)}`
+          : o.subStyle === 'doc' ? `fontcolor=white@0.95:shadowcolor=black@0.6:shadowx=1:shadowy=1` : `fontcolor=white:borderw=${Math.max(2, Math.round(fs / 12))}:bordercolor=black@0.85`;
+        vf.push(`drawtext=fontfile='${esc(font)}':textfile='${esc(txt)}':fontsize=${fs}:${look}:line_spacing=${Math.round(fs * 0.3)}:x=(w-text_w)/2:y=h-text_h-${Math.round(h * (o.subStyle === 'doc' ? 0.08 : 0.12))}`);
       }
       // 每段都带一条立体声音轨（原声或静音），后面才能直接拼接、再统一混音
       const keep = !!o.keepOrig?.[i] && !!info?.hasAudio;

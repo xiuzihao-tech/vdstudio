@@ -138,7 +138,7 @@ export function createApp(opts: AppOptions) {
     return session(ws, req);
   });
   r.put('/api/workspace/positioning', async req => { const p = await body(req, S.positioningSchema); repo.setPositioning(W(req).id, p); syncPlans(repo, W(req), p); return session(W(req), req); });
-  r.put('/api/workspace/theme', async req => { const { theme } = await body(req, z.object({ theme: z.enum(['studio', 'cinema', 'glass', 'poster']) })); repo.setTheme(W(req).id, theme); return { ok: true }; });
+  r.put('/api/workspace/theme', async req => { const { theme } = await body(req, z.object({ theme: z.enum(['dazhe', 'studio', 'cinema', 'glass', 'poster']) })); repo.setTheme(W(req).id, theme); return { ok: true }; });
 
   /* ---------- 账号 ---------- */
   const credSchema = z.object({ email: z.string().trim().toLowerCase().email('邮箱格式不对').max(120), password: z.string().min(8, '密码至少 8 位').max(128) });
@@ -326,17 +326,17 @@ export function createApp(opts: AppOptions) {
 
   /* ---------- 写文案（知识库 → 文案） ---------- */
   r.post('/api/copy/write', async req => {
-    const ws = W(req), d = await body(req, z.object({ idea: z.string().max(200).default(''), topicId: z.string().optional(), len: z.union([z.literal(30), z.literal(45), z.literal(60), z.literal(90)]).default(45), kb: z.boolean().default(true), column: z.string().max(20).optional() }));
+    const ws = W(req), d = await body(req, z.object({ idea: z.string().max(200).default(''), topicId: z.string().optional(), len: z.union([z.literal(30), z.literal(45), z.literal(60), z.literal(90)]).default(45), kb: z.boolean().default(true), column: z.string().max(20).optional(), style: z.string().max(30).optional() }));
     // 没写想法：按面诊栏目轮到的那个写；还没面诊就按人设档案的定位写（不再用行业模板里的示例项目）
     const col = d.column ?? (d.idea ? undefined : nextColumn(repo, ws)?.name);
     const t = d.topicId ? topicOr404(ws, d.topicId) : repo.insertTopic(ws.id, { cat: catIndex(ws.persona), title: (d.idea || col || ws.positioning.line || '这周想讲的一件事').slice(0, 60), hook: '', why: d.idea ? '自己的想法' : col ? `栏目「${col}」` : '人设档案', dir: col ?? '项目案例', type: 0, heat: 1, k: personaOf(ws.persona).att[0], ageMonths: 0, source: 'ai' });
-    const out = await writeCopy(repo, providers, ws, t, { len: d.len, kb: d.kb, column: col });
+    const out = await writeCopy(repo, providers, ws, t, { len: d.len, kb: d.kb, column: col, style: d.style });
     ops.track(ctx(req).owner, ws.id, 'copy_written', { kb: d.kb, used: out.used.length });
     return { draft: out.draft, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })), cliches: out.cliches };
   });
   r.post('/api/gen/footage', async req => {
-    const ws = W(req), d = await body(req, z.object({ assetIds: z.array(z.string()).min(1).max(20), idea: z.string().max(200).default('') }));
-    const out = await footageCopy(repo, providers, ws, d.assetIds, d.idea, a => (a.url ? storage.get(a.url.slice(7).split('?')[0]).catch(() => null) : Promise.resolve(null)));
+    const ws = W(req), d = await body(req, z.object({ assetIds: z.array(z.string()).min(1).max(20), idea: z.string().max(200).default(''), style: z.string().max(30).optional() }));
+    const out = await footageCopy(repo, providers, ws, d.assetIds, d.idea, a => (a.url ? storage.get(a.url.slice(7).split('?')[0]).catch(() => null) : Promise.resolve(null)), d.style);
     ops.track(ctx(req).owner, ws.id, 'footage_copy', { clips: d.assetIds.length });
     return { title: out.title, lines: out.lines, assets: out.assets, used: out.used.map(i => ({ id: i.id, kind: i.kind, text: i.text })) };
   });

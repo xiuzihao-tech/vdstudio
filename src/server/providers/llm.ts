@@ -127,13 +127,13 @@ ${materials.length ? `本人素材（只能用这些事实，不要编数字和�
   };
 
   const copy: CopyProvider = {
-    async generate(ctx, t, { kind, len, tone, version, quality, materials, habits, avoid, column, tags }) {
+    async generate(ctx, t, { kind, len, tone, version, quality, materials, habits, avoid, column, tags, style }) {
       const n = PARA[len] ?? 4, biz = ctx.persona.biz[0], fam = FAMILIES[biz.tpl];
       // 知识库这一层：只给系统挑好的几条素材，并告诉模型怎么用（用细节说话、资历不直说、只用一次）
       const kb = materials?.length ? `\n这条只用下面这些素材（来自本人知识库，不要编别的经历和数字）：\n${materials.map((m, i) => `${i + 1}. 【${m.kind}】${m.text}`).join('\n')}\n用法：挑 1–2 条最贴题的，用具体的人、事、数字讲出来；「履历」类不要直接报年限和头衔，要化成一个细节或一句判断；同一个事实只出现一次。` : '';
       const voice = habits?.length ? `\n本人平时这样说话（只学语气和句子长短，不要照抄、不要硬塞口头禅）：${habits.join(' / ')}` : '';
       const no = avoid?.length ? `\n不要提：${avoid.join('、')}` : '';
-      const col = [column && `\n栏目：${column}（这条要像这个栏目的内容）`, tags?.length && `\n面诊定下的标签：${tags.join('、')}（围绕它写，但不要把标签原词硬塞进文案）`].filter(Boolean).join('');
+      const col = [column && `\n栏目：${column}（这条要像这个栏目的内容）`, tags?.length && `\n面诊定下的标签：${tags.join('、')}（围绕它写，但不要把标签原词硬塞进文案）`, style && `\n视频风格「${style.n}」，文案按这个写法：${style.copy}`].filter(Boolean).join('');
       const r = await chat(ctx, `为选题写一条${kind}，目标时长 ${len} 秒（口播约每秒 4.5 字）。语气：${tone}。这是第 ${version} 版，和之前的写法要有区别。
 选题：${t.title}
 开头参考：${t.hook}
@@ -164,9 +164,9 @@ ${qa.map(x => `【${x.section}】问：${x.q}\n答：${x.a}`).join('\n')}
           columns: z.array(z.object({ name: z.string().max(20), kind: z.enum(['流量', '转化', '人设']), type: z.string().max(10), perWeek: z.number().int().min(1).max(7), why: z.string().max(80) })).min(1).max(6) }), 0.6, 'fine');
       return r;
     },
-    async footage(ctx, clips, idea, materials) {
+    async footage(ctx, clips, idea, materials, style) {
       const r = await chat(ctx, `用户拍了 ${clips.length} 段素材，要串成一条画外音视频。按素材顺序，每段写一句画外音（第 i 句配第 i 段），口语、具体，第一句是钩子，最后一句落到「${ctx.positioning.goal || ctx.persona.goal}」。再起一个 24 字以内的标题。
-${idea ? `用户想讲的：${idea}\n` : ''}素材：
+${idea ? `用户想讲的：${idea}\n` : ''}${style ? `视频风格「${style.n}」，画外音按这个写法：${style.copy}\n` : ''}素材：
 ${clips.map((c, i) => `${i + 1}. ${c.noteSrc === 'name' ? `（只知道文件名，看不到画面）${c.note}` : c.note}${c.dur ? `，${c.dur.toFixed(1)} 秒，这句不超过 ${Math.max(6, Math.floor(c.dur * 4.5))} 字` : ''}`).join('\n')}
 ${clips.some(c => c.noteSrc === 'name') ? '只知道文件名的素材：台词别描述画面细节，按文件名和上下文写一句不会出错的话。\n' : ''}${materials.length ? `可以用的本人素材（只用这些事实）：${materials.join(' / ')}\n` : ''}输出：{"title":"","lines":[]}（lines 正好 ${clips.length} 句）`, z.object({ title: z.string().max(40).default(''), lines: z.array(z.string().max(120)).min(1).max(30) }), 0.8);
       const lines = clips.map((_, i) => r.lines[i] ?? '');

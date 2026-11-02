@@ -76,6 +76,8 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE kb_items ADD COLUMN media TEXT NOT NULL DEFAULT 'text';
    ALTER TABLE kb_items ADD COLUMN url TEXT;
    ALTER TABLE diagnosis ADD COLUMN kb_changed_at TEXT;`,
+  // 8：界面换成大哲 IP 研究院（dazheip.com）的样子：原来没手动换过主题的都用「大哲」
+  `UPDATE workspaces SET theme = 'dazhe' WHERE theme = 'studio';`,
 ];
 
 export type DB = DatabaseSync;

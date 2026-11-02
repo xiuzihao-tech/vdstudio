@@ -2,6 +2,7 @@
 // 接口：POST {base}/contents/generations/tasks → {id}；GET {base}/contents/generations/tasks/{id} → {status, content.video_url}
 // 状态：queued / running / succeeded / failed / expired。视频地址 24 小时过期，正式版需要转存到自己的对象存储。
 // 环境变量：ARK_API_KEY、ARK_BASE_URL（默认 https://ark.cn-beijing.volces.com/api/v3）、SEEDANCE_MODEL_S25 / _S20 / _S20F、SEEDANCE_POLL_MS
+import { styleVisual } from '../../shared/styles.ts';
 import { modelOf, isDraft } from '../../shared/gen.ts';
 import type { VideoProvider } from './types.ts';
 
@@ -44,7 +45,7 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
       const deadline = Date.now() + (cfg.timeoutMs ?? 20 * 60e3);
       const one = async (i: number) => {
         const s = shots[i];
-        const text = [s.line && `画面配合这句口播：${s.line}`, g.prompt, g.style !== 'AI 推荐' && `风格：${g.style}`, '真实自然光，画面干净'].filter(Boolean).join('。');
+        const text = [s.line && `画面配合这句口播：${s.line}`, g.prompt, styleVisual(g), '真实自然光，画面干净'].filter(Boolean).join('。');
         const content: unknown[] = [{ type: 'text', text }];
         if (frames[i]) content.push({ type: 'image_url', image_url: { url: frames[i] }, role: 'first_frame' });
         const id = known?.[i] || await create({

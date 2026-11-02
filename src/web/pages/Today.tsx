@@ -7,6 +7,7 @@ import { Src } from '../ui/kit.tsx';
 import { fileUrl } from '../config.ts';
 import { SUBTYPES, typeOf, type VideoType } from '../../shared/video.ts';
 import type { GenSettings, SlotView } from '../../shared/types.ts';
+import { VIDEO_STYLES } from '../../shared/styles.ts';
 
 const seedFor = (id: VideoType): Partial<GenSettings> => { const t = typeOf(id); return { type: id, sub: SUBTYPES[id]?.[0]?.id, model: t.model, bgm: t.bgm, avatar: 'none' }; };
 const ENTRIES: [string, VideoType, string, string][] = [
@@ -39,6 +40,8 @@ export function TodayPage() {
       ? { id: 'todaySlot', k: `今天要发 · ${slot.column || slot.label}`, t: slot.topic.title, d: slot.why || slot.topic.hook || '按计划今天发这一条。', b: '去生成 →', act: () => { setGenSeed({ copy: `${slot.topic.title}\n${slot.topic.hook}`.trim(), title: slot.topic.title, topicId: slot.topicId }); nav('gen'); } }
       : { id: 'todayReal', k: '今天', t: '拍了什么都能做成片', d: '把手机里这几天拍的几段传上来，3 分钟出一条有配音、有字幕的片。', b: '传素材 →', act: () => go('real') };
 
+  // 面诊状态还没读到时先不显示第一张卡，免得先闪一下「传素材」再换成「先做面诊」
+  const loading = (ops && !dg.data) || (mods.on('plan') && !plans.data && !noReport);
   return <section className="view on" id="v-today"><div className="vb wrap" style={{ maxWidth: 1080 }}>
     <div className="hero tight" style={{ textAlign: 'left', padding: '40px 0 0' }}>
       <p className="eyebrow">{session!.workspace.positioning.name || '你好'} · 今天</p>
@@ -46,12 +49,12 @@ export function TodayPage() {
     </div>
 
     <div className="today">
-      <div className="tcard main" id={first.id}>
+      {loading ? <div className="tcard main" style={{ minHeight: 182 }} aria-busy="true" /> : <div className="tcard main" id={first.id}>
         <span className="xs m3">{first.k}</span>
         <b className="t1">{first.t}</b>
         <p className="s m">{first.d}</p>
         <button className="btn y" onClick={first.act}>{first.b}</button>
-      </div>
+      </div>}
       {expiring.length > 0 && <div className="tcard warn" id="todayExpire">
         <span className="xs m3">快到期</span>
         <b className="t2">{expiring.length} 个文件 {Math.min(...expiring.map(e => e.daysLeft))} 天内到期</b>
@@ -67,6 +70,8 @@ export function TodayPage() {
           <button className="entry" data-entry={ty} onClick={() => go(ty)}><b>{n}</b><span className="s m">{d}</span><span className="v">›</span></button>
         </Mod>)}
       </div>
+      <p className="lb" style={{ marginTop: 22 }}>按风格做</p>
+      <div className="todaystyles" id="todayStyles">{VIDEO_STYLES.slice(0, 6).map(s => <button key={s.id} className="pill" data-style={s.id} title={`参考：${s.like} · ${s.d}`} onClick={() => { const ty = s.best.find(b => b !== 'real' || mods.on('real')) ?? 'real'; setGenSeed({ ...seedFor(ty), style: s.n, bgm: s.bgm }); nav('gen'); }}>{s.n}</button>)}</div>
     </Mod>
 
     {(running.length > 0 || recent.length > 0) && <>

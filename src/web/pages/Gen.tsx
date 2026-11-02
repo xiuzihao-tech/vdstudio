@@ -6,7 +6,8 @@ import { useApp, useData } from '../store.tsx';
 import { Ph, Pills, Seg, Src, Toggle, pickFiles, usePay } from '../ui/kit.tsx';
 import { ACCEPT, uploadFiles, useAssetPicker, useScheduleTopic } from '../ui/pickers.tsx';
 import { useCloneVoice } from './ip/More.tsx';
-import { BGMS, EMOTIONS, RATIOS, STYLES, VOICES } from '../../shared/catalog.ts';
+import { BGMS, EMOTIONS, RATIOS, VOICES } from '../../shared/catalog.ts';
+import { AUTO_STYLE, VIDEO_STYLES, effectiveStyle, styleOf, stylesFor } from '../../shared/styles.ts';
 import { clampRes, draftResOf, genIssues, isDraft, modelOf, trimCopyToLen, videoModels } from '../../shared/gen.ts';
 import { useMods, useModOpen } from '../ui/mods.tsx';
 import { SUBTYPES, MOVES, SIZES, SOURCE_NAME, TRANSITIONS, VIDEO_TYPES, buildStoryboard, chars, costLines, costTotal, relock, splitSentences, suggestType, typeOf, voiceSecs, type ShotSource, type ShotSpec, type SubType, type VideoType } from '../../shared/video.ts';
@@ -136,7 +137,7 @@ export function GenPage() {
   const aiWrite = async () => {
     setWriting(true);
     try {
-      const r = await api.writeCopy({ idea: idea || `${t.n}${sub ? ` · ${sub.n}` : ''}`, len: ([30, 45, 60, 90].find(x => x >= g.len) ?? 45), kb: useKb });
+      const r = await api.writeCopy({ idea: idea || `${t.n}${sub ? ` · ${sub.n}` : ''}`, len: ([30, 45, 60, 90].find(x => x >= g.len) ?? 45), kb: useKb, style: effectiveStyle(g).n });
       set({ copy: copyText(r.draft), title: r.draft.title, topicId: r.draft.topicId, shots: [] }); setUsedKb(r.used);
       toast(r.used.length ? `写好了，用了知识库里的 ${r.used.length} 条素材` : '写好了。知识库还是空的，补几条会更像你');
     } catch (e) { fail(e); } finally { setWriting(false); }
@@ -146,7 +147,7 @@ export function GenPage() {
     if (!media.length) { toast('先放几段实拍视频或照片'); return; }
     setWriting(true);
     try {
-      const r = await api.footage(media.map(a => a.id), idea);
+      const r = await api.footage(media.map(a => a.id), idea, effectiveStyle(g).n);
       const m0 = modelOf(g.model);
       // 每段素材一镜：视频用原片（从看图模型推荐的那一段开始），照片做首帧；台词就是 AI 按这段素材写的那句
       const shotsNew: ShotSpec[] = r.lines.map((line, i) => {
@@ -246,6 +247,7 @@ export function GenPage() {
           </div>
           {sub && <div className="shotlist"><p className="lb">去现场拍这些</p><ol>{sub.shots.map(x => <li key={x}>{x}</li>)}</ol></div>}
         </div>}
+        <StylePick type={t.id} value={g.style} onPick={s => set(s ? { style: s.n, bgm: s.bgm } : { style: AUTO_STYLE })} />
         <div className="ctabar"><button className="btn cta" id="gToStep2" onClick={() => setStep(2)}>下一步：放内容 <span aria-hidden="true">→</span></button></div>
       </>}
 
@@ -313,13 +315,13 @@ export function GenPage() {
             <div><p className="lb">情绪</p><Pills value={g.emotion ?? '自动'} options={EMOTIONS} onChange={v => set({ emotion: v })} />
               <p className="lb" style={{ marginTop: 14 }}>音乐音量 <b className="ro">{Math.round((g.bgmVol ?? 0.2) * 100)}%</b>（说话时自动压低）</p><input type="range" className="rg" min={0} max={1} step={0.05} value={g.bgmVol ?? 0.2} onChange={e => set({ bgmVol: Number(e.target.value) })} aria-label="音乐音量" />
               <Toggle checked={g.ambience} onChange={v => set({ ambience: v })} label="画面环境声" hint="插入画面带环境声，数字人镜头不带" /></div>
-            <div><p className="lb">风格</p><select className="fld" value={g.style} onChange={e => set({ style: e.target.value })} aria-label="风格"><option>AI 推荐</option>{STYLES.map(s => <option key={s[0]} value={s[0]}>{s[0]} · {s[2]}</option>)}</select>
+            <div><p className="lb">风格</p><select className="fld" value={styleOf(g.style)?.n ?? AUTO_STYLE} onChange={e => set({ style: e.target.value })} aria-label="风格"><option>{AUTO_STYLE}</option>{VIDEO_STYLES.map(s => <option key={s.id} value={s.n}>{s.n} · 参考{s.like}</option>)}</select>
               <Toggle checked={!!g.seed} onChange={v => set({ seed: v })} label="固定随机种子" hint="重做时画面更接近上一版" /></div>
             <div className="w2"><p className="lb">全片画面要求（加到每一镜的描述后面）</p><textarea className="fld" rows={2} value={g.prompt} onChange={e => set({ prompt: e.target.value })} placeholder={`比如：${session!.persona.proj}，${session!.persona.read[1][1]}，真实自然光`} /></div>
           </div>
         </details>}
 
-        <div className="gfoot"><div><p className="t2">{t.n} · {t.id === 'real' ? `${media.length} 段素材` : `${sentences.length} 句 · 约 ${estSecs} 秒`}</p><p className="xs m3">{VOICES.find(v => v.id === g.voice)?.n} · {avatarOn ? (g.avatar === 'clone' ? '真人分身出镜' : '照片形象出镜') : '不出镜'} · {t.id === 'real' ? '实拍原片，不生成画面' : m.n}</p></div><span className="sp" />
+        <div className="gfoot"><div><p className="t2">{t.n} · {t.id === 'real' ? `${media.length} 段素材` : `${sentences.length} 句 · 约 ${estSecs} 秒`}</p><p className="xs m3">{VOICES.find(v => v.id === g.voice)?.n} · {avatarOn ? (g.avatar === 'clone' ? '真人分身出镜' : '照片形象出镜') : '不出镜'} · {t.id === 'real' ? '实拍原片，不生成画面' : m.n} · 风格「{effectiveStyle(g).n}」</p></div><span className="sp" />
           <button className="btn g" onClick={() => setStep(1)}>上一步</button>{t.id === 'real' && !g.copy.trim()
             ? <button className="btn cta" id="gNext" disabled={writing || !media.length} onClick={aiFootage}>{writing ? 'AI 在看素材…' : media.length ? `看 ${media.length} 段素材写文案 →` : '先放素材'}</button>
             : <button className="btn cta" id="gNext" disabled={!g.copy.trim()} onClick={toStep3}>下一步：确认分镜 <span aria-hidden="true">→</span></button>}</div>
@@ -522,4 +524,28 @@ function DraftPicker({ onPick }: { onPick: (copy: string, title: string, topicId
   if (!d.data) return null;
   if (!d.data.drafts.length) return <p className="s m">草稿箱还是空的。在 dazheip 写好文案点「做成视频」，或者直接把文案贴进来。</p>;
   return <div className="list">{d.data.drafts.map(c => <button key={c.id} data-dp={c.topicId} onClick={() => onPick(copyText(c), c.title, c.topicId, c.len)}><span>{c.title}<br /><span className="xs m3">{c.kind} · {c.len} 秒 · 约 {Math.round(chars(copyText(c)) / 4.5)} 秒口播</span></span><span className="v">导入 ›</span></button>)}</div>;
+}
+
+/** 视频风格：像谁拍的。文案、画面、节奏、字幕都跟着它走。按当前类型把最合适的排在前面 */
+const SUBN = { doc: '小号白字', key: '大字黄底', plain: '白字描边' } as const;
+function StylePick({ type, value, onPick }: { type: VideoType; value: string; onPick: (s: (typeof VIDEO_STYLES)[number] | null) => void }) {
+  const [more, setMore] = useState(false);
+  // 招牌风格（一条、大哲）永远排最前面，其余按这个类型合不合适排
+  const byType = stylesFor(type), list = [...byType.filter(s => s.hot), ...byType.filter(s => !s.hot)], cur = styleOf(value), auto = byType[0];
+  const shown = more ? list : list.slice(0, 5);
+  return <div className="stylepick" id="gStyles">
+    <div className="row" style={{ alignItems: 'baseline', gap: 10 }}><p className="eyebrow" style={{ margin: 0 }}>视频风格 · 像谁拍的</p><span className="xs m3">文案写法、画面、节奏和字幕都按它来</span></div>
+    <div className="stgrid">
+      <button className="stc" data-style="auto" aria-pressed={!cur} onClick={() => onPick(null)}>
+        <span className="stn">AI 推荐</span><span className="stl">按类型挑 · 现在是「{auto.n}」</span><span className="std">不确定就选这个</span>
+      </button>
+      {shown.map(s => <button key={s.id} className="stc" data-style={s.id} aria-pressed={cur?.id === s.id} onClick={() => onPick(s)}>
+        <span className="stn">{s.n}{s.hot && <span className="tag hot">招牌</span>}{s.draft && <span className="tag" title="还没和大哲 IP 研究院对过样片">待校准</span>}</span>
+        <span className="stl">参考：{s.like}</span>
+        <span className="std">{s.d}</span>
+        <span className="stm">每镜约 {s.pace} 秒 · {s.bgm} · {SUBN[s.subs]}</span>
+      </button>)}
+    </div>
+    {list.length > 5 && <button className="lnk xs" id="gStyleMore" onClick={() => setMore(!more)}>{more ? '收起' : `更多风格（${list.length - 5}）`}</button>}
+  </div>;
 }

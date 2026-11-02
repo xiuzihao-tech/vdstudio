@@ -38,6 +38,16 @@
   --wb:#000; --wp:#111; --wp2:#1E1E1E; --wl:#333;
   --dw:900; --dls:-.05em;
 }
+[data-theme=dazhe]{
+  /* 大哲 IP 研究院（dazheip.com）的样子：明黄侧栏、暖灰底、近黑字、细黑描边、小圆角、不用阴影、字重偏重 */
+  --bg:#F2F2EF; --pn:#FFFFFF; --pn2:#F7F7F4; --tx:#0B0B0C; --tx2:#3F3F42; --tx3:#6B6B6E; --ln:rgba(11,11,12,.28); --ln2:rgba(11,11,12,.14);
+  --ac:#FFCB05; --ac2:#FFD633; --actx:#0B0B0C; --pri:#0B0B0C; --pritx:#fff; --sel:#0B0B0C; --seltx:#fff;
+  --r1:6px; --r2:8px; --r3:10px; --rp:6px; --sh:none; --bd:1px solid var(--ln2);
+  --glass:#F2F2EF; --gl-b:rgba(11,11,12,.14); --blur:none;
+  --dw:800; --dls:-.01em;
+  --side:#FFCB05; --side2:#F0BC00; --sidew:232px; --chip:#E9E9E4;
+  --f:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Source Han Sans CN","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+}
 *{box-sizing:border-box}
 html,body{margin:0}
 main{overflow-x:clip}
@@ -1026,3 +1036,78 @@ body[data-theme=cinema] .tcards button[aria-pressed="true"]{background:var(--ac)
 .modlist>div{flex-wrap:wrap;gap:10px 14px}
 .seg.sm button{font-size:12.5px;padding:4px 10px}
 @media (max-width:760px){.today,.entries,.modset{grid-template-columns:minmax(0,1fr)}.modlist .seg{width:100%}.modlist .seg button{flex:1}}
+
+
+/* ===== 大哲主题：版式跟 dazheip.com 一致（左侧明黄菜单栏 + 右侧工作区） ===== */
+.gbar .nav-ic,.gbar .menu-lb,.logo .sub{display:none}
+body[data-theme=dazhe]{letter-spacing:0;font-size:16px}
+body[data-theme=dazhe] .btn{font-weight:700;border:1px solid transparent}
+body[data-theme=dazhe] .btn.y{border-color:var(--tx)}
+body[data-theme=dazhe] .btn.k{border-radius:3px;font-weight:800}
+body[data-theme=dazhe] .btn.g{background:var(--pn);border-color:var(--ln)} body[data-theme=dazhe] .btn.g:hover{background:var(--pn2);border-color:var(--tx)}
+body[data-theme=dazhe] .btn.cta,body[data-theme=dazhe] .go{border:1px solid var(--tx);border-radius:6px;box-shadow:none}
+body[data-theme=dazhe] .pill{border-color:var(--ln);font-weight:600}
+body[data-theme=dazhe] .seg{background:var(--chip);border:1px solid var(--ln2);border-radius:6px}
+body[data-theme=dazhe] .seg button{border-radius:4px;font-weight:600}
+body[data-theme=dazhe] .seg button[aria-pressed="true"]{background:var(--tx);color:#fff;box-shadow:none}
+body[data-theme=dazhe] .tag{border-radius:4px;border:1px solid var(--ln2);font-weight:700}
+body[data-theme=dazhe] .card,body[data-theme=dazhe] .gbox,body[data-theme=dazhe] .gcard,body[data-theme=dazhe] .tcard,body[data-theme=dazhe] .entry,body[data-theme=dazhe] .vcard,body[data-theme=dazhe] .sample{border:1px solid var(--ln2);box-shadow:none;border-radius:var(--r2)}
+body[data-theme=dazhe] .tcard.main{background:var(--pn);border-color:var(--tx);box-shadow:4px 4px 0 var(--ac)}
+body[data-theme=dazhe] .entry:hover{border-color:var(--tx)}
+body[data-theme=dazhe] .sheet{border:1px solid var(--tx);border-radius:10px;box-shadow:6px 6px 0 rgba(11,11,12,.9)}
+body[data-theme=dazhe] .hero{text-align:left;max-width:1240px;margin:0 auto;padding:44px 32px 0}
+body[data-theme=dazhe] .wrap{padding-left:32px;padding-right:32px}
+body[data-theme=dazhe] .gw{max-width:1240px}
+body[data-theme=dazhe] .hero .sub,body[data-theme=dazhe] .hero .lead{margin-left:0}
+body[data-theme=dazhe] .hero .d1,body[data-theme=dazhe] .hero .d2{font-size:clamp(28px,3.2vw,40px);line-height:1.2}
+body[data-theme=dazhe] .hero em{font-style:normal;background:linear-gradient(transparent 58%,var(--ac) 58%)}
+body[data-theme=dazhe] .eyebrow{letter-spacing:.08em;font-weight:700}
+body[data-theme=dazhe] .steps,body[data-theme=dazhe] #opsTabs,body[data-theme=dazhe] .personas,body[data-theme=dazhe] .ctabar{justify-content:flex-start}
+body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
+@media (min-width:761px){
+  body[data-theme=dazhe] .gbar{position:fixed;left:0;top:0;bottom:0;width:var(--sidew);height:auto;flex-direction:column;align-items:stretch;gap:4px;padding:22px 14px 16px;background:var(--side);border:0;border-right:1px solid rgba(11,11,12,.12);overflow-y:auto}
+  body[data-theme=dazhe] #main,body[data-theme=dazhe] .foot{margin-left:var(--sidew)}
+  body[data-theme=dazhe] .logo{flex-direction:column;align-items:flex-start;gap:2px;margin:0 6px 22px;font-size:20px;font-weight:900;line-height:1.1;white-space:normal}
+  body[data-theme=dazhe] .logo .x,body[data-theme=dazhe] .logo>span:first-child{display:none}
+  body[data-theme=dazhe] .logo .dz{background:none;padding:0;border-radius:0;font-size:21px;line-height:1.15}
+  body[data-theme=dazhe] .logo .sub{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;opacity:.75;margin-top:4px}
+  body[data-theme=dazhe] .gbar .menu-lb{display:block;font-size:10.5px;letter-spacing:.12em;opacity:.55;margin:0 8px 6px}
+  body[data-theme=dazhe] .tabs{flex-direction:column;gap:2px}
+  body[data-theme=dazhe] .tabs button{display:flex;align-items:center;gap:10px;text-align:left;font-size:14.5px;font-weight:600;color:var(--tx);padding:10px 12px;border-radius:6px;border-left:3px solid transparent}
+  body[data-theme=dazhe] .tabs button:hover{background:rgba(11,11,12,.06)}
+  body[data-theme=dazhe] .tabs button[aria-current="page"]{background:var(--side2);border-left-color:var(--tx);font-weight:800}
+  body[data-theme=dazhe] .gbar .nav-ic{display:block;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;flex:none}
+  body[data-theme=dazhe] .gbar .sp{flex:1;min-height:18px}
+  body[data-theme=dazhe] .gbar .pts,body[data-theme=dazhe] .gbar .who{justify-content:flex-start;text-align:left;background:rgba(255,255,255,.45);border:1px solid rgba(11,11,12,.18);border-radius:6px;padding:8px 12px;font-size:13.5px;margin:0}
+  body[data-theme=dazhe] .gbar #loginBtn{background:var(--tx);color:#fff;border-radius:3px;font-weight:800;height:40px}
+  body[data-theme=dazhe] .gbar #taskBtn{align-self:flex-start;margin-top:2px}
+  body[data-theme=dazhe] #asStudent{text-align:left}
+}
+@media (max-width:760px){
+  body[data-theme=dazhe] .gbar{background:var(--side);border-bottom:1px solid rgba(11,11,12,.12)}
+  body[data-theme=dazhe] .logo>span:first-child,body[data-theme=dazhe] .logo .x{display:none}
+  body[data-theme=dazhe] .logo .dz{background:none;padding:0;font-weight:900;font-size:16px}
+  body[data-theme=dazhe] .gbar .who{max-width:38vw;overflow:hidden;text-overflow:ellipsis}
+  body[data-theme=dazhe] .tbar{background:var(--side);border-top:1px solid rgba(11,11,12,.15)}
+  body[data-theme=dazhe] .tbar button{color:rgba(11,11,12,.6)}
+  body[data-theme=dazhe] .tbar button[aria-current="page"]{color:var(--tx);font-weight:800}
+  body[data-theme=dazhe] .hero{padding:28px 16px 0}
+  body[data-theme=dazhe] .wrap{padding-left:16px;padding-right:16px}
+  body[data-theme=dazhe] .foot{padding-left:16px}
+  .stylepick{padding:14px}
+  .stgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+}
+
+/* ===== 视频风格（像谁拍的） ===== */
+.stylepick{margin-top:16px;padding:20px;border-radius:var(--r2);background:var(--pn);border:var(--bd)}
+.stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:12px 0 8px}
+.stc{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:14px;border-radius:var(--r1);border:1px solid var(--ln2);background:var(--pn);min-width:0;transition:border-color .15s,background .15s}
+.stc:hover{border-color:var(--tx3)}
+.stc[aria-pressed="true"]{border-color:var(--tx);background:color-mix(in srgb,var(--ac) 22%,var(--pn));box-shadow:inset 0 0 0 1px var(--tx)}
+.stc .stn{font-weight:800;font-size:15.5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.stc .stn .tag{font-size:10.5px;padding:1px 6px}
+.stc .stl{font-size:12.5px;font-weight:700;color:var(--tx2)}
+.stc .std{font-size:13px;color:var(--tx2);line-height:1.45}
+.stc .stm{font-size:11.5px;color:var(--tx3);margin-top:2px}
+.todaystyles{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.stc .stn .tag.hot{background:var(--ac);color:var(--actx);border-color:var(--tx)}

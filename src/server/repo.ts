@@ -27,7 +27,7 @@ export function makeRepo(db: DB) {
     ws(id: string): (Workspace & { ownerId: string }) | null { const r = db.prepare('SELECT w.*, o.balance AS obal FROM workspaces w JOIN owners o ON o.id = w.owner_id WHERE w.id=?').get(id) as Row | undefined; return r ? toWs(r) : null; },
     insertWs(owner: string, persona: PersonaId, positioning: Positioning): Workspace & { ownerId: string } {
       const id = newId('ws');
-      db.prepare('INSERT INTO workspaces (id, owner_id, persona, positioning, created_at) VALUES (?,?,?,?,?)').run(id, owner, persona, JSON.stringify(positioning), now());
+      db.prepare('INSERT INTO workspaces (id, owner_id, persona, positioning, created_at, theme) VALUES (?,?,?,?,?,?)').run(id, owner, persona, JSON.stringify(positioning), now(), 'dazhe');
       return this.ws(id)!;
     },
     setPositioning: (ws: string, p: Positioning) => { db.prepare('UPDATE workspaces SET positioning=? WHERE id=?').run(JSON.stringify(p), ws); },

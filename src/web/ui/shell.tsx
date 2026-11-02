@@ -12,7 +12,7 @@ import { SoonBadge, setAsStudent, useMods } from './mods.tsx';
 export const TAB_MODS: Record<string, string[]> = { home: ['today'], gen: ['real', 'talk', 'aiVideo'], ops: ['unlock'], me: ['kb', 'voiceClone', 'avatars'], lib: ['works', 'assets'] };
 const TABS: [View, string, string][] = [['home', '今天', '今天'], ['gen', '生成视频', '生成'], ['ops', 'AI 运营', '运营'], ['me', '知识库与形象', '知识库'], ['lib', '我的作品', '作品']];
 const ICON: Record<string, string> = { home: 'i-home', gen: 'i-wb', ops: 'i-cal', lib: 'i-lib', me: 'i-make' };
-const THEMES: [string, string][] = [['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
+const THEMES: [string, string][] = [['dazhe', '大哲'], ['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
 export function Header() {
@@ -68,9 +68,10 @@ export function Header() {
 
   return <>
     <header className="gbar">
-      <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲</span></div>
+      <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲<br className="sub" />IP研究院</span><span className="sub">视频工作室 · FIND AI 联合出品</span></div>
+      <p className="menu-lb">菜单 / MODULES</p>
       <nav className="tabs" aria-label="主导航">
-        {tabs.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}>{n}{badge(v)}</button>)}
+        {tabs.map(([v, n]) => <button key={v} data-go={v} aria-current={route.view === v ? 'page' : undefined} onClick={() => nav(v)}><svg className="nav-ic" aria-hidden="true"><use href={`#${ICON[v]}`} /></svg>{n}{badge(v)}</button>)}
         {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
         {session?.isAdmin && <button id="asStudent" className={mods.student ? 'on' : ''} title="管理员预览：和学员看到的一样" onClick={() => setAsStudent(!mods.student)}>{mods.student ? '按学员看 ✓' : '按学员看'}</button>}
       </nav>

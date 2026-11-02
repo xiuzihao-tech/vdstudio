@@ -22,14 +22,15 @@ export interface TopicProvider {
 export interface CopyProvider {
   generate(ctx: Ctx, t: Topic, o: { kind: CopyKind; len: CopyLen; tone: Tone; version: number; quality?: 'fast' | 'fine';
     /** 系统从知识库挑好的素材（这条只用这些，不要自己编） */ materials?: { kind: string; text: string }[];
-    /** 本人的说话习惯：只做语气参考 */ habits?: string[]; /** 不说的话 */ avoid?: string[]; column?: string; tags?: string[] }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
+    /** 本人的说话习惯：只做语气参考 */ habits?: string[]; /** 不说的话 */ avoid?: string[]; column?: string; tags?: string[];
+    /** 视频风格：文案按这个风格的写法来 */ style?: { n: string; copy: string } | null }): Promise<Omit<CopyDraft, 'id' | 'updatedAt' | 'assetIds'>>;
   /** AI 面诊：按回答出 IP 定位报告 */
   diagnose(ctx: Ctx, qa: { section: string; q: string; a: string }[]): Promise<Omit<DiagReport, 'createdAt'>>;
   /**
    * 实拍出片：每段素材写一句画外音（返回的句数 = 素材数），外加一个标题。
    * clips[i].noteSrc = 'name' 表示只知道文件名、不知道画面内容：台词不能描述看不到的东西。dur = 这段素材多长（秒），台词要说得完。
    */
-  footage(ctx: Ctx, clips: { type: string; note: string; noteSrc?: string | null; dur?: number | null }[], idea: string, materials: string[]): Promise<{ title: string; lines: string[] }>;
+  footage(ctx: Ctx, clips: { type: string; note: string; noteSrc?: string | null; dur?: number | null }[], idea: string, materials: string[], style?: { n: string; copy: string } | null): Promise<{ title: string; lines: string[] }>;
   rewrite(ctx: Ctx, d: CopyDraft, how: Rewrite, hook: string): Promise<{ draft: CopyDraft; changed: number }>;
   humanize(ctx: Ctx, text: string): Promise<string>;
 }

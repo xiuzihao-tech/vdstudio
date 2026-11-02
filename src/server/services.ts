@@ -1,4 +1,5 @@
 // 业务服务：新建工作区种子、排期补齐与调整、生成任务。路由只调用这里和 repo。
+import { effectiveStyle, styleOf } from '../shared/styles.ts';
 import { CADENCE, CATS, HOT_SEED, PERSONAS } from '../shared/catalog.ts';
 import { draftResOf, GEN_STEPS, genCost, isDraft, modelOf, shotsOf } from '../shared/gen.ts';
 import { addDays, columnOf, isPublishDay, iso, pickNext, slotState, whyOf, windowDates, weekdayOf, shortDate } from '../shared/schedule.ts';
@@ -164,7 +165,7 @@ const reportTags = (r: DiagReport | null) => (r ? [...r.tags.pro, ...r.tags.pers
  * 写一条文案：系统先从知识库挑素材（相关、最近没用过、履历有上限），把说话习惯当语气参考、不说的话当禁区，
  * 交给文案模型；面诊定下的栏目和标签每条都带上；写完自检 AI 腔，命中就让模型改一次；最后记下用了哪几条（下次轮换）。
  */
-export async function writeCopy(repo: Repo, providers: Providers, ws: Workspace, t: Topic, o: { len?: CopyLen; column?: string; kb?: boolean; version?: number } = {}) {
+export async function writeCopy(repo: Repo, providers: Providers, ws: Workspace, t: Topic, o: { len?: CopyLen; column?: string; kb?: boolean; version?: number; style?: string } = {}) {
   const items = o.kb === false ? [] : repo.kb(ws.id);
   const column = o.column ?? nextColumn(repo, ws)?.name;
   const picked = pickMaterials(items, `${t.title}${t.hook}${column ?? ''}`, { recentResume: repo.recentResume(ws.id) });
@@ -172,7 +173,7 @@ export async function writeCopy(repo: Repo, providers: Providers, ws: Workspace,
   const avoid = items.filter(i => i.kind === 'avoid').map(i => i.text).slice(0, 8);
   const ctx = { persona: personaOf(ws.persona), positioning: ws.positioning };
   const report = repo.diagnosis(ws.id).report;
-  let g = await providers.copy.generate(ctx, t, { kind: '口播', len: o.len ?? 45, tone: ws.positioning.tone, version: o.version ?? 1, materials: picked.map(i => ({ kind: KIND_NAME[i.kind], text: i.text })), habits, avoid, column, tags: reportTags(report) });
+  let g = await providers.copy.generate(ctx, t, { kind: '口播', len: o.len ?? 45, tone: ws.positioning.tone, version: o.version ?? 1, materials: picked.map(i => ({ kind: KIND_NAME[i.kind], text: i.text })), habits, avoid, column, tags: reportTags(report), style: styleOf(o.style) });
   const text = () => [g.hook, ...g.body, g.cta].join('');
   const hits = cliches(text());
   if (hits.length) {
@@ -276,7 +277,7 @@ export async function lookAtAsset(repo: Repo, providers: Providers, ws: string, 
  * 实拍出片：按每段素材写一句画外音，素材顺序就是镜头顺序。
  * read：读素材文件（还没被看图模型看过的，这里补看一次，最多等 25 秒）。
  */
-export async function footageCopy(repo: Repo, providers: Providers, ws: Workspace, assetIds: string[], idea: string, read?: (a: Asset) => Promise<Buffer | null>) {
+export async function footageCopy(repo: Repo, providers: Providers, ws: Workspace, assetIds: string[], idea: string, read?: (a: Asset) => Promise<Buffer | null>, style?: string) {
   let assets = repo.assetsByIds(ws.id, assetIds);
   if (providers.vision && read) {
     assets = await Promise.all(assets.map(a => (a.noteSrc === 'ai' || !a.url ? a : Promise.race([
@@ -287,7 +288,7 @@ export async function footageCopy(repo: Repo, providers: Providers, ws: Workspac
   const clips = assets.map(a => ({ type: a.type, note: describeAsset(a), noteSrc: a.noteSrc ?? (a.source === '示例' ? 'sample' : 'name'), dur: a.dur ?? null }));
   const items = repo.kb(ws.id);
   const picked = pickMaterials(items, idea + clips.map(c => c.note).join(''), { n: 2, recentResume: repo.recentResume(ws.id) });
-  const r = await providers.copy.footage({ persona: personaOf(ws.persona), positioning: ws.positioning }, clips, idea, picked.map(i => i.text));
+  const r = await providers.copy.footage({ persona: personaOf(ws.persona), positioning: ws.positioning }, clips, idea, picked.map(i => i.text), styleOf(style));
   repo.markKbUsed(ws.id, picked.map(i => i.id), picked.map(i => i.kind));
   return { title: r.title, lines: r.lines, assets: assets.map((a, i) => ({ id: a.id, note: clips[i].note, noteSrc: clips[i].noteSrc, dur: a.dur ?? null, best: a.best ?? null })), used: picked };
 }
@@ -467,7 +468,7 @@ export class JobRunner {
           // 每镜裁到它的时长（生成时向上取整多出来的部分去掉）；素材原片从选定的秒数开始；配音比画面长时画面定格到说完
           const r = await composeVideo({
             urls: idx.map(i => local[i]), lines: idx.map(i => output.shots[i].line), durs: idx.map(i => output.shots[i].dur), starts: idx.map(i => output.shots[i].start ?? 0),
-            ratio: g.ratio, res: output.res, outFile: out, font: this.opts.font, subtitles: g.subs,
+            ratio: g.ratio, res: output.res, outFile: out, font: this.opts.font, subtitles: g.subs, subStyle: effectiveStyle(g).subs,
             voices: voice.files, music, musicVol: g.bgmVol ?? 0.2, keepOrig: idx.map(i => g.ambience && output.shots[i].source === 'clip'), origVol: 0.25,
           });
           output.len = Math.round(r.secs);
