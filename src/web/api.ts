@@ -4,6 +4,7 @@ import type { ModState, ModView, ModuleConfig, ModuleDef, Preset } from '../shar
 import type { SlotMetrics, Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
+import type { StudioState } from '../shared/studio.ts';
 
 export interface AiStatus {
   copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
@@ -146,6 +147,12 @@ export const api = {
   reroll: (planId: string) => call<{ message: string; plans: PlanBundle[] }>('POST', `/api/plans/${planId}/reroll`),
   backlog: (planId: string, topicId: string, remove = false) => call<{ plans: PlanBundle[] }>('POST', `/api/plans/${planId}/backlog`, { topicId, remove }),
   published: () => call<{ items: { title: string; account: string; date: string }[] }>('GET', '/api/published'),
+
+  studio: () => call<{ state: StudioState }>('GET', '/api/studio'),
+  saveStudio: (p: Partial<StudioState>) => call<{ state: StudioState }>('PUT', '/api/studio', p),
+  unlockStudio: () => call<{ state: StudioState }>('POST', '/api/studio/unlock'),
+  resetStudio: () => call<{ state: StudioState }>('POST', '/api/studio/reset'),
+  render: (title: string, cost: number) => call<{ balance: number }>('POST', '/api/studio/render', { title, cost }),
 
   covers: () => call<{ covers: { id: string; title: string; style: string }[] }>('GET', '/api/covers'),
   addCover: (title: string, style: string, generate: boolean) => call<{ covers: { id: string; title: string; style: string }[]; balance: number }>('POST', '/api/covers', { title, style, generate }),

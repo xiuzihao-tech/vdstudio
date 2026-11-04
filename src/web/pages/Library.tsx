@@ -25,7 +25,7 @@ export function LibraryPage() {
 }
 
 /** 保存期限和容量：用了多少、哪些 7 天内到期（先下载） */
-function StorageBar() {
+export function StorageBar() {
   const d = useData(() => api.storage(), []);
   const x = d.data;
   if (!x || (!x.retentionDays && !x.capacityMb)) return null;

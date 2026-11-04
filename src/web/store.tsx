@@ -4,7 +4,7 @@ import { api, ApiError, type Session } from './api.ts';
 import { setVideoModels } from '../shared/gen.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
-export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk';
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk' | 'diag' | 'make' | 'mat' | 'sched' | 'data';
 export interface Route { view: View; sub?: string; id?: string }
 
 /** 离线单文件版（file:// 打开）用 #/gen 这样的地址；正常部署用 /gen */
@@ -15,8 +15,8 @@ export const curPath = () => HASH ? `/${decodeURIComponent(location.hash.slice(1
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
-  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin', 'talk'];
-  // 根路径是「今天」页（模块关了就显示生成视频）；老的 /plan 链接进 AI 运营
+  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin', 'talk', 'diag', 'make', 'mat', 'sched', 'data'];
+  // 根路径是「一键生成视频」首页；老的 /plan 链接进 AI 运营（旧页面代码保留，菜单里不再出现）
   const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'home';
   return { view, sub: sub || undefined, id: id || undefined };
 }
@@ -106,7 +106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <C.Provider value={value}>
       {children}
       <div className={`scrim${sheetSpec ? ' on' : ''}`} onClick={dismiss} />
-      <div className={`sheet${sheetSpec ? ' on' : ''}`} role="dialog" aria-modal="true" aria-labelledby="shT" aria-hidden={!sheetSpec}>
+      <div className={`sheet${sheetSpec ? ' on' : ''}${sheetSpec?.wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="shT" aria-hidden={!sheetSpec}>
         {sheetSpec && <>
           <div className="shh"><h2 id="shT">{sheetSpec.title}</h2><button className="cls" id="shX" aria-label="关闭" autoFocus onClick={dismiss}>×</button></div>
           <div className="sb" id="shB">{sheetSpec.body}</div>

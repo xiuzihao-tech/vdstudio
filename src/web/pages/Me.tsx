@@ -31,7 +31,7 @@ export function MePage() {
   </div></section>;
 }
 
-function Kb() {
+export function Kb() {
   const { fail, toast, nav } = useApp();
   const d = useData(() => api.kb(), []);
   const [form, setForm] = useState<{ section: KbSection; kind: KbKind; text: string } | null>(null);
@@ -50,7 +50,7 @@ function Kb() {
     <div className="howcard">
       <b>写文案时怎么用</b>
       <p className="s m">每写一条，系统按选题挑 1–3 条最相关、最近没用过的素材交给 AI；「履历」最多隔几条用一次，「说话习惯」只学语气，「不说的话」不会出现。面诊的回答也会自动存进来。</p>
-      {!items.length && <button className="btn y" onClick={() => nav('ops')}>去做 AI 面诊，一次填好 →</button>}
+      {!items.length && <button className="btn y" onClick={() => nav('diag')}>去做账号诊断，一次填好 →</button>}
     </div>
     {stale && <div className="gwarn" id="kbStale" style={{ marginTop: 14 }}><div><span style={{ flex: 1 }}>知识库改过了，面诊报告里的标签<b>可重新提取</b>。</span><button className="btn g sm" onClick={() => nav({ view: 'ops', sub: 'report' })}>去报告里重新提取</button></div></div>}
     <div className="kbgrid" id="kbGrid">{(['personal', 'pro', 'brand'] as KbSection[]).map(sec => {

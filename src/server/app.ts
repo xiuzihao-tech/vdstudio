@@ -24,6 +24,7 @@ import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
 import { MODULES, PRESETS, closedParents, moduleForApi, normalizeConfig, presetStates, viewFor, type ModuleConfig, type Preset } from '../shared/modules.ts';
 import { makeRetention } from './retention.ts';
+import { defaultStudio, emptyDiag, type StudioState } from '../shared/studio.ts';
 import type { CopyDraft, Workspace } from '../shared/types.ts';
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.map': 'application/json',
@@ -504,6 +505,42 @@ export function createApp(opts: AppOptions) {
     if (d.generate && !repo.charge(ws.id, 12, `封面 + 配图：${d.title}`, null)) throw new HttpError(402, '余额不足：需要 12 点');
     repo.insertCover(ws.id, d.title, d.style);
     return { covers: repo.covers(ws.id), balance: repo.ws(ws.id)!.balance };
+  });
+  /* ---------- 视频 IP 新版（苗苗原型）：诊断、发布计划、出片草稿存成一份 ---------- */
+  const studioKey = (ws: string) => `studio:${ws}`;
+  const studioOf = (ws: string): StudioState => {
+    const raw = ops.getSetting(studioKey(ws));
+    const base = defaultStudio(todayIso());
+    if (!raw) return base;
+    try { const x = JSON.parse(raw) as Partial<StudioState>; return { ...base, ...x, diag: { ...emptyDiag(), ...(x.diag ?? {}) } }; } catch { return base; }
+  };
+  const saveStudio = (ws: string, st: StudioState) => {
+    const v = JSON.stringify(st);
+    if (v.length > 400_000) throw new HttpError(413, '内容太多了，先清掉一些');
+    ops.setSetting(studioKey(ws), v);
+  };
+  r.get('/api/studio', req => ({ state: studioOf(W(req).id) }));
+  r.put('/api/studio', async req => {
+    const ws = W(req);
+    const d = await body(req, z.object({ diag: z.record(z.unknown()).optional(), plan: z.array(z.record(z.unknown())).max(400).optional(), works: z.array(z.record(z.unknown())).max(400).optional(), draft: z.record(z.unknown()).nullable().optional(), avatar: z.string().max(40).optional() }));
+    // 解锁只能走 /api/studio/unlock
+    const cur = studioOf(ws.id);
+    const next = { ...cur, ...d, diag: d.diag ? { ...cur.diag, ...d.diag, unlocked: cur.diag.unlocked } : cur.diag } as StudioState;
+    saveStudio(ws.id, next);
+    return { state: next };
+  });
+  r.post('/api/studio/unlock', req => {
+    // 演示：¥899 走线下 / 课程开通，这里只记已解锁，不扣点
+    const ws = W(req), st = studioOf(ws.id);
+    st.diag.unlocked = true; saveStudio(ws.id, st); ops.track(ctx(req).owner, ws.id, 'diag_unlocked');
+    return { state: st };
+  });
+  r.post('/api/studio/reset', req => { const ws = W(req); ops.setSetting(studioKey(ws.id), null); return { state: studioOf(ws.id) }; });
+  r.post('/api/studio/render', async req => {
+    const ws = W(req), d = await body(req, z.object({ title: z.string().trim().max(60).default('一条视频'), cost: z.number().int().min(1).max(2000) }));
+    if (!repo.charge(ws.id, d.cost, `一键生成视频：${d.title || '一条视频'}`, null)) throw new HttpError(402, `余额不足：需要 ${d.cost} 点`);
+    ops.track(ctx(req).owner, ws.id, 'gen_done');
+    return { balance: repo.ws(ws.id)!.balance };
   });
   void CADENCE;
 

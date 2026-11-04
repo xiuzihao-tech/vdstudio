@@ -10,7 +10,7 @@ const PORT = 5300 + Math.floor(Math.random() * 500);
 const data = mkdtempSync(join(tmpdir(), 'findai-e2e-'));
 const shots = process.env.SHOTS ?? join(data, 'shots');
 mkdirSync(shots, { recursive: true });
-const srv = spawn(process.execPath, ['--no-warnings', 'dist/server.js'], { env: { ...process.env, PORT: String(PORT), DATA_DIR: data, MOCK_DELAY_MS: '60', ADMIN_EMAILS: 'boss@example.com', DAILY_JOBS_PER_USER: '50' }, stdio: 'inherit' });
+const srv = spawn(process.execPath, ['--no-warnings', 'dist/server.js'], { env: { ...process.env, PORT: String(PORT), DATA_DIR: data, MOCK_DELAY_MS: '60', ADMIN_EMAILS: 'boss@example.com', DAILY_JOBS_PER_USER: '50', RATE_LIMIT_PER_MIN: '600' }, stdio: 'inherit' });
 const base = `http://localhost:${PORT}`;
 for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/session'); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
 
@@ -32,10 +32,10 @@ const shot = n => page.screenshot({ path: join(shots, `${n}.png`), fullPage: tru
 
 await page.goto(base + '/gen');
 const COPY = '你家玄关，是不是一进门就乱？\n这个项目，我们只解决了一件事。\n鞋、外套、快递，三样东西三个高度。\n凳面四十二公分，老人孩子都好坐。\n很多人装修只看效果图，没想过住进去以后每天怎么用。\n想看你家能怎么改，私信发户型图。';
-await run('导航：4 个入口，选题文案和制作台已隐藏', async () => {
-  const tabs = await $('.tabs [data-go]').allTextContents();
-  for (const t of ['今天', '生成视频', 'AI 运营', '我的作品', '知识库与形象']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t);
-  if (tabs.includes('制作台') || tabs.includes('选题文案')) throw new Error('隐藏的入口还在：' + tabs.join(','));
+await run('导航：视频 IP 主线 5 个入口（苗苗原型），旧入口不在菜单里', async () => {
+  const tabs = (await $('.tabs [data-go]').allTextContents()).map(t => t.replace(/\d+$/, ''));
+  for (const t of ['大哲诊断账号', '一键生成视频', '管理我的素材', '安排发布计划', '查看作品数据']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t + '：' + tabs.join(','));
+  for (const t of ['今天', 'AI 运营', '知识库与形象', '口播数字人', '数字人与品牌']) if (tabs.includes(t)) throw new Error('旧入口还在：' + t);
 });
 const hasFf = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 await run('实拍出片（默认）：上传区是主角、看素材写文案、镜头不超过素材长度、成片说明配音和音乐', async () => {
@@ -104,7 +104,7 @@ await run('生成 → 作品详情：轨道、单镜重做只收那一镜', asyn
   if (Number((await $('#bal').textContent()).replace(/,/g, '')) >= before) throw new Error('余额没变');
 });
 await run('形象与声音：建真人分身（带授权）→ 口播自动出镜', async () => {
-  await $('.tabs [data-go=me]').click(); await $('#meTabs button', { hasText: '形象与声音' }).click(); await $('[data-mk=clone]').click();
+  await page.goto(base + '/me'); await $('#meTabs button', { hasText: '形象与声音' }).click(); await $('[data-mk=clone]').click();
   if (!(await $('#avDemo').isDisabled())) throw new Error('没勾授权也能提交');
   await $('.sheet input[type=checkbox]').check(); await $('#avDemo').click();
   await page.waitForTimeout(400); await page.reload(); await $('#meClone2 .src', { hasText: '可用' }).waitFor();
@@ -115,7 +115,7 @@ await run('形象与声音：建真人分身（带授权）→ 口播自动出�
   if (!/数字人/.test(await $('#v-gen .gbox .list').textContent())) throw new Error('费用里没有数字人');
 });
 await run('AI 运营：付费解锁 → AI 面诊 → 报告 → 栏目进排期', async () => {
-  await $('.tabs [data-go=ops]').click(); await $('#unlockBtn').waitFor();
+  await page.goto(base + '/ops'); await $('#unlockBtn').waitFor();
   await shot('06a_unlock');
   await $('#unlockBtn').click(); await $('#unlockOk').click();
   const ans = ['原来在家装公司做了五年，后来自己开了工作室，第一单是朋友介绍的', '周末喜欢带孩子去钓鱼', '发了一些完工的照片，点赞很少'];
@@ -146,14 +146,14 @@ await run('点数：兑换码不对会提示', async () => {
   errors.splice(0, errors.length, ...errors.filter(e => !e.includes('/api/points/redeem')));
 });
 await run('知识库：三块、手动加一条', async () => {
-  await $('.tabs [data-go=me]').click(); await $('#meTabs button', { hasText: '知识库' }).click();
+  await page.goto(base + '/me'); await $('#meTabs button', { hasText: '知识库' }).click();
   await $('[data-kbadd=pro]').click(); await $('.kbform textarea').fill('鞋柜做到顶，留 15 公分放拖鞋');
   await $('[data-kbsave=pro]').click(); await $('#kbGrid .kbi', { hasText: '鞋柜做到顶' }).waitFor();
   await shot('05b_kb');
 });
 await run('作品：能打开作品详情；素材送去生成', async () => {
-  await $('.tabs [data-go=lib]').click(); await $('#works [data-open]').first().click(); await $('#gResult').waitFor();
-  await $('.tabs [data-go=lib]').click(); await $('#libTabs button', { hasText: '素材' }).click();
+  await page.goto(base + '/lib'); await $('#works [data-open]').first().click(); await $('#gResult').waitFor();
+  await page.goto(base + '/lib'); await $('#libTabs button', { hasText: '素材' }).click();
   const png = join(data, 'up.png');
   writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
   const chooser = page.waitForEvent('filechooser'); await $('#upBtn').click(); await (await chooser).setFiles(png);
@@ -161,6 +161,46 @@ await run('作品：能打开作品详情；素材送去生成', async () => {
   await $('[data-snd=gen]').click();
   await $('#gAtt img').first().waitFor();
   await shot('07_lib');
+});
+await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发布队列 → 发布计划；诊断一键演示 → 选题进计划 → 发了 → 作品数据', async () => {
+  await page.goto(base + '/'); await $('#mkDrop').waitFor();
+  await $('[data-smp=s1]').click(); await $('#smpGo').click(); await $('#mkStep1').waitFor();
+  if ((await $('#mkType').inputValue()) !== 'tour') throw new Error('做同款没带上类型');
+  if (!(await $('#mkNext1').isDisabled())) throw new Error('什么都没放也能下一步');
+  await $('#mkSamplesBtn').click(); await $('#mkStep1 .matgrid .mat').first().waitFor();
+  await $('#mkNoCopy').waitFor();
+  await $('#mkType').selectOption('auto'); await $('#mkSampleCopy').click();
+  await $('#mkNext1').click(); await $('#mkStep2').waitFor();
+  await $('#mkReco').waitFor();
+  await $('#mkSwap [data-ty=talk]').click();
+  if (!/真人口播/.test(await $('#mkReco').textContent())) throw new Error('换类没生效');
+  await $('#mkAvSwap').click(); await $('[data-av=lin]').click();
+  if (!/林设计师/.test(await $('#mkAvatar').textContent())) throw new Error('换数字人没生效');
+  await shot('20_mk_step2');
+  await $('#mkNext2').click(); await $('#mkShots li').first().waitFor();
+  const before = Number((await $('#bal').textContent()).replace(/,/g, ''));
+  await $('#mkGen').click(); await $('#mkCostSheet').waitFor(); await $('#mkPay').click();
+  await $('#mkStep4').waitFor({ timeout: 10000 });
+  await page.waitForTimeout(400);
+  if (Number((await $('#bal').textContent()).replace(/,/g, '')) !== before - 60) throw new Error('没按 60 点扣');
+  if (!/5\/5/.test(await $('#mkPub').textContent())) throw new Error('发布清单没齐');
+  if (await page.getByText('保存草稿').count()) throw new Error('还有保存草稿');
+  await shot('21_mk_step4');
+  await $('#mkQueue').click(); await $('#mkQueueOk').click();
+  await $('#v-sched .ptr.hl').waitFor();
+  await page.goto(base + '/diag'); await $('#dgUnlock').click(); await $('#dgPay').click();
+  await $('#dgChat').waitFor(); await $('#dgDemo').click();
+  await $('#dgResult').waitFor({ timeout: 20000 });
+  if (!/吃苦耐劳/.test(await $('#dgResult').textContent()) || await $('#dgResult .colname').first().inputValue() !== '法式大宅品鉴') throw new Error('盛哥演示的结果不对');
+  await $('#dgNext').click();
+  for (let i = 0; i < 4; i++) await $(`[data-ask="${i}"] button`).nth(2).click();
+  await $('#dgTopics li').nth(14).waitFor();
+  await $('#dgSave').click(); await $('#schDiagWait').waitFor();
+  await $('#schConfirmAll').click();
+  await $('#v-sched .seg button', { hasText: '全部' }).click();
+  await $('[data-act=pub]').first().click();
+  await page.goto(base + '/data'); await $('#dataTable .ptr').first().waitFor();
+  if ((await $('#dataTable .ptr').count()) < 7) throw new Error('发了的没进作品数据');
 });
 await run('账号：注册保留内容 → 退出 → 登录', async () => {
   await $('#loginBtn').click(); await $('#authForm .seg button', { hasText: '注册' }).click();
@@ -177,7 +217,7 @@ await run('账号：注册保留内容 → 退出 → 登录', async () => {
 });
 await run('切换人设与主题', async () => {
   await $('#whoBtn').click(); await $('[data-pv=dev]').click(); await page.waitForTimeout(400);
-  await $('.tabs [data-go=gen]').click(); await $('[data-gs="1"]').click(); await $('#gTypes [data-ty]').first().waitFor();
+  await page.goto(base + '/gen'); await $('[data-gs="1"]').click(); await $('#gTypes [data-ty]').first().waitFor();
   await $('#whoBtn').click(); await $('[data-th=cinema]').click(); await $('#shX').click();
   await shot('10_cinema');
 });
@@ -202,7 +242,7 @@ await run('提意见 → 管理员后台：漏斗、反馈、邀请码、暂停�
   if (!(await a.locator('textarea[readonly]').inputValue()).includes('?invite=FD')) throw new Error('邀请链接不对');
   await a.locator('#v-admin .seg button', { hasText: '用户' }).click(); await a.locator('#userList', { hasText: 'lin@example.com' }).waitFor();
   await a.locator('#v-admin .seg button', { hasText: '概览' }).click(); await a.locator('#pauseSw').uncheck(); await a.waitForTimeout(300);
-  await page.locator('.tabs [data-go=gen]').click(); await page.reload();
+  await page.goto(base + '/gen');
   await page.getByText('生成功能暂时关闭').waitFor();
   if (await page.locator('#gGo').count() && !(await page.locator('#gGo').isDisabled())) throw new Error('暂停后生成按钮还能点');
   await a.locator('#pauseSw').check();
@@ -227,30 +267,28 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   const s = await ctx4.newPage();
   s.on('pageerror', e => errors.push(`student pageerror: ${e.message}`));
   await s.goto(base);
-  await s.locator('#v-today').waitFor();
-  await s.locator('#todayDiag').waitFor();
-  if (!(await s.locator('#todayEntries [data-entry=real]').count())) throw new Error('今天页没有三个入口');
-  await s.screenshot({ path: join(shots, '13_today.png'), fullPage: true });
-  await s.locator('.tabs [data-go=gen]').click();
+  await s.locator('#v-make #mkDrop').waitFor();
+  await s.locator('#mkDiag').waitFor();
+  await s.screenshot({ path: join(shots, '13_make_home.png'), fullPage: true });
+  await s.goto(base + '/gen');
   await s.locator('#gTypes').waitFor();
   await s.locator('#gToStep2').click(); await s.locator('#gCtl').waitFor();
-  await s.locator('.tabs [data-go=me]').click(); await s.locator('#kbGrid').waitFor();
-  if (!(await s.locator('.tabs [data-go=talk]').count())) throw new Error('菜单里没有口播数字人');
+  await s.goto(base + '/me'); await s.locator('#kbGrid').waitFor();
+  if (await s.locator('.tabs [data-go=talk]').count()) throw new Error('口播数字人不该再单独出现在菜单里');
   await s.locator('[data-kblink=pro]').click(); await s.locator('[data-kburl=pro]').fill('https://example.com/case/123'); await s.locator('[data-kburlgo=pro]').click();
   await s.locator('#kbGrid', { hasText: '打开链接' }).waitFor();
-  await s.locator('#todayDiag').count();
-  await s.locator('.tabs [data-go=home]').click(); await s.locator('#todayDiag button').click();
+  await s.goto(base + '/ops/diag');
   await s.locator('#unlockBtn').click(); await s.locator('#unlockOk').click();
   await s.locator('#diagAttach').waitFor();
   await s.locator('#diagUrl').fill('https://v.douyin.com/abc123/'); await s.locator('#diagUrlGo').click();
   await s.locator('#diagAttList', { hasText: '抖音' }).waitFor();
   await s.screenshot({ path: join(shots, '14_diag_attach.png'), fullPage: true });
   // 管理员「按学员看」后台入口还在、导航和学员一致
-  await a.locator('#asStudent').click(); await a.locator('.tabs [data-go=home]').click(); await a.locator('#v-today').waitFor();
+  await a.locator('#asStudent').click(); await a.locator('.tabs [data-go=make]').click(); await a.locator('#v-make').waitFor();
   await a.locator('#asStudent').click();
   await a.locator('.tabs [data-go=admin]').click(); await a.locator('#v-admin .seg button', { hasText: '模块开关' }).click();
   await a.locator('#modAdmin [data-preset=all]').click(); await a.waitForTimeout(300);
-  await s.reload(); await s.locator('.tabs [data-go=talk]').click(); await s.locator('#v-talk #talkStyles').waitFor();
+  await s.goto(base + '/talk'); await s.locator('#v-talk #talkStyles').waitFor();
   await ctx3.close(); await ctx4.close();
 });
 
@@ -258,7 +296,7 @@ const m = await browser.newPage({ viewport: { width: 390, height: 844 } });
 m.on('pageerror', e => errors.push(`mobile pageerror: ${e.message}`));
 await m.goto(base);
 await run('手机宽度无横向滚动', async () => {
-  for (const v of ['home', 'gen', 'ops', 'lib', 'me']) {
+  for (const v of ['make', 'diag', 'mat', 'sched', 'data']) {
     await m.locator(`.tbar [data-go=${v}]`).click(); await m.waitForTimeout(400);
     const w = await m.evaluate(() => document.documentElement.scrollWidth);
     if (w > 392) throw new Error(`${v} 页宽 ${w}`);

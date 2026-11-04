@@ -11,10 +11,14 @@ import { LibraryPage } from './pages/Library.tsx';
 import { LoginScreen } from './ui/auth.tsx';
 import { AdminPage } from './pages/Admin.tsx';
 import { FeedbackButton } from './ui/feedback.tsx';
-import { TodayPage } from './pages/Today.tsx';
 import { TalkPage } from './pages/Talk.tsx';
 import { SoonCard, useMods } from './ui/mods.tsx';
 import { TAB_MODS } from './ui/shell.tsx';
+import { MakePage } from './pages/studio/Make.tsx';
+import { DiagPage } from './pages/studio/Diag.tsx';
+import { SchedPage } from './pages/studio/Sched.tsx';
+import { MatPage } from './pages/studio/Mat.tsx';
+import { DataPage } from './pages/studio/Data.tsx';
 
 function Pages() {
   const { session, route, needLogin, nav } = useApp();
@@ -25,14 +29,17 @@ function Pages() {
   // key：切换人设时整页重挂载，避免上一个工作区的状态残留
   const k = session.workspace.id;
   // 模块开关：这个区的模块全是预告就显示「即将上线」，全关了就说还没开放
-  const ids = TAB_MODS[route.view === 'plan' ? 'ops' : route.view];
-  if (route.view === 'home' && !mods.on('today')) return <GenPage key={k} />;
-  if (ids && route.view !== 'home' && !mods.any(...ids)) return <section className="view on" id="v-closed"><div className="vb wrap" style={{ maxWidth: 640, paddingTop: 80 }}>
+  const ids = TAB_MODS[route.view === 'plan' ? 'ops' : route.view === 'home' ? 'make' : route.view];
+  if (ids && !mods.any(...ids)) return <section className="view on" id="v-closed"><div className="vb wrap" style={{ maxWidth: 640, paddingTop: 80 }}>
     {mods.anyShown(...ids) ? ids.filter(mods.shown).map(id => <SoonCard key={id} id={id} />) : <p className="s m" style={{ textAlign: 'center' }}>这个功能还没开放。</p>}
-    <div style={{ textAlign: 'center', marginTop: 20 }}><button className="btn g" onClick={() => nav('home')}>回到今天</button></div>
+    <div style={{ textAlign: 'center', marginTop: 20 }}><button className="btn g" onClick={() => nav('make')}>回到一键生成视频</button></div>
   </div></section>;
   switch (route.view) {
-    case 'home': return <TodayPage key={k} />;
+    case 'home': case 'make': return <MakePage key={k} />;
+    case 'diag': return <DiagPage key={k} />;
+    case 'sched': return <SchedPage key={k} />;
+    case 'mat': return <MatPage key={k} />;
+    case 'data': return <DataPage key={k} />;
     case 'talk': return <TalkPage key={k} />;
     case 'ip': return <IpPage key={k} />;
     case 'gen': return <GenPage key={k} />;
