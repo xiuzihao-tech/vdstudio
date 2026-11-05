@@ -88,6 +88,8 @@ export interface MakeDraft {
   /** 从发布计划某一条来的 */
   planId?: string | null;
   cost: number; rendered?: boolean; updatedAt: string;
+  /** Seedance 2.5 样片模式：样片任务、成片任务 */
+  sampleJob?: string | null; finalJob?: string | null;
 }
 
 export const chars = (s: string) => s.replace(/\s/g, '').length;
@@ -371,4 +373,38 @@ export interface StudioState { diag: DiagState; plan: PlanItem[]; works: PlanIte
 export const emptyDiag = (): DiagState => ({ unlocked: false, msgs: [], asked: 0, result: null, counts: null, topics: null, saved: false, round: 1 });
 export function defaultStudio(today: string): StudioState {
   return { diag: emptyDiag(), plan: samplePlan(today), works: sampleWorks(today), draft: null, avatar: 'me-clone' };
+}
+
+/* ---------- 出片：Seedance 2.5 样片模式 ---------- */
+/** 样片按成片价的四成收（480p，先看构图和节奏），满意再出 1080p 成片 */
+export const SAMPLE_RATE = 0.4;
+export const sampleCost = (finalCost: number) => Math.max(10, Math.round(finalCost * SAMPLE_RATE / 5) * 5);
+export const SAMPLE_MODEL = 's25';
+
+const TYPE_MAP: Record<VType, 'tour' | 'talk' | 'house' | 'story' | 'product' | 'site' | 'vlog'> = { tour: 'tour', explain: 'talk', talk: 'talk', before: 'house', case: 'story', product: 'product', site: 'site', vlog: 'vlog' };
+const BGM_MAP: Record<string, string> = { 轻钢琴: '温暖钢琴', 城市律动: '城市律动', 弦乐氛围: '弦乐氛围', 轻电子: '轻电子', 不要音乐: '不要' };
+const RATIO_MAP: Record<string, '9:16' | '16:9' | '1:1' | '3:4'> = { '9:16 竖屏': '9:16', '3:4 竖屏': '3:4', '1:1 方形': '1:1', '16:9 横屏': '16:9' };
+
+/** 一键生成视频的草稿 → 生成任务的设置（每镜来源：你的照片做首帧 / 你的视频原片 / 你的数字人出镜 / AI 生成） */
+export function toGen(d: Pick<MakeDraft, 'shots' | 'type' | 'face' | 'avatar' | 'opt' | 'title' | 'mats'>, env: { voiceReady: boolean; avatars?: { clone: string; photo: string } }, sample: boolean) {
+  const t = vtype(d.type), av = avatarOf(d.avatar);
+  const mine = av.mine ? (av.id === 'me-photo' ? 'photo' : 'clone') : null;
+  const avatarOk = !!mine && env.avatars?.[mine] === 'ready';
+  const voice = d.opt.voice === '不要人声，只放音乐' || (d.opt.voice === 'AI 推荐' && d.face === 'none' && t.face === 'none') ? 'none'
+    : d.opt.voice === 'AI 配音·知性女声' ? 'p2'
+      : (d.opt.voice === '数字人本人声音' || (d.opt.voice === 'AI 推荐' && d.face === 'avatar' && avatarOk)) && env.voiceReady ? 'me' : 'p1';
+  const shots = d.shots.map((s, i) => {
+    const src = s.avatar ? (avatarOk ? 'avatar' : 'ai') : s.mat ? (s.mat.kind === 'video' ? 'clip' : 'frame') : 'ai';
+    const prompt = s.avatar && !avatarOk ? `一位${av.d.split(' · ').slice(0, 3).join('、')}的主播正面半身出镜，看着镜头自然说话` : `${s.title}。${s.tip}`;
+    return { id: s.id || `s${i + 1}`, line: s.line, dur: s.secs, lock: false, source: src as 'ai' | 'frame' | 'clip' | 'avatar', assetId: s.mat?.id ?? null, lastId: null, refIds: [], prompt, size: '', move: '', model: '', trans: '硬切' };
+  });
+  const len = shots.reduce((a, s) => a + s.dur, 0);
+  return {
+    copy: d.shots.map(s => s.line).join('\n'), prompt: '', title: d.title, topicId: null,
+    assetIds: [...new Set(d.shots.map(s => s.mat?.id).filter((x): x is string => !!x))],
+    model: SAMPLE_MODEL, len, ratio: RATIO_MAP[d.opt.ratio] ?? '9:16', res: '1080p' as const, draft: sample,
+    voice: voice as 'me' | 'p1' | 'p2' | 'none', speed: 1, bgm: BGM_MAP[d.opt.bgm === 'AI 推荐' ? t.bgm : d.opt.bgm] ?? '城市律动',
+    subs: true, ambience: true, cover: false, style: 'AI 推荐', type: TYPE_MAP[d.type], avatar: (avatarOk ? mine : 'none') as 'clone' | 'photo' | 'none',
+    emotion: '自动', pause: 0.3, bgmVol: 0.2, seed: false, shots,
+  };
 }

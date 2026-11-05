@@ -4,7 +4,7 @@ import { api, ApiError, type Session } from './api.ts';
 import { setVideoModels } from '../shared/gen.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
-export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk' | 'diag' | 'make' | 'mat' | 'sched' | 'data';
+export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk' | 'diag' | 'make' | 'mat' | 'sched' | 'data' | 'pay';
 export interface Route { view: View; sub?: string; id?: string }
 
 /** 离线单文件版（file:// 打开）用 #/gen 这样的地址；正常部署用 /gen */
@@ -15,7 +15,7 @@ export const curPath = () => HASH ? `/${decodeURIComponent(location.hash.slice(1
 
 export function parseRoute(path: string): Route {
   const [, v, sub, id] = path.split('/');
-  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin', 'talk', 'diag', 'make', 'mat', 'sched', 'data'];
+  const views: View[] = ['ip', 'gen', 'wb', 'ops', 'me', 'lib', 'admin', 'talk', 'diag', 'make', 'mat', 'sched', 'data', 'pay'];
   // 根路径是「一键生成视频」首页；老的 /plan 链接进 AI 运营（旧页面代码保留，菜单里不再出现）
   const view: View = v === 'plan' ? 'ops' : (views as string[]).includes(v) ? (v as View) : 'home';
   return { view, sub: sub || undefined, id: id || undefined };

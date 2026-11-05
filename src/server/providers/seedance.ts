@@ -1,6 +1,8 @@
 // Seedance 视频生成适配器（火山方舟 Ark）。每一镜建一个生成任务，并发提交、轮询到结束，返回每镜视频地址。
 // 接口：POST {base}/contents/generations/tasks → {id}；GET {base}/contents/generations/tasks/{id} → {status, content.video_url}
 // 状态：queued / running / succeeded / failed / expired。视频地址 24 小时过期，正式版需要转存到自己的对象存储。
+// 样片模式（Seedance 2.5）：样片请求加 draft: true，出 480p、更便宜；满意后出成片只传 content: [{ type: 'draft_task', draft_task: { id } }]
+//   和分辨率，画面、时长、比例都沿用样片（不重新抽卡）。样片任务 7 天内有效，过期就照常重新生成。
 // 环境变量：ARK_API_KEY、ARK_BASE_URL（默认 https://ark.cn-beijing.volces.com/api/v3）、SEEDANCE_MODEL_S25 / _S20 / _S20F、SEEDANCE_POLL_MS
 import { styleVisual } from '../../shared/styles.ts';
 import { modelOf, isDraft } from '../../shared/gen.ts';
@@ -35,10 +37,10 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
   return {
     resumable: true,
     inlineImages: true, // 方舟支持 data:image/...;base64 首帧
-    async run({ settings: g, shots, frames, known, onTask }, onStep) {
+    async run({ settings: g, shots, frames, known, onTask, final, drafts }, onStep) {
       const m = modelOf(g.model), model = cfg.models[g.model];
       if (!model) throw new Error(`没有为 ${m.n} 配置方舟模型 ID`);
-      const resolution = isDraft(g) ? '480p' : g.res === '4K' ? '1080p' : g.res; // 方舟文档目前最高 1080p
+      const resolution = !final && isDraft(g) ? '480p' : g.res === '4K' ? '1080p' : g.res; // 方舟文档目前最高 1080p
       onStep(1);
       const urls: (string | null)[] = shots.map(() => null);
       let done = 0;
@@ -48,10 +50,13 @@ export function makeSeedance(cfg: SeedanceConfig): VideoProvider {
         const text = [s.line && `画面配合这句口播：${s.line}`, g.prompt, styleVisual(g), '真实自然光，画面干净'].filter(Boolean).join('。');
         const content: unknown[] = [{ type: 'text', text }];
         if (frames[i]) content.push({ type: 'image_url', image_url: { url: frames[i] }, role: 'first_frame' });
-        const id = known?.[i] || await create({
-          model, content, resolution, ratio: g.ratio, duration: Math.min(m.max, Math.max(m.min, Math.round(s.dur))),
-          generate_audio: false, watermark: !!cfg.watermark,
-        });
+        const fromDraft = final && m.draft ? drafts?.[i] : null;
+        const id = known?.[i] || await create(fromDraft
+          ? { model, content: [{ type: 'draft_task', draft_task: { id: fromDraft } }], resolution: g.res === '4K' ? '1080p' : g.res, watermark: !!cfg.watermark }
+          : {
+            model, content, resolution, ratio: g.ratio, duration: Math.min(m.max, Math.max(m.min, Math.round(s.dur))),
+            generate_audio: false, watermark: !!cfg.watermark, ...(isDraft(g) && !final ? { draft: true } : {}),
+          });
         if (!known?.[i]) onTask?.(i, id);
         for (;;) {
           if (Date.now() > deadline) throw new Error('视频生成超时');

@@ -78,6 +78,12 @@ const MIGRATIONS: string[] = [
    ALTER TABLE diagnosis ADD COLUMN kb_changed_at TEXT;`,
   // 8：界面换成大哲 IP 研究院（dazheip.com）的样子：原来没手动换过主题的都用「大哲」
   `UPDATE workspaces SET theme = 'dazhe' WHERE theme = 'studio';`,
+  // 9：11/4 充值和在线支付：订单（点数套餐、大哲诊断账号解锁）
+  `CREATE TABLE orders (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, ws TEXT NOT NULL, product TEXT NOT NULL, package_id TEXT, title TEXT NOT NULL,
+     amount INTEGER NOT NULL, points INTEGER NOT NULL DEFAULT 0, channel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', qr TEXT,
+     trade_no TEXT, created_at TEXT NOT NULL, paid_at TEXT);
+   CREATE INDEX orders_owner ON orders(owner_id, created_at);
+   CREATE INDEX orders_status ON orders(status, created_at);`,
 ];
 
 export type DB = DatabaseSync;

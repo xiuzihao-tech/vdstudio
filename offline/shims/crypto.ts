@@ -22,3 +22,6 @@ export function scrypt(pw: string, salt: Uint8Array, len: number, cb: (e: Error 
   setTimeout(() => cb(null, k), 0);
 }
 void out;
+// 在线支付（微信 / 支付宝的签名、回调解密）离线版用不到：离线版只有模拟支付
+const noPay = () => { throw new Error('离线演示版不支持真实支付'); };
+export const createSign = noPay, createVerify = noPay, createCipheriv = noPay, createDecipheriv = noPay;

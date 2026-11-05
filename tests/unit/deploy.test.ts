@@ -20,12 +20,16 @@ test('生产环境：缺 Secure Cookie、签名密钥、管理员就拒绝启动
   const lines: string[] = [];
   assert.equal(reportConfig(bad, s => lines.push(s)), false);
   assert.ok(lines.some(l => /已停止启动/.test(l)));
-  const envOk = { NODE_ENV: 'production', SECURE_COOKIES: '1', FILE_SIGN_SECRET: SECRET, ADMIN_EMAILS: 'boss@x.com', AUTH_REQUIRED: '1', INVITE_REQUIRED: '1', DAILY_BUDGET_POINTS: '2000', STORAGE: 's3', LLM_API_KEY: 'k', VIDEO_API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.com' };
+  const envOk = { NODE_ENV: 'production', SECURE_COOKIES: '1', FILE_SIGN_SECRET: SECRET, ADMIN_EMAILS: 'boss@x.com', AUTH_REQUIRED: '1', INVITE_REQUIRED: '1', DAILY_BUDGET_POINTS: '2000', STORAGE: 's3', LLM_API_KEY: 'k', VIDEO_API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.com', WXPAY_MCHID: 'm', WXPAY_API_V3_KEY: 'a'.repeat(32) };
   const ok = checkConfig(configFromEnv(envOk), envOk);
   assert.deepEqual(ok, { errors: [], warnings: [] });
   const cross = { ...envOk, COOKIE_SAMESITE: 'none', SECURE_COOKIES: '0' };
   assert.ok(checkConfig(configFromEnv(cross), cross).errors.some(e => /SameSite|SECURE_COOKIES=1/.test(e)));
   assert.ok(checkConfig(configFromEnv({ ...envOk, CORS_ORIGINS: '*' }), envOk).errors.some(e => /CORS_ORIGINS/.test(e)));
+  // 支付：生产环境不能开模拟支付；配了支付必须有公网回调地址
+  assert.ok(checkConfig(configFromEnv(envOk), { ...envOk, PAY_MOCK: '1' }).errors.some(e => /PAY_MOCK/.test(e)));
+  const noBase = { ...envOk, PUBLIC_BASE_URL: '' };
+  assert.ok(checkConfig(configFromEnv(noBase), noBase).errors.some(e => /PUBLIC_BASE_URL/.test(e)));
 });
 
 test('开发环境：不拦，只提醒', () => {

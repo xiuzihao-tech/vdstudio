@@ -22,6 +22,7 @@
     "seed:reset": "rm -f data/app.db && echo 数据库已清空，下次启动自动重建"
   },
   "dependencies": {
+    "qrcode-generator": "^2.0.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "^3.25.76"

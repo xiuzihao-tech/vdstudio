@@ -1477,3 +1477,44 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 /* 视频 IP 的五个入口和 dazheip 原有菜单同一个样式，不再单独分组；一键生成视频带个 🔥 */
 .gbar .fire{display:inline;font-size:14px;line-height:1;margin-left:-4px}
 .tbar .fire{display:none}
+
+/* ===== 充值和支付 ===== */
+.paygrid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;margin-top:22px;align-items:start}
+.pkgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.pkg{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:16px 14px 12px;border-radius:var(--r2);background:var(--pn);border:1px solid var(--ln2)}
+.pkg:hover{border-color:var(--tx3)}
+.pkg[aria-pressed="true"]{border-color:var(--tx);box-shadow:inset 0 0 0 1px var(--tx),4px 4px 0 var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--pn))}
+.pkg-tag{position:absolute;right:8px;top:-9px;font-size:11px;font-weight:800;background:var(--ac);color:var(--tx);border:1px solid var(--tx);padding:1px 6px;border-radius:3px}
+.pkg-n{font-size:13px;font-weight:700;color:var(--tx2)}
+.pkg b{font-size:26px;font-weight:900;line-height:1.1}
+.pkg b small{font-size:13px;font-weight:700}
+.pkg-b{font-size:12px;color:var(--real,#1E7A45);font-weight:700;min-height:1.2em}
+.pkg-p{font-size:17px;font-weight:900;margin-top:6px}
+.chans{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.chan{display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:var(--r1);background:var(--pn);border:1px solid var(--ln2);font-weight:700;font-size:14.5px}
+.chan i{font-style:normal;width:22px;height:22px;border-radius:5px;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:900}
+.ch-wechat i{background:#1AAD19}.ch-alipay i{background:#1677FF}.ch-mock i{background:var(--tx3)}
+.chan[aria-checked="true"]{border-color:var(--tx);box-shadow:inset 0 0 0 1px var(--tx)}
+.paybody{display:flex;flex-direction:column;align-items:center;text-align:center;padding:4px 0 8px}
+.paysum{display:flex;flex-direction:column;gap:2px;margin:0 0 14px}
+.paysum b{font-size:34px;font-weight:900;line-height:1}
+.paysum span{font-size:13px;color:var(--tx2)}
+.qr{background:#fff;padding:8px;border:1px solid var(--ln2);border-radius:6px}
+.qr svg{display:block;width:100%;height:100%}
+.pkedit{display:grid;grid-template-columns:minmax(90px,1.2fr) 100px 100px 90px 80px minmax(120px,1fr) 30px;gap:8px;align-items:center}
+.pkedit .fld.sm{width:100%}
+/* 一键生成视频：样片 / 成片 */
+.stage{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;border-radius:var(--r2);background:var(--pn);border:1px solid var(--ln2)}
+.stage-k{font-size:12.5px;font-weight:900;padding:4px 9px;border-radius:3px;background:var(--chip);white-space:nowrap}
+.stage.final .stage-k{background:var(--tx);color:var(--ac)}
+.stage>.s{flex:1;min-width:200px}
+.genwait{max-height:62vh;margin:0 auto;border-radius:8px;background:#141414;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center}
+.genwait ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px;text-align:left}
+.genwait li{opacity:.45}.genwait li.done{opacity:.8}.genwait li.on{opacity:1;color:var(--ac);font-weight:800}
+.genwait .xs{opacity:.6}
+.spin{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--ac);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.realvid{display:block;width:100%;max-height:62vh;border-radius:8px;background:#000}
+.tofinal{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:var(--r2);background:color-mix(in srgb,var(--ac) 22%,var(--pn));border:1px solid var(--tx)}
+.tofinal .btn{width:100%}
+@media (max-width:860px){.paygrid{grid-template-columns:minmax(0,1fr)}.pkgs{grid-template-columns:1fr 1fr}.pkedit{grid-template-columns:1fr 1fr;}.pkedit>.xs{display:none}}

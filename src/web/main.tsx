@@ -19,6 +19,7 @@ import { DiagPage } from './pages/studio/Diag.tsx';
 import { SchedPage } from './pages/studio/Sched.tsx';
 import { MatPage } from './pages/studio/Mat.tsx';
 import { DataPage } from './pages/studio/Data.tsx';
+import { PayPage } from './pages/studio/Pay.tsx';
 
 function Pages() {
   const { session, route, needLogin, nav } = useApp();
@@ -40,6 +41,7 @@ function Pages() {
     case 'sched': return <SchedPage key={k} />;
     case 'mat': return <MatPage key={k} />;
     case 'data': return <DataPage key={k} />;
+    case 'pay': return <PayPage key={k} />;
     case 'talk': return <TalkPage key={k} />;
     case 'ip': return <IpPage key={k} />;
     case 'gen': return <GenPage key={k} />;

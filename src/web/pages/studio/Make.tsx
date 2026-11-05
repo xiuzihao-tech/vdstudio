@@ -1,18 +1,19 @@
 // 一键生成视频：首页（拖素材）→ ① 文案和素材 → ② AI 建议 → ③ 确认分镜 → ④ 成片与发布 →「加入发布队列」回到安排发布计划。
 // 入口只收素材或文案，成片类型交给 AI 推荐（也可以自己在下拉里定）。数字人在第 2 步选，不再单独一页。
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { api } from '../../api.ts';
+import { api, ApiError } from '../../api.ts';
 import { useApp } from '../../store.tsx';
 import { pickFiles } from '../../ui/kit.tsx';
 import { ACCEPT } from '../../ui/pickers.tsx';
-import { DAZHEIP_URL } from '../../config.ts';
+import { DAZHEIP_URL, fileUrl } from '../../config.ts';
+import { useRecharge } from './Pay.tsx';
 import { speak } from '../Gen.tsx';
 import { AvatarArt, CoverArt, Player, Schema, Thumb, useStudio } from './common.tsx';
 import {
-  ACCOUNTS, AUTO, AVATARS, FONT_NOTE, OPT, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, mmss, newDraft, pack, shotReady, splitLines, totalSecs, vtype, whenLabel,
+  ACCOUNTS, AUTO, AVATARS, FONT_NOTE, OPT, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, mmss, newDraft, pack, sampleCost, shotReady, splitLines, totalSecs, vtype, whenLabel,
   type MakeDraft, type Mat, type PlanItem, type Sample, type SampleCat, type Shot, type VType,
 } from '../../../shared/studio.ts';
-import type { Asset } from '../../../shared/types.ts';
+import type { Asset, Job, VideoOutput } from '../../../shared/types.ts';
 
 const STEPS = ['文案和素材', 'AI 建议', '确认分镜', '成片与发布'];
 /** 没文案时跳到 dazheip 的「开始创作文案」（菜单里同一个入口） */
@@ -106,11 +107,11 @@ function Home() {
       </div>
     </div>
 
-    {draft && !draft.rendered && (draft.mats.length > 0 || draft.copy || draft.step > 1) && <>
+    {draft && (draft.mats.length > 0 || draft.copy || draft.step > 1) && <>
       <p className="lb" style={{ marginTop: 34 }}>上次未完成</p>
       <div className="resume" id="mkResume">
         <Thumb mat={draft.mats[0]} k={draft.shots[0]?.k ?? 'live'} />
-        <div><b>{draft.title || splitLines(draft.copy)[0]?.slice(0, 20) || '未命名的一条'}</b><span className="xs m3">{['', '素材还没传完', 'AI 建议还没看完', '分镜还没确认', '还没加入发布队列'][draft.step]} · {ago(draft.updatedAt)} · 已备 {draft.cost} 点</span></div>
+        <div><b>{draft.title || splitLines(draft.copy)[0]?.slice(0, 20) || '未命名的一条'}</b><span className="xs m3">{draft.step === 4 ? (draft.finalJob ? '成片出好了，还没加入发布队列' : '样片出好了，还没出成片') : ['', '文案和素材还没放完', 'AI 建议还没看完', '分镜还没确认'][draft.step]} · {ago(draft.updatedAt)} · 已备 {draft.cost} 点</span></div>
         <button className="btn g" onClick={() => nav({ view: 'make', sub: 'flow' })}>继续 →</button>
       </div>
     </>}
@@ -310,6 +311,7 @@ function Step2({ d, set, go }: SP) {
 
 function Step3({ d, set, go }: SP) {
   const { sheet, toast, fail, session, reloadSession } = useApp();
+  const recharge = useRecharge();
   const [edit, setEdit] = useState<string | null>(null);
   const [rendering, setRendering] = useState(-1);
   const t = vtype(d.type);
@@ -331,25 +333,35 @@ function Step3({ d, set, go }: SP) {
       </>,
     });
   };
-  const confirm = () => sheet({
-    title: '确认扣点',
-    body: <div id="mkCostSheet">
-      <p className="t2">本次消耗 {d.cost} 点</p>
-      <p className="s m" style={{ marginTop: 8 }}>{t.n} · {shots.length} 个镜头 · 约 {totalSecs(shots)} 秒{missing ? ` · ${missing} 个镜头用 AI 生成补上` : ''}</p>
-      <p className="s" style={{ marginTop: 12 }}>余额 {Math.round(session!.workspace.balance).toLocaleString()} → <b>{Math.round(session!.workspace.balance - d.cost).toLocaleString()}</b> 点</p>
-      <p className="xs m3" style={{ marginTop: 8 }}>1 点 ≈ 1 秒成片。生成失败自动退点。</p>
-    </div>,
-    foot: <><button className="btn g" onClick={() => sheet(null)}>再看看</button><button className="btn k" id="mkPay" onClick={render}>确认，扣 {d.cost} 点生成</button></>,
-  });
-  const render = async () => {
-    sheet(null);
+  const sample = sampleCost(d.cost);
+  const confirm = (mode: 'sample' | 'final') => {
+    const cost = mode === 'sample' ? sample : d.cost, bal = Math.round(session!.workspace.balance), short = cost - bal;
+    sheet({
+      title: mode === 'sample' ? '先出样片' : '直接出成片',
+      body: <div id="mkCostSheet">
+        <p className="t2">本次消耗 {cost} 点</p>
+        <p className="s m" style={{ marginTop: 8 }}>{t.n} · {shots.length} 个镜头 · 约 {totalSecs(shots)} 秒{missing ? ` · ${missing} 个镜头用 AI 生成补上` : ''}</p>
+        <p className="s m" style={{ marginTop: 4 }}>{mode === 'sample' ? `Seedance 2.5 样片模式：480p，先看构图和节奏。满意再出 1080p 成片（${d.cost} 点），画面沿用样片，不重新抽卡。` : 'Seedance 2.5 · 1080p，直接出能发的成片。'}</p>
+        {short > 0 ? <p className="s err" style={{ marginTop: 12 }}>余额 {bal.toLocaleString()} 点，还差 <b>{short.toLocaleString()}</b> 点</p>
+          : <p className="s" style={{ marginTop: 12 }}>余额 {bal.toLocaleString()} → <b>{(bal - cost).toLocaleString()}</b> 点</p>}
+        <p className="xs m3" style={{ marginTop: 8 }}>1 点 ≈ 1 秒成片。生成失败自动退点。</p>
+      </div>,
+      foot: short > 0 ? <><button className="btn g" onClick={() => sheet(null)}>再看看</button><button className="btn k" id="mkTopup" onClick={() => recharge(short, () => void render(mode))}>去充值</button></>
+        : <><button className="btn g" onClick={() => sheet(null)}>再看看</button><button className="btn k" id="mkPay" onClick={() => render(mode)}>确认，扣 {cost} 点</button></>,
+    });
+  };
+  const render = async (mode: 'sample' | 'final') => {
+    sheet(null); setRendering(0);
     try {
-      await api.render(d.title || shots[0]?.line.slice(0, 20) || t.n, d.cost);
-      void reloadSession();
-      for (let i = 0; i < 4; i++) { setRendering(i); await new Promise(r => setTimeout(r, 650)); }
       const p = pack({ ...d, shots });
-      go(4, { shots, rendered: true, title: d.title || p.title, caption: p.caption, tags: p.tags.flatMap(([, l]) => l).filter((_, i) => [0, 1, 3, 7].includes(i)) });
-    } catch (e) { fail(e); } finally { setRendering(-1); }
+      const title = d.title || p.title;
+      const r = await api.render({ type: d.type, face: d.face, avatar: d.avatar, title, opt: d.opt, mats: d.mats, shots }, mode);
+      void reloadSession();
+      go(4, { shots, rendered: true, title, caption: d.caption || p.caption, tags: d.tags.length ? d.tags : p.tags.flatMap(([, l]) => l).filter((_, i) => [0, 1, 3, 7].includes(i)), sampleJob: mode === 'sample' ? r.job.id : null, finalJob: mode === 'final' ? r.job.id : null });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) recharge(Math.max(1, (mode === 'sample' ? sample : d.cost) - Math.round(session!.workspace.balance)), () => void render(mode));
+      else fail(e);
+    } finally { setRendering(-1); }
   };
   let at = 0;
   return <div className="stp" id="mkStep3">
@@ -379,24 +391,51 @@ function Step3({ d, set, go }: SP) {
         <button className="lnk xs" data-edit={s.id} onClick={() => setEdit(ed ? null : s.id)}>{ed ? '好了' : '改'}</button>
       </li>;
     })}</ol>
-    {rendering >= 0 && <div className="rendering" id="mkRendering" role="status">{['写分镜和字幕', '生成画面', '配音和音乐', '合成成片'].map((x, i) => <span key={x} className={i < rendering ? 'done' : i === rendering ? 'on' : ''}>{i < rendering ? '✓' : i === rendering ? '…' : '·'} {x}</span>)}</div>}
     <div className="stfoot">
       <button className="btn g" onClick={() => go(2)}>← 上一步</button>
-      <span className="s">{missing ? `还有 ${missing} 个镜头没配图，会用 AI 生成补上 · ` : '画面都齐了 · '}消耗 <b>{d.cost}</b> 点</span>
-      <button className="btn k" id="mkGen" disabled={rendering >= 0} onClick={() => { if (!d.shots.length) set({ shots }); confirm(); }}>确认并生成</button>
+      <span className="s">{missing ? `还有 ${missing} 个镜头没配图，会用 AI 生成补上` : '画面都齐了'}</span>
+      <button className="btn g" id="mkGen" disabled={rendering >= 0} onClick={() => { if (!d.shots.length) set({ shots }); confirm('final'); }}>直接出成片 · {d.cost} 点</button>
+      <button className="btn k" id="mkSample" disabled={rendering >= 0} onClick={() => { if (!d.shots.length) set({ shots }); confirm('sample'); }}>{rendering >= 0 ? '提交中…' : `先出样片 · ${sample} 点`}</button>
     </div>
+    <p className="xs m3" style={{ textAlign: 'right', marginTop: 6 }}>样片 480p、四成价，满意再出 1080p 成片（Seedance 2.5 样片模式）</p>
   </div>;
 }
 
+/** 轮询生成任务，直到完成或失败 */
+function useJob(id: string | null | undefined) {
+  const { reloadSession } = useApp();
+  const [job, setJob] = useState<Job | null>(null);
+  useEffect(() => {
+    setJob(null);
+    if (!id) return;
+    let live = true, h: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try { const j = await api.job(id); if (!live) return; setJob(j); if (j.status === 'queued' || j.status === 'running') h = setTimeout(tick, 1200); else void reloadSession(); }
+      catch { h = setTimeout(tick, 3000); }
+    };
+    void tick();
+    return () => { live = false; clearTimeout(h); };
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return job;
+}
+const busyJob = (j: Job | null) => !j || j.status === 'queued' || j.status === 'running';
+
 function Step4({ d, set, go }: SP) {
-  const { sheet, toast, nav, session } = useApp();
+  const { sheet, toast, nav, session, fail, reloadSession } = useApp();
   const { st, save } = useStudio();
+  const recharge = useRecharge();
   const t = vtype(d.type);
   const p = useMemo(() => pack(d), [d.shots]); // eslint-disable-line react-hooks/exhaustive-deps
   const [voiceOn, setVoiceOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const sj = useJob(d.sampleJob), fj = useJob(d.finalJob);
+  const cur = d.finalJob ? fj : sj, isFinal = !!d.finalJob;
+  const finalDone = isFinal && fj?.status === 'done';
+  const out = cur?.status === 'done' ? cur.output as VideoOutput | null : null;
+  const spent = (d.sampleJob ? sampleCost(d.cost) : 0) + (d.finalJob ? d.cost : 0);
   const allTags = p.tags.flatMap(([, l]) => l);
   const okTitle = !!d.title.trim() && d.title.length <= 30, okCap = !!d.caption.trim(), okTags = d.tags.length >= 3 && d.tags.length <= 5;
-  const checks: [string, boolean][] = [['视频', true], ['封面', true], ['标题', okTitle], ['文案', okCap], ['话题', okTags]];
+  const checks: [string, boolean][] = [['成片', finalDone], ['封面', true], ['标题', okTitle], ['文案', okCap], ['话题', okTags]];
   const n = checks.filter(c => c[1]).length;
   const ratio = d.opt.ratio === 'AI 推荐' ? '9:16 竖屏' : d.opt.ratio, font = d.opt.font === 'AI 推荐' ? '思源黑体' : d.opt.font;
   const first = d.shots.find(s => s.mat)?.mat ?? null, firstK = d.shots[0]?.k ?? 'live';
@@ -407,18 +446,44 @@ function Step4({ d, set, go }: SP) {
     void save({ plan, draft: null });
     sheet(null); toast(msg); nav({ view: 'sched', id: item.id });
   }} /> });
+  /** 样片满意 → 出成片（沿用样片任务，不重新抽卡） */
+  const toFinal = async (paid = false) => {
+    const bal = Math.round(session!.workspace.balance);
+    if (!paid && bal < d.cost) { recharge(d.cost - bal, () => void toFinal(true)); return; }
+    setBusy(true);
+    try { const r = await api.render({ type: d.type, face: d.face, avatar: d.avatar, title: d.title, opt: d.opt, mats: d.mats, shots: d.shots }, 'final', d.sampleJob ?? undefined); set({ finalJob: r.job.id }); void reloadSession(); toast(`在出 1080p 成片，扣了 ${r.cost} 点`); }
+    catch (e) { if (e instanceof ApiError && e.status === 402) recharge(Math.max(1, d.cost - bal), () => void toFinal(true)); else fail(e); }
+    finally { setBusy(false); }
+  };
+  const back = () => go(3, { sampleJob: null, finalJob: null });
+  const dl = () => { if (finalDone && out?.videoUrl) { const a = document.createElement('a'); a.href = fileUrl(out.videoUrl)!; a.download = `${d.title || '成片'}.mp4`; a.click(); } else toast(finalDone ? '这条没合成出整段视频文件（演示环境没接视频服务）' : '先出成片再下载'); };
   return <div className="stp" id="mkStep4">
+    <div className={`stage ${isFinal ? 'final' : 'sample'}`} id="mkStage">
+      <span className="stage-k">{isFinal ? '成片 · 1080p' : '样片 · 480p'}</span>
+      <span className="s">{busyJob(cur) ? `${isFinal ? '在出成片' : '在出样片'}：${cur ? cur.steps[Math.min(cur.step, cur.steps.length - 1)] : '排队中'}…` : cur?.status === 'failed' ? `没生成成功：${cur.error ?? ''}，点数已退回` : isFinal ? '成片好了，补齐发布清单就能进队列' : '样片好了。看看构图、节奏、字幕，满意再出成片'}</span>
+      {cur?.status === 'failed' && <button className="btn g sm" onClick={back}>回分镜重来</button>}
+    </div>
     <div className="s4grid">
       <div className="s4l">
         <div className="vcard2">
-          <Player shots={d.shots} ratio={ratio} font={font} title={d.title} avatar={d.avatar} />
+          {busyJob(cur) ? <div className="genwait" style={{ aspectRatio: ratio.startsWith('16:9') ? '16/9' : ratio.startsWith('1:1') ? '1/1' : ratio.startsWith('3:4') ? '3/4' : '9/16' }} id="mkWait">
+            <div className="spin" /><b>{isFinal ? '正在出 1080p 成片' : '正在出 480p 样片'}</b>
+            <ol>{(cur?.steps ?? ['排队']).map((x, i) => <li key={x} className={cur && i < cur.step ? 'done' : cur && i === cur.step ? 'on' : ''}>{cur && i < cur.step ? '✓' : '·'} {x}</li>)}</ol>
+            <span className="xs">关掉页面也会接着生成，回来在「上次未完成」里接着看</span>
+          </div>
+            : out?.videoUrl ? <video className="realvid" src={fileUrl(out.videoUrl)} controls playsInline style={{ aspectRatio: ratio.startsWith('16:9') ? '16/9' : '9/16' }} />
+              : <Player shots={d.shots} ratio={ratio} font={font} title={d.title} avatar={d.avatar} tag={isFinal ? '成片 1080p · 示意' : '样片 480p · 示意'} />}
           <div className="vmeta">
-            <b>{d.title || p.title}</b><span className="xs m3">{t.n} · {mmss(totalSecs(d.shots))}</span>
-            <dl className="vstats"><div><dt>类型</dt><dd>{t.n}</dd></div><div><dt>时长</dt><dd>{totalSecs(d.shots)}秒</dd></div><div><dt>消耗</dt><dd>{d.cost}点</dd></div><div><dt>余额</dt><dd>{Math.round(session!.workspace.balance).toLocaleString()}点</dd></div></dl>
+            <b>{d.title || p.title}</b><span className="xs m3">{t.n} · {mmss(totalSecs(d.shots))} · {isFinal ? '成片 1080p' : '样片 480p'}</span>
+            <dl className="vstats"><div><dt>类型</dt><dd>{t.n}</dd></div><div><dt>时长</dt><dd>{totalSecs(d.shots)}秒</dd></div><div><dt>已花</dt><dd>{spent}点</dd></div><div><dt>余额</dt><dd>{Math.round(session!.workspace.balance).toLocaleString()}点</dd></div></dl>
+            {!isFinal && sj?.status === 'done' && <div className="tofinal" id="mkToFinal">
+              <button className="btn k" id="mkFinal" disabled={busy} onClick={() => void toFinal()}>{busy ? '提交中…' : `满意，出 1080p 成片 · ${d.cost} 点`}</button>
+              <span className="xs m3">画面沿用这条样片，不重新抽卡（7 天内有效）。不满意就回分镜改，再出一条样片。</span>
+            </div>}
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn y sm" id="mkDl" onClick={() => toast('演示版：接上视频服务后这里下载 MP4 成片')}>下载成片</button>
+              <button className="btn y sm" id="mkDl" disabled={!finalDone} onClick={dl}>下载成片</button>
               <button className="btn g sm" onClick={() => { setVoiceOn(v => !v); if (!voiceOn) speak(d.shots.map(s => s.line).join('。')); else try { speechSynthesis.cancel(); } catch { /* */ } }}>{voiceOn ? '停止试听' : '试听配音'}</button>
-              <button className="lnk xs" onClick={() => go(3)}>← 回分镜改</button>
+              <button className="lnk xs" onClick={back}>← 回分镜改</button>
             </div>
             <p className="xs m3">比例 {d.opt.ratio === 'AI 推荐' ? 'AI推荐·9:16竖屏' : ratio} · 字幕 {d.opt.font === 'AI 推荐' ? 'AI推荐·思源黑体' : font} · 音乐 {d.opt.bgm === 'AI 推荐' ? `AI推荐·${t.bgm}` : d.opt.bgm} · 声音 {d.opt.voice === 'AI 推荐' ? 'AI推荐' : d.opt.voice}</p>
           </div>
@@ -442,7 +507,7 @@ function Step4({ d, set, go }: SP) {
           {p.tags.map(([g, l]) => <div key={g} className="taggrp"><span className="xs m3">{g}</span>{l.map(x => <button key={x} className="pill sm" aria-pressed={d.tags.includes(x)} onClick={() => toggleTag(x)}>{x}</button>)}</div>)}
         </div>
         <div className="stfoot" style={{ marginTop: 18 }}>
-          <span className="xs m3">{n === 5 ? '齐了，可以进队列。发布计划会自动按栏目排期。' : `还差：${checks.filter(c => !c[1]).map(c => c[0]).join('、')}`}</span>
+          <span className="xs m3">{n === 5 ? '齐了，可以进队列。发布计划会自动按栏目排期。' : `还差：${checks.filter(c => !c[1]).map(c => c[0] === '成片' ? (isFinal ? '成片还在出' : '出 1080p 成片') : c[0]).join('、')}`}</span>
           <button className="btn k" id="mkQueue" disabled={n < 5} onClick={queue}>加入发布队列 →</button>
         </div>
       </div>

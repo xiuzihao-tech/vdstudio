@@ -44,6 +44,8 @@ export interface VideoProvider {
     known?: (string | null)[];
     /** 每镜任务提交成功时回调，用来把任务 ID 存进数据库 */
     onTask?: (i: number, taskId: string) => void;
+    /** 样片模式：出成片时，第 i 镜对应的样片任务 ID（Seedance 2.5 用它直接出 1080p，不重新抽卡）；没有就照常生成 */
+    drafts?: (string | null)[];
   }, onStep: (i: number) => void): Promise<{ shotVideos?: (string | null)[]; /** 第 i 镜失败的原因（其余镜照常返回）；全部失败时直接抛错 */ errors?: (string | null)[] } | void>;
   /** 能否在服务重启后接着查任务（Mock 不能） */
   resumable?: boolean;

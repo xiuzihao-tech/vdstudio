@@ -4,7 +4,8 @@ import type { ModState, ModView, ModuleConfig, ModuleDef, Preset } from '../shar
 import type { SlotMetrics, Asset, CopyDraft, GenIssue, GenSettings, Job, Persona, PersonaId, Plan, PlannedShot, Positioning, SlotView, Topic, VideoModel, Workspace } from '../shared/types.ts';
 import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
-import type { StudioState } from '../shared/studio.ts';
+import type { MakeDraft, StudioState } from '../shared/studio.ts';
+import type { BillingConfig, Order, PayChannel, Product } from '../shared/billing.ts';
 
 export interface AiStatus {
   copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
@@ -73,6 +74,9 @@ export const api = {
     createRedeem: (count: number, points: number, maxUses: number, note: string) => call<{ codes: string[] }>('POST', '/api/admin/redeem', { count, points, maxUses, note }),
     modules: () => call<{ modules: ModuleDef[]; presets: Record<Preset, string>; config: ModuleConfig; usage: Record<string, ModuleUsage> }>('GET', '/api/admin/modules'),
     saveModules: (p: Partial<Omit<ModuleConfig, 'states'>> & { states?: Record<string, ModState>; withParents?: boolean }) => call<{ config: ModuleConfig; warn: { id: string; parents: string[] }[] }>('PUT', '/api/admin/modules', p),
+    billing: () => call<{ config: BillingConfig; channels: PayChannel[]; mock: boolean; orders: (Order & { email: string | null; name: string | null })[]; today: { n: number; amount: number; points: number }; month: { n: number; amount: number; points: number } }>('GET', '/api/admin/billing'),
+    saveBilling: (c: BillingConfig) => call<{ config: BillingConfig }>('PUT', '/api/admin/billing', c),
+    refundOrder: (id: string) => call<{ ok: true; note: string }>('POST', `/api/admin/billing/orders/${id}/refund`),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
   },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
@@ -150,9 +154,14 @@ export const api = {
 
   studio: () => call<{ state: StudioState }>('GET', '/api/studio'),
   saveStudio: (p: Partial<StudioState>) => call<{ state: StudioState }>('PUT', '/api/studio', p),
-  unlockStudio: () => call<{ state: StudioState }>('POST', '/api/studio/unlock'),
   resetStudio: () => call<{ state: StudioState }>('POST', '/api/studio/reset'),
-  render: (title: string, cost: number) => call<{ balance: number }>('POST', '/api/studio/render', { title, cost }),
+  /** Seedance 2.5 样片模式：sample 先出 480p 样片；final 出 1080p 成片（fromJob = 沿用的样片） */
+  render: (draft: Pick<MakeDraft, 'type' | 'face' | 'avatar' | 'title' | 'opt' | 'mats' | 'shots'>, mode: 'sample' | 'final', fromJob?: string) => call<{ job: Job; cost: number; balance: number }>('POST', '/api/studio/render', { draft, mode, fromJob }),
+
+  billing: () => call<BillingConfig & { channels: PayChannel[]; mock: boolean; balance: number; orders: Order[] }>('GET', '/api/billing'),
+  createOrder: (product: Product, channel: PayChannel, packageId?: string) => call<{ order: Order & { qr: string | null } }>('POST', '/api/billing/orders', { product, channel, packageId }),
+  order: (id: string) => call<{ order: Order & { qr: string | null }; balance: number }>('GET', `/api/billing/orders/${id}`),
+  mockPay: (id: string) => call<{ order: Order; balance: number }>('POST', `/api/billing/orders/${id}/mock-pay`),
 
   covers: () => call<{ covers: { id: string; title: string; style: string }[] }>('GET', '/api/covers'),
   addCover: (title: string, style: string, generate: boolean) => call<{ covers: { id: string; title: string; style: string }[]; balance: number }>('POST', '/api/covers', { title, style, generate }),

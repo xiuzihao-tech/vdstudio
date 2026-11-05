@@ -100,7 +100,7 @@ export function Schema({ type, face, avatar }: { type: VType; face: 'avatar' | '
 }
 
 /* ---------- 成片预览：按镜头轮播，字幕跟着走（接上视频服务前的示意） ---------- */
-export function Player({ shots, ratio, font, title, avatar }: { shots: Shot[]; ratio: string; font: string; title: string; avatar: string }) {
+export function Player({ shots, ratio, font, title, avatar, tag = '成片预览 · 示意' }: { shots: Shot[]; ratio: string; font: string; title: string; avatar: string; tag?: string }) {
   const [i, setI] = useState(0);
   const [t, setT] = useState(0);
   const [on, setOn] = useState(true);
@@ -123,7 +123,7 @@ export function Player({ shots, ratio, font, title, avatar }: { shots: Shot[]; r
   const ar = ratio.startsWith('16:9') ? '16/9' : ratio.startsWith('1:1') ? '1/1' : ratio.startsWith('3:4') ? '3/4' : '9/16';
   return <div className="player" style={{ aspectRatio: ar }} data-font={font}>
     {s && <div className="pl-shot" key={`${i}`}><Thumb mat={s.mat} k={s.k} avatar={s.avatar ? avatar : null} className="kb" /></div>}
-    <span className="pl-tag">成片预览 · 示意</span>
+    <span className="pl-tag">{tag}</span>
     {i === 0 && t < 2.2 && <p className="pl-title">{title}</p>}
     {s && <p className="pl-sub">{s.line}</p>}
     <div className="pl-ctl">

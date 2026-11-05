@@ -1,6 +1,7 @@
 // 数据访问层：只做读写和行映射，不放业务规则。
 import type { DB } from './db.ts';
-import { newId, now } from './db.ts';
+import { newId, now, tx } from './db.ts';
+import type { Order, OrderStatus, PayChannel, Product } from '../shared/billing.ts';
 import type { Diagnosis, KbItem } from '../shared/kb.ts';
 import type { SlotMetrics, Asset, CopyDraft, Job, JobExternal, Plan, Positioning, Slot, Topic, Workspace, PersonaId, TopicSource, VoiceCloneState } from '../shared/types.ts';
 
@@ -14,6 +15,7 @@ const toJob = (r: Row): Job => ({ id: r.id, kind: r.kind, status: r.status, step
 const toPlan = (r: Row): Plan => ({ auto: r.auto ?? 'copy', id: r.id, account: r.account, weekdays: j(r.weekdays), hour: r.hour, needOk: !!r.need_ok, budget: r.budget, running: !!r.running, mix: j(r.mix), added: j(r.added), skipped: j(r.skipped), backlog: j(r.backlog) });
 const toSlot = (r: Row): Slot => ({ planId: r.plan_id, date: r.date, topicId: r.topic_id, pin: r.pin, why: r.why, column: r.col });
 
+const toOrder = (r: Row) => ({ id: r.id, product: r.product, packageId: r.package_id ?? null, title: r.title, amount: r.amount, points: r.points, channel: r.channel, status: r.status as OrderStatus, tradeNo: r.trade_no ?? null, createdAt: r.created_at, paidAt: r.paid_at ?? null, ws: r.ws as string, ownerId: r.owner_id as string, qr: (r.qr ?? null) as string | null });
 export function makeRepo(db: DB) {
   let seq = Date.now();
   const nextSeq = () => ++seq;
@@ -61,6 +63,55 @@ export function makeRepo(db: DB) {
       return { ok: true, points: c.points };
     },
     setTheme: (ws: string, t: string) => { db.prepare('UPDATE workspaces SET theme=? WHERE id=?').run(t, ws); },
+
+    /* ---------- 订单（充值、诊断解锁） ---------- */
+    insertOrder(ws: string, o: { product: Product; packageId: string | null; title: string; amount: number; points: number; channel: PayChannel }): Order {
+      const id = newId('ord'), owner = (db.prepare('SELECT owner_id FROM workspaces WHERE id=?').get(ws) as Row).owner_id;
+      db.prepare('INSERT INTO orders (id, owner_id, ws, product, package_id, title, amount, points, channel, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, owner, ws, o.product, o.packageId, o.title, o.amount, o.points, o.channel, now());
+      return this.order(id)!;
+    },
+    order(id: string): (Order & { ws: string; ownerId: string; qr: string | null }) | null {
+      const r = db.prepare('SELECT * FROM orders WHERE id=?').get(id) as Row | undefined;
+      return r ? toOrder(r) : null;
+    },
+    setOrderQr(id: string, qr: string) { db.prepare('UPDATE orders SET qr=? WHERE id=?').run(qr, id); },
+    ordersOf(ws: string, limit = 30): Order[] { return (db.prepare('SELECT * FROM orders WHERE owner_id=(SELECT owner_id FROM workspaces WHERE id=?) ORDER BY created_at DESC LIMIT ?').all(ws, limit) as Row[]).map(toOrder); },
+    allOrders(limit = 200) {
+      return (db.prepare('SELECT o.*, u.email, u.name FROM orders o LEFT JOIN users u ON u.owner_id = o.owner_id ORDER BY o.created_at DESC LIMIT ?').all(limit) as Row[])
+        .map(r => ({ ...toOrder(r), email: r.email as string | null, name: r.name as string | null }));
+    },
+    orderTotals(since: string) { return db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS amount, COALESCE(SUM(points),0) AS points FROM orders WHERE status='paid' AND paid_at >= ?").get(since) as { n: number; amount: number; points: number }; },
+    closeOrder(id: string) { db.prepare("UPDATE orders SET status='closed' WHERE id=? AND status='pending'").run(id); },
+    /** 关掉超时没付的单 */
+    closeStale(before: string) { return db.prepare("UPDATE orders SET status='closed' WHERE status='pending' AND created_at < ?").run(before).changes; },
+    /** 付款到账：只从「待支付」（或刚超时关掉的）变成「已支付」一次；点数单加点数、记流水。返回 true = 这次真的入账了 */
+    settleOrder(id: string, tradeNo: string): boolean {
+      return tx(db, () => {
+        const r = db.prepare("UPDATE orders SET status='paid', trade_no=?, paid_at=? WHERE id=? AND status IN ('pending','closed')").run(tradeNo, now(), id);
+        if (!r.changes) return false;
+        const o = this.order(id)!;
+        if (o.points > 0) {
+          db.prepare('UPDATE owners SET balance = balance + ? WHERE id=?').run(o.points, o.ownerId);
+          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), o.ws, o.points, `充值 ${o.title}`, null, now());
+        }
+        return true;
+      });
+    },
+    /** 后台标记退款：点数单扣回（不够扣就扣到 0） */
+    refundOrder(id: string): boolean {
+      return tx(db, () => {
+        const o = this.order(id); if (!o || o.status !== 'paid') return false;
+        db.prepare("UPDATE orders SET status='refunded' WHERE id=?").run(id);
+        if (o.points > 0) {
+          const bal = (db.prepare('SELECT balance FROM owners WHERE id=?').get(o.ownerId) as Row).balance as number;
+          const back = Math.min(bal, o.points);
+          db.prepare('UPDATE owners SET balance = balance - ? WHERE id=?').run(back, o.ownerId);
+          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), o.ws, -back, `退款 ${o.title}`, null, now());
+        }
+        return true;
+      });
+    },
 
     /* ---------- 点数 ---------- */
     /** 扣点；余额不足返回 false。delta 为正数表示扣除 */

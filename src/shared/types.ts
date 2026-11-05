@@ -105,7 +105,7 @@ export interface Job {
   error: string | null; createdAt: string; updatedAt: string;
 }
 /** 生成任务在视频服务那边的记录：每镜的任务 ID（没提交为 null）和当时的分镜，重启后靠它接着查 */
-export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; final: boolean }
+export interface JobExternal { tasks: (string | null)[]; shots: PlannedShot[]; final: boolean; /** 出成片时沿用的样片任务（Seedance 2.5 样片模式） */ drafts?: (string | null)[]; /** 从哪条样片来 */ fromJob?: string }
 export interface VideoOutput { /** 配音、音乐没进成片的原因（没接配音服务、曲库里没有这首） */ audioNote?: string; /** 有镜头失败、其余照常出片 */ partial?: boolean; type?: string; draft: boolean; shots: PlannedShot[]; title: string; res: string; ratio: string; len: number; model: string; voice: string; /** 合成好的整条视频（存在自己的存储） */ videoUrl?: string; composeError?: string }
 
 /* ---------- 排期 ---------- */

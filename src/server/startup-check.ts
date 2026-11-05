@@ -23,6 +23,11 @@ export function checkConfig(cfg: Config, env: NodeJS.ProcessEnv): CheckResult {
     if (!env.LLM_API_KEY) warnings.push('没配 LLM_API_KEY：文案是模拟结果');
     if (!env.VIDEO_API_KEY && !env.ARK_API_KEY) warnings.push('没配视频服务密钥：视频是模拟结果');
     if (!cfg.publicBaseUrl) warnings.push('没配 PUBLIC_BASE_URL：素材图会以 Base64 发给视频服务（大图会先压缩）');
+    const wx = !!env.WXPAY_MCHID, ali = !!env.ALIPAY_APP_ID;
+    if (env.PAY_MOCK === '1') errors.push('PAY_MOCK=1 不能在生产环境开：谁都能点「模拟付款」白拿点数');
+    if (!wx && !ali) warnings.push('没配微信支付或支付宝：充值页只有模拟支付（演示用），上线前至少配一个');
+    if ((wx || ali) && !cfg.publicBaseUrl) errors.push('配了在线支付就要配 PUBLIC_BASE_URL（https 公网地址），否则支付平台的到账通知发不过来');
+    if (wx && (!env.WXPAY_API_V3_KEY || env.WXPAY_API_V3_KEY.length !== 32)) errors.push('WXPAY_API_V3_KEY 要填 32 位的 APIv3 密钥');
   }
   return { errors, warnings };
 }

@@ -2,8 +2,10 @@
 // → 第二轮问「每档能拍几套」→ 约 15 条选题 →「保存，进入发布计划」。诊断是可选的，不做也能直接出片。
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api.ts';
-import { useApp } from '../../store.tsx';
+import { useApp, useData } from '../../store.tsx';
 import { studioNow, useStudio } from './common.tsx';
+import { usePayOrder } from './Pay.tsx';
+import { CHANNEL_NAME, yuan } from '../../../shared/billing.ts';
 import {
   ACCOUNTS, DEMO_ANSWERS, DEMO_NAME, DIAG_MORE, DIAG_PRICE, DIAG_QS, SHENG, STAGES, diagResult, makeTopics, schedule, vtype,
   type DiagMsg, type DiagResult, type DiagState,
@@ -30,13 +32,21 @@ export function DiagPage() {
 }
 
 function Paywall({ onSample }: { onSample: () => void }) {
-  const { sheet, toast, fail } = useApp();
+  const { sheet, toast } = useApp();
   const { replace } = useStudio();
-  const unlock = () => sheet({
-    title: `解锁大哲诊断账号 · ¥${DIAG_PRICE}`,
-    body: <><p className="s">一次解锁，永久可用，不按次扣点。</p><p className="s m" style={{ marginTop: 10 }}>演示版不会真的收款。正式上线走微信 / 支付宝，或者随课程开通；已购学员直接进入，不会二次收费。</p></>,
-    foot: <><button className="btn g" onClick={() => sheet(null)}>再想想</button><button className="btn k" id="dgPay" onClick={async () => { try { const r = await api.unlockStudio(); replace(r.state); sheet(null); toast('解锁了，开始聊吧'); } catch (e) { fail(e); } }}>确认解锁（演示）</button></>,
-  });
+  const b = useData(() => api.billing(), []);
+  const pay = usePayOrder();
+  const price = b.data?.diagPrice ?? DIAG_PRICE * 100;
+  const paid = async () => { const r = await api.studio(); replace(r.state); toast('解锁了，开始聊吧'); };
+  const unlock = () => {
+    const chs = b.data?.channels ?? [];
+    if (!chs.length) { toast('在线支付还没开通，已购学员找老师开通'); return; }
+    if (chs.length === 1) { void pay('diag', chs[0], undefined, () => void paid()); return; }
+    sheet({ title: `解锁大哲诊断账号 · ${yuan(price)}`, body: <>
+      <p className="s">一次解锁，永久可用，不按次扣点。选一个付款方式：</p>
+      <div className="chans" style={{ marginTop: 14 }}>{chs.map(c => <button key={c} className={`chan ch-${c}`} data-ch={c} onClick={() => { sheet(null); void pay('diag', c, undefined, () => void paid()); }}>{CHANNEL_NAME[c]}</button>)}</div>
+    </> });
+  };
   return <div className="paywall" id="dgPaywall">
     <div className="pw-l">
       <p className="eyebrow">付费诊断 · 可选</p>
@@ -51,8 +61,8 @@ function Paywall({ onSample }: { onSample: () => void }) {
       </ul>
     </div>
     <div className="pw-r">
-      <p className="pw-price"><b>¥{DIAG_PRICE}</b><span>一次解锁 · 永久可用 · 不按次扣点</span></p>
-      <button className="btn k big" id="dgUnlock" onClick={unlock}>¥{DIAG_PRICE} 立即解锁</button>
+      <p className="pw-price"><b>{yuan(price)}</b><span>一次解锁 · 永久可用 · 不按次扣点</span></p>
+      <button className="btn k big" id="dgUnlock" onClick={unlock}>{yuan(price)} 立即解锁</button>
       <button className="btn g big" id="dgSample" onClick={onSample}>先看盛哥的诊断结果 →</button>
       <p className="xs m3">已购学员直接进入，不会二次收费。解锁后进一步不消耗点数。</p>
       <p className="xs m3">不做诊断也能直接出片——去「一键生成视频」。</p>

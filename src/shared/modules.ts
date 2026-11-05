@@ -71,7 +71,7 @@ export const MODULES: ModuleDef[] = [
 
   { id: 'login', zone: '账号与点数', n: '登录注册', d: '手机号验证码或微信登录', phase: 1, src: '原有' },
   { id: 'points', zone: '账号与点数', n: '点数和兑换码', d: '余额、流水、兑换码', phase: 1, src: '原有' },
-  { id: 'recharge', zone: '账号与点数', n: '充值', d: '微信 / 支付宝买点数，或和课程打包', phase: 2, parent: 'points', src: '方案' },
+  { id: 'recharge', zone: '账号与点数', n: '充值', d: '微信 / 支付宝买点数，或和课程打包', phase: 1, parent: 'points', src: '11/4' },
   { id: 'invite', zone: '账号与点数', n: '邀请有礼', d: '邀请链接，双方得点数', phase: 2, parent: 'points', src: '原有' },
 
   { id: 'teacher', zone: '老师与获客', n: '老师后台', d: '学员列表、面诊、计划、发布率', phase: 2, src: '方案' },

@@ -180,16 +180,20 @@ await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发�
   await shot('20_mk_step2');
   await $('#mkNext2').click(); await $('#mkShots li').first().waitFor();
   const before = Number((await $('#bal').textContent()).replace(/,/g, ''));
-  await $('#mkGen').click(); await $('#mkCostSheet').waitFor(); await $('#mkPay').click();
+  await $('#mkSample').click(); await $('#mkCostSheet').waitFor(); await $('#mkPay').click();
   await $('#mkStep4').waitFor({ timeout: 10000 });
-  await page.waitForTimeout(400);
-  if (Number((await $('#bal').textContent()).replace(/,/g, '')) !== before - 60) throw new Error('没按 60 点扣');
+  await $('#mkFinal').waitFor({ timeout: 20000 });
+  if (Number((await $('#bal').textContent()).replace(/,/g, '')) !== before - 25) throw new Error('样片没按 25 点扣');
+  if (await $('#mkQueue').isEnabled()) throw new Error('只有样片也能进队列');
+  await $('#mkFinal').click(); await $('#mkStage.final').waitFor();
+  await page.waitForFunction(() => /5\/5/.test(document.querySelector('#mkPub')?.textContent ?? ''), null, { timeout: 20000 });
+  if (Number((await $('#bal').textContent()).replace(/,/g, '')) !== before - 85) throw new Error('成片没按 60 点扣');
   if (!/5\/5/.test(await $('#mkPub').textContent())) throw new Error('发布清单没齐');
   if (await page.getByText('保存草稿').count()) throw new Error('还有保存草稿');
   await shot('21_mk_step4');
   await $('#mkQueue').click(); await $('#mkQueueOk').click();
   await $('#v-sched .ptr.hl').waitFor();
-  await page.goto(base + '/diag'); await $('#dgUnlock').click(); await $('#dgPay').click();
+  await page.goto(base + '/diag'); await $('#dgUnlock').click(); await $('#payBody .qr').waitFor(); await $('#mockPay').click();
   await $('#dgChat').waitFor(); await $('#dgDemo').click();
   await $('#dgResult').waitFor({ timeout: 20000 });
   if (!/吃苦耐劳/.test(await $('#dgResult').textContent()) || await $('#dgResult .colname').first().inputValue() !== '法式大宅品鉴') throw new Error('盛哥演示的结果不对');
@@ -202,6 +206,15 @@ await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发�
   await $('[data-act=pub]').first().click();
   await page.goto(base + '/data'); await $('#dataTable .ptr').first().waitFor();
   if ((await $('#dataTable .ptr').count()) < 7) throw new Error('发了的没进作品数据');
+});
+await run('充值：余额进充值页 → 选套餐 → 扫码（模拟）→ 到账；订单和流水都有', async () => {
+  await page.goto(base + '/'); await $('#ptsBtn').click(); await $('#v-pay [data-pkg]').first().waitFor();
+  const before = Number((await $('#bal').textContent()).replace(/,/g, ''));
+  await $('[data-pkg=p99]').click(); await $('#payGo').click(); await $('#payBody .qr svg').waitFor();
+  await shot('22_pay_qr');
+  await $('#mockPay').click(); await $('#payBody').waitFor({ state: 'detached' });
+  await page.waitForFunction(b => Number(document.querySelector('#bal')?.textContent?.replace(/,/g, '')) === b + 1100, before);
+  await $('#orders', { hasText: '已支付' }).waitFor(); await $('#ledger', { hasText: '充值' }).waitFor();
 });
 await run('账号：注册保留内容 → 退出 → 登录', async () => {
   await $('#loginBtn').click(); await $('#authForm .seg button', { hasText: '注册' }).click();

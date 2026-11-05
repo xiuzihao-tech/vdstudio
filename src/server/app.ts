@@ -24,8 +24,10 @@ import { isPublishDay } from '../shared/schedule.ts';
 import * as S from '../shared/schemas.ts';
 import { MODULES, PRESETS, closedParents, moduleForApi, normalizeConfig, presetStates, viewFor, type ModuleConfig, type Preset } from '../shared/modules.ts';
 import { makeRetention } from './retention.ts';
-import { defaultStudio, emptyDiag, type StudioState } from '../shared/studio.ts';
-import type { CopyDraft, Workspace } from '../shared/types.ts';
+import { costOf, defaultStudio, emptyDiag, sampleCost, toGen, type StudioState } from '../shared/studio.ts';
+import { loadPay } from './pay/index.ts';
+import { CHANNEL_NAME, ORDER_TTL_MIN, normalizeBilling, totalPoints, yuan, type BillingConfig, type PayChannel } from '../shared/billing.ts';
+import type { CopyDraft, GenSettings, Workspace } from '../shared/types.ts';
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.map': 'application/json',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.webm': 'video/webm', '.svg': 'image/svg+xml' };
@@ -529,19 +531,121 @@ export function createApp(opts: AppOptions) {
     saveStudio(ws.id, next);
     return { state: next };
   });
-  r.post('/api/studio/unlock', req => {
-    // 演示：¥899 走线下 / 课程开通，这里只记已解锁，不扣点
-    const ws = W(req), st = studioOf(ws.id);
-    st.diag.unlocked = true; saveStudio(ws.id, st); ops.track(ctx(req).owner, ws.id, 'diag_unlocked');
-    return { state: st };
-  });
   r.post('/api/studio/reset', req => { const ws = W(req); ops.setSetting(studioKey(ws.id), null); return { state: studioOf(ws.id) }; });
-  r.post('/api/studio/render', async req => {
-    const ws = W(req), d = await body(req, z.object({ title: z.string().trim().max(60).default('一条视频'), cost: z.number().int().min(1).max(2000) }));
-    if (!repo.charge(ws.id, d.cost, `一键生成视频：${d.title || '一条视频'}`, null)) throw new HttpError(402, `余额不足：需要 ${d.cost} 点`);
-    ops.track(ctx(req).owner, ws.id, 'gen_done');
-    return { balance: repo.ws(ws.id)!.balance };
+  /** 出片：Seedance 2.5 样片模式。sample = 先出 480p 样片（成片价四成）；final = 出 1080p 成片，带 fromJob 就沿用那条样片 */
+  r.post('/api/studio/render', async (req, res) => {
+    const ws = W(req), owner = ctx(req).owner;
+    const d = await body(req, z.object({ mode: z.enum(['sample', 'final']), fromJob: z.string().max(40).optional(), draft: z.object({
+      type: z.enum(['tour', 'explain', 'talk', 'before', 'case', 'product', 'site', 'vlog']), face: z.enum(['avatar', 'none']), avatar: z.string().max(40),
+      title: z.string().max(80), opt: z.object({ dur: z.string().max(20), ratio: z.string().max(20), font: z.string().max(20), bgm: z.string().max(20), voice: z.string().max(30) }),
+      mats: z.array(z.record(z.unknown())).max(40),
+      shots: z.array(z.object({ id: z.string().max(20), title: z.string().max(60), line: z.string().max(300), tip: z.string().max(120), k: z.string().max(20), secs: z.number().min(1).max(30), avatar: z.boolean().optional(),
+        mat: z.object({ id: z.string().max(40), name: z.string().max(120), kind: z.enum(['photo', 'video']), k: z.string().max(20) }).passthrough().nullable().optional() })).min(1).max(12),
+    }) }));
+    if (ops.genPaused()) throw new HttpError(503, '生成功能暂时关闭了，管理员打开后就能用');
+    if (o.dailyJobsPerUser && ops.jobsToday(owner) >= o.dailyJobsPerUser) throw new HttpError(429, `今天的生成次数用完了（每天 ${o.dailyJobsPerUser} 次），明天再来`);
+    if (o.dailyBudget && ops.spentToday() >= o.dailyBudget) throw new HttpError(503, '今天的试用额度已经用完，明天再来');
+    const full = costOf(d.draft.type, d.draft.opt.dur), sample = d.mode === 'sample', cost = sample ? sampleCost(full) : full;
+    const g = toGen(d.draft as unknown as Parameters<typeof toGen>[0], { voiceReady: ws.voiceClone === 'ready', avatars: ws.avatars }, sample) as GenSettings;
+    const blocking = genIssues(g, ws.voiceClone, { firstFrame: firstFrameOk(), avatars: ws.avatars }).filter(i => i.blocking);
+    if (blocking.length) throw new HttpError(422, blocking.map(i => i.text).join('；'));
+    if (d.fromJob && !repo.job(ws.id, d.fromJob)) throw new HttpError(404, '样片不存在');
+    const title = d.draft.title || g.shots?.[0]?.line.slice(0, 20) || '一条视频';
+    const out = runner.startVideo(ws, g, !sample, title, { cost, fromJob: d.fromJob });
+    if (!out.ok) throw new HttpError(402, out.error);
+    ops.track(owner, ws.id, sample ? 'gen_started' : 'final_started', { model: g.model, len: g.len, cost, studio: true });
+    res.statusCode = 201; return { job: out.job, cost, balance: repo.ws(ws.id)!.balance };
   });
+  /* ---------- 充值和在线支付 ---------- */
+  const pay = loadPay(o.env ?? process.env, o.publicBaseUrl);
+  const billing = (): BillingConfig => { try { return normalizeBilling(JSON.parse(ops.getSetting('billing') ?? 'null')); } catch { return normalizeBilling(null); } };
+  /** 到账后要做的事：诊断单解锁诊断（点数单在 settleOrder 里已经加了） */
+  const settle = (orderId: string, tradeNo: string, amount: number) => {
+    const od = repo.order(orderId);
+    if (!od) throw new HttpError(404, '订单不存在');
+    if (amount >= 0 && amount !== od.amount) throw new HttpError(400, '金额对不上');
+    if (!repo.settleOrder(orderId, tradeNo)) return false;
+    if (od.product === 'diag') { const st = studioOf(od.ws); st.diag.unlocked = true; saveStudio(od.ws, st); }
+    ops.track(od.ownerId, od.ws, 'order_paid', { product: od.product, amount: od.amount, channel: od.channel });
+    return true;
+  };
+  const publicOrder = (x: NonNullable<ReturnType<typeof repo.order>>) => { const { ws: _w, ownerId: _o, ...rest } = x; return rest; };
+  r.get('/api/billing', req => {
+    const ws = W(req);
+    repo.closeStale(new Date(Date.now() - ORDER_TTL_MIN * 60e3).toISOString());
+    return { ...billing(), channels: pay.info.channels, mock: pay.info.mock, balance: ws.balance, orders: repo.ordersOf(ws.id) };
+  });
+  r.post('/api/billing/orders', async (req, res) => {
+    const ws = W(req), d = await body(req, z.object({ product: z.enum(['points', 'diag']), packageId: z.string().max(20).optional(), channel: z.enum(['wechat', 'alipay', 'mock']) }));
+    const user = ctx(req).user;
+    if (d.product === 'points' && !isAdmin(user) && viewFor(modCfg(), user?.email ?? null).recharge !== 'on') throw new HttpError(403, '在线充值还没开放，先用兑换码');
+    const prov = pay.providers[d.channel as PayChannel];
+    if (!prov) throw new HttpError(400, `${CHANNEL_NAME[d.channel as PayChannel]}还没开通`);
+    const b = billing();
+    let title: string, amount: number, points = 0;
+    if (d.product === 'diag') {
+      if (studioOf(ws.id).diag.unlocked) throw new HttpError(400, '已经解锁过了，不用再付');
+      title = '大哲诊断账号 · 一次解锁'; amount = b.diagPrice;
+    } else {
+      const pk = b.packages.find(p => p.id === d.packageId);
+      if (!pk) throw new HttpError(400, '套餐不存在，刷新一下再选');
+      points = totalPoints(pk); title = `${pk.n} · ${points.toLocaleString()} 点`; amount = pk.price;
+    }
+    const od = repo.insertOrder(ws.id, { product: d.product, packageId: d.packageId ?? null, title, amount, points, channel: d.channel as PayChannel });
+    try { const c = await prov.create({ id: od.id, amount, title: `FIND AI 视频工作室 · ${title}` }); repo.setOrderQr(od.id, c.qr); }
+    catch (e) { repo.closeOrder(od.id); throw new HttpError(502, (e as Error).message || '下单失败，稍后再试'); }
+    ops.track(ctx(req).owner, ws.id, 'order_created', { product: d.product, amount, channel: d.channel });
+    res.statusCode = 201; return { order: publicOrder(repo.order(od.id)!) };
+  });
+  r.get('/api/billing/orders/:id', async req => {
+    const ws = W(req), od = repo.order(req.params.id);
+    if (!od || od.ownerId !== ws.ownerId) throw new HttpError(404, '订单不存在');
+    // 回调没到（本机开发、网络抖动）时主动查一次单
+    if (od.status === 'pending' && od.channel !== 'mock' && Date.now() - Date.parse(od.createdAt) > 4000) {
+      const paid = await pay.providers[od.channel]?.query(od.id).catch(() => null);
+      if (paid) settle(od.id, paid.tradeNo, paid.amount);
+    }
+    return { order: publicOrder(repo.order(od.id)!), balance: repo.ws(ws.id)!.balance };
+  });
+  r.post('/api/billing/orders/:id/mock-pay', req => {
+    const ws = W(req), od = repo.order(req.params.id);
+    if (!od || od.ownerId !== ws.ownerId) throw new HttpError(404, '订单不存在');
+    if (od.channel !== 'mock' || !pay.providers.mock) throw new HttpError(400, '只有模拟支付能这样付');
+    settle(od.id, `MOCK${Date.now()}`, od.amount);
+    return { order: publicOrder(repo.order(od.id)!), balance: repo.ws(ws.id)!.balance };
+  });
+  for (const ch of ['wechat', 'alipay'] as const) {
+    r.post(`/api/pay/notify/${ch}`, async (req, res) => {
+      const prov = pay.providers[ch];
+      if (!prov) throw new HttpError(404, '没开通');
+      const raw = (await readBuffer(req.raw, 64 * 1024)).toString('utf8');
+      try {
+        const paid = await prov.notify(req.raw.headers, raw);
+        if (paid) settle(paid.orderId, paid.tradeNo, paid.amount);
+        res.writeHead(prov.ack.status, { 'content-type': prov.ack.type }).end(prov.ack.body);
+      } catch (e) {
+        console.warn(`${ch} 回调处理失败：`, (e as Error).message);
+        if (ch === 'wechat') res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ code: 'FAIL', message: (e as Error).message }));
+        else res.writeHead(200, { 'content-type': 'text/plain' }).end('fail');
+      }
+    });
+  }
+  r.get('/api/admin/billing', req => {
+    admin(req);
+    const day = new Date(); day.setHours(0, 0, 0, 0);
+    return { config: billing(), channels: pay.info.channels, mock: pay.info.mock, orders: repo.allOrders(), today: repo.orderTotals(day.toISOString()), month: repo.orderTotals(new Date(Date.now() - 30 * 864e5).toISOString()) };
+  });
+  r.put('/api/admin/billing', async req => {
+    admin(req);
+    const d = await body(req, z.object({ packages: z.array(z.object({ id: z.string().min(1).max(20), n: z.string().min(1).max(12), price: z.number().int().min(1).max(10_000_000), points: z.number().int().min(1).max(10_000_000), bonus: z.number().int().min(0).max(10_000_000), tag: z.string().max(6).optional() })).min(1).max(8), diagPrice: z.number().int().min(1).max(10_000_000) }));
+    const c = normalizeBilling(d); ops.setSetting('billing', JSON.stringify(c)); return { config: c };
+  });
+  r.post('/api/admin/billing/orders/:id/refund', req => {
+    admin(req);
+    if (!repo.refundOrder(req.params.id)) throw new HttpError(400, '只有已支付的订单能标记退款');
+    return { ok: true, note: '已扣回点数。钱要在微信 / 支付宝商户后台原路退。' };
+  });
+  void yuan;
   void CADENCE;
 
   /* ---------- 埋点与反馈 ---------- */
@@ -669,7 +773,7 @@ export function createApp(opts: AppOptions) {
         const m = r.match(req.method, req.path);
         if (!m) throw new HttpError(404, '接口不存在');
         req.params = m.params;
-        if (!req.path.startsWith('/api/auth/')) {
+        if (!req.path.startsWith('/api/auth/') && !req.path.startsWith('/api/pay/notify/')) {
           const c = ctx(req); if (c.setCookie) res.setHeader('set-cookie', c.setCookie);
           // 模块开关：隐藏、预告、不在内测名单的模块，接口直接拒绝（管理员不受限，方便预览）
           const mid = moduleForApi(req.method, req.path);

@@ -359,13 +359,17 @@ export class JobRunner {
   constructor(private repo: Repo, private providers: Providers, private opts: RunnerOpts = {}, private frameUrl: (a: Asset) => Promise<string | null> | string | null = () => null) {}
 
   /** 校验、扣点、建任务，然后在后台跑；返回任务或错误 */
-  startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
+  /** o.cost：按页面上的价格收（一键生成视频按成片类型定价）；o.fromJob：出成片时沿用这条样片（Seedance 2.5 样片模式，7 天内有效） */
+  startVideo(ws: Workspace, g: GenSettings, final: boolean, title: string, o: { cost?: number; fromJob?: string } = {}): { ok: true; job: ReturnType<Repo['insertJob']> } | { ok: false; error: string } {
     const p = personaOf(ws.persona);
     const assets = this.repo.assetsByIds(ws.id, [...new Set([...g.assetIds, ...(g.shots ?? []).flatMap(s => [s.assetId, s.lastId].filter((x): x is string => !!x))])]);
     const shots = shotsOf(g, assets, p.att);
     // 没接配音服务（视频是真实服务时）：成片不带配音，也不收配音费
-    const cost = genCost(g, final, { voice: !!this.providers.tts });
+    const cost = o.cost ?? genCost(g, final, { voice: !!this.providers.tts });
     const kind = final ? 'video_final' : 'video';
+    // 样片任务 7 天内能直接续出成片；镜头数对不上（改过分镜）就不沿用
+    const src = o.fromJob ? this.repo.jobExternal(o.fromJob) : null, srcJob = o.fromJob ? this.repo.job(ws.id, o.fromJob) : null;
+    const drafts = final && src && srcJob && !src.final && src.tasks.length === shots.length && Date.now() - Date.parse(srcJob.createdAt) < 7 * 864e5 ? src.tasks : undefined;
     const job = this.repo.insertJob(ws.id, { kind, steps: GEN_STEPS, cost, title, input: g });
     if (!this.repo.charge(ws.id, cost, `${final ? '成片' : isDraft(g) ? '样片' : '生成'}：${title}`, job.id)) {
       this.repo.updateJob(job.id, { status: 'failed', error: '余额不足' });
@@ -373,8 +377,8 @@ export class JobRunner {
     }
     this.repo.markAssetsUsed(ws.id, assets.map(a => a.id));
     this.repo.updateJob(job.id, { status: 'running' });
-    this.repo.setJobExternal(job.id, { tasks: shots.map(() => null), shots, final });
-    void this.execute(ws.id, job, g, final, shots, assets, []);
+    this.repo.setJobExternal(job.id, { tasks: shots.map(() => null), shots, final, drafts, fromJob: o.fromJob });
+    void this.execute(ws.id, job, g, final, shots, assets, [], drafts);
     return { ok: true, job: this.repo.job(ws.id, job.id)! };
   }
 
@@ -384,10 +388,10 @@ export class JobRunner {
     if (!ext) return;
     const g = job.input as GenSettings;
     console.log(`接着查重启前的任务 ${job.id}（已提交 ${ext.tasks.filter(Boolean).length}/${ext.shots.length} 镜）`);
-    void this.execute(wsId, job, g, ext.final, ext.shots, this.repo.assetsByIds(wsId, [...new Set([...g.assetIds, ...ext.shots.map(s => s.assetId).filter((x): x is string => !!x)])]), ext.tasks);
+    void this.execute(wsId, job, g, ext.final, ext.shots, this.repo.assetsByIds(wsId, [...new Set([...g.assetIds, ...ext.shots.map(s => s.assetId).filter((x): x is string => !!x)])]), ext.tasks, ext.drafts);
   }
 
-  private async execute(wsId: string, job: Job, g: GenSettings, final: boolean, shots: PlannedShot[], assets: Asset[], known: (string | null)[]) {
+  private async execute(wsId: string, job: Job, g: GenSettings, final: boolean, shots: PlannedShot[], assets: Asset[], known: (string | null)[], drafts?: (string | null)[]) {
     const output: VideoOutput = { type: g.type, draft: !final && isDraft(g), shots, title: job.title, res: !final && isDraft(g) ? draftResOf(g.model) : g.res, ratio: g.ratio, len: shots.reduce((a, s) => a + s.dur, 0) || g.len, model: g.model, voice: g.voice };
     const tasks = shots.map((_, i) => known[i] ?? null);
     const byId = new Map(assets.map(a => [a.id, a]));
@@ -401,8 +405,8 @@ export class JobRunner {
       // 素材原片：不生成，直接用素材文件
       const clips = shots.map((s, i) => (s.source === 'clip' ? assetOf(s, i)?.url ?? null : null));
       const r = await this.providers.video.run({
-        settings: g, shots, final, frames, known,
-        onTask: (i, id) => { tasks[i] = id; this.repo.setJobExternal(job.id, { tasks, shots, final }); },
+        settings: g, shots, final, frames, known, drafts,
+        onTask: (i, id) => { tasks[i] = id; this.repo.setJobExternal(job.id, { tasks, shots, final, drafts }); },
       }, step => this.repo.updateJob(job.id, { step }));
       const errors = r?.errors ?? [];
       // 有镜头失败：其余照常出片，失败那几镜的点数退回

@@ -91,7 +91,7 @@ export function Header() {
       </nav>
       <div className="dzlinks">{DZ_AFTER.map(dzLink)}</div>
       <span className="sp" />
-      <button className="pts" id="ptsBtn" onClick={() => session && sheet({ title: '点数', body: <PointsSheet /> })}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点<span className="ptsub">1点=1秒</span></button>
+      <button className="pts" id="ptsBtn" aria-current={route.view === 'pay' ? 'page' : undefined} onClick={() => session && (mods.on('points') ? nav('pay') : sheet({ title: '点数', body: <PointsSheet /> }))}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点<span className="ptsub">1点=1秒 · 充值 ›</span></button>
       {session && !session.user && <button className="btn g sm" id="loginBtn" onClick={() => sheet({ title: '登录', body: <AuthForm onDone={() => sheet(null)} /> })}>登录</button>}
       <button className="who" id="whoBtn" aria-label="切换身份和账号" onClick={whoSheet} disabled={!session}>{session ? `${session.user ? `${session.user.name} · ` : ''}${session.persona.n}` : '…'}</button>
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>
