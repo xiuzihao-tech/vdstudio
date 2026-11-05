@@ -1453,7 +1453,14 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 }
 
 /* 第 1 步：先文案、再素材、再类型，竖着排 */
-.s1{display:flex;flex-direction:column;gap:14px;max-width:860px}
+.s1{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.s1box{display:flex;flex-direction:column}
+.s1box textarea{flex:1;min-height:150px}
+.s1drop{flex:1;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-radius:var(--r1);background:var(--pn2);color:var(--tx3);font-size:14px;font-weight:600}
+.s1drop svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.8}
+.s1drop:hover{color:var(--tx);background:color-mix(in srgb,var(--ac) 14%,var(--pn))}
+.s1box.up .s1ft{margin-top:auto;padding-top:10px}
+@media (max-width:860px){.s1{grid-template-columns:minmax(0,1fr)}}
 .s1box{padding:18px 20px;border-radius:var(--r2);background:var(--pn);border:1px solid var(--ln2)}
 .s1box.up{border:1.5px dashed var(--ln)}
 .s1box.up.over{border-color:var(--tx);background:color-mix(in srgb,var(--ac) 14%,var(--pn))}
@@ -1463,7 +1470,7 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 .s1ft{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
 .s1ft .btn{text-decoration:none}
 .s1 .matgrid{margin-top:0}
-.typepick{max-width:860px;margin-top:14px}
+.typepick{max-width:none;margin-top:14px}
 .typepick .t2{display:flex;align-items:center;gap:8px;margin:0}
 .typepick select{margin-top:0}
 

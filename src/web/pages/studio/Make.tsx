@@ -202,7 +202,8 @@ function Step1({ d, set, go }: SP) {
         </div>
       </div>
       <div className={`s1box up${over ? ' over' : ''}`} id="mkUp" onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={e => { e.preventDefault(); setOver(false); void add([...e.dataTransfer.files]); }}>
-        <div className="s1hd"><p className="t2"><i>2</i>素材</p><span className="xs m3">照片、视频，拖进来也行</span></div>
+        <div className="s1hd"><p className="t2"><i>2</i>素材</p><span className="xs m3">照片、视频都行</span></div>
+        {!d.mats.length && <button className="s1drop" onClick={async () => add(await pickFiles(ACCEPT))} disabled={!!busy}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg><span>把照片、视频拖到这里</span></button>}
         {d.mats.length > 0 && <div className="matgrid">{d.mats.map(m => <div key={m.id} className="mat"><Thumb mat={m} /><button aria-label={`去掉 ${m.name}`} onClick={() => set({ mats: d.mats.filter(x => x.id !== m.id) })}>×</button><span>{m.kind === 'video' ? '视频' : '照片'}</span></div>)}</div>}
         <div className="s1ft">
           <button className="btn y sm" id="mkPick" disabled={!!busy} onClick={async () => add(await pickFiles(ACCEPT))}>{busy === 'up' ? '上传中…' : d.mats.length ? '＋ 再传' : '选择文件'}</button>
