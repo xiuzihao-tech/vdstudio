@@ -1451,3 +1451,18 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
   .paywall{padding:20px;margin-top:24px}
   .stfoot .btn.k{flex:1}
 }
+
+/* 第 1 步：先文案、再素材、再类型，竖着排 */
+.s1{display:flex;flex-direction:column;gap:14px;max-width:860px}
+.s1box{padding:18px 20px;border-radius:var(--r2);background:var(--pn);border:1px solid var(--ln2)}
+.s1box.up{border:1.5px dashed var(--ln)}
+.s1box.up.over{border-color:var(--tx);background:color-mix(in srgb,var(--ac) 14%,var(--pn))}
+.s1hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.s1hd .t2{margin:0;display:flex;align-items:center;gap:8px}
+.s1hd .t2 i,.typepick .t2 i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--tx);color:var(--ac);display:inline-grid;place-items:center;font-size:12px;font-weight:900}
+.s1ft{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.s1ft .btn{text-decoration:none}
+.s1 .matgrid{margin-top:0}
+.typepick{max-width:860px;margin-top:14px}
+.typepick .t2{display:flex;align-items:center;gap:8px;margin:0}
+.typepick select{margin-top:0}

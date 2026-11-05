@@ -1,4 +1,4 @@
-// 一键生成视频：首页（拖素材）→ ① 传素材 → ② AI 建议 → ③ 确认分镜 → ④ 成片与发布 →「加入发布队列」回到安排发布计划。
+// 一键生成视频：首页（拖素材）→ ① 文案和素材 → ② AI 建议 → ③ 确认分镜 → ④ 成片与发布 →「加入发布队列」回到安排发布计划。
 // 入口只收素材或文案，成片类型交给 AI 推荐（也可以自己在下拉里定）。数字人在第 2 步选，不再单独一页。
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { api } from '../../api.ts';
@@ -14,7 +14,9 @@ import {
 } from '../../../shared/studio.ts';
 import type { Asset } from '../../../shared/types.ts';
 
-const STEPS = ['传素材', 'AI 建议', '确认分镜', '成片与发布'];
+const STEPS = ['文案和素材', 'AI 建议', '确认分镜', '成片与发布'];
+/** 没文案时跳到 dazheip 的「开始创作文案」（菜单里同一个入口） */
+const COPY_URL = `${DAZHEIP_URL}/`;
 const SAMPLE_COPY = '这套140㎡意式极简，我最想让你看两个细节。整面岩板没有做复杂造型，靠体块穿插撑住气场。开放式餐厨把动线缩短了4米，做饭不再绕圈。床头这面洞石，是整套房子最贵也最值的一笔。想看你家能做成什么样，评论区扣1，发你清单。';
 const toMat = (a: Asset): Mat => ({ id: a.id, name: a.name, kind: a.type === '视频' || a.mime?.startsWith('video/') ? 'video' : 'photo', k: a.k, url: a.url, mime: a.mime });
 const nowIso = () => new Date().toISOString();
@@ -186,32 +188,31 @@ function Step1({ d, set, go }: SP) {
     go(2, { type: a.type, face: t.face === 'avatar' ? 'avatar' : 'none', avatar: st?.avatar ?? d.avatar, cost: costOf(a.type, d.opt.dur), opt: { ...d.opt, dur: 'AI 推荐' } });
   };
   return <div className="stp" id="mkStep1">
-    <div className="s1grid">
-      <div className={`upbox${over ? ' over' : ''}`} id="mkUp" onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={e => { e.preventDefault(); setOver(false); void add([...e.dataTransfer.files]); }}>
-        <p className="t2">传素材</p>
-        <p className="s m">照片、视频、或数字人</p>
-        {d.mats.length > 0 && <div className="matgrid">{d.mats.map(m => <div key={m.id} className="mat"><Thumb mat={m} /><button aria-label={`去掉 ${m.name}`} onClick={() => set({ mats: d.mats.filter(x => x.id !== m.id) })}>×</button><span>{m.kind === 'video' ? '视频' : '照片'}</span></div>)}</div>}
-        <div className="row" style={{ gap: 8, marginTop: 14 }}>
-          <button className="btn y sm" id="mkPick" disabled={!!busy} onClick={async () => add(await pickFiles(ACCEPT))}>{busy === 'up' ? '上传中…' : '选择文件'}</button>
-          <button className="btn g sm" id="mkSamplesBtn" disabled={!!busy} onClick={samples}>{busy === 'smp' ? '在加…' : '添加示例素材'}</button>
-          <button className="btn g sm" disabled={!!busy} onClick={fromLib}>从素材库选</button>
+    <div className="s1">
+      <div className="s1box" id="mkCopyBox">
+        <div className="s1hd"><p className="t2"><i>1</i>文案</p><button className="lnk xs" id="mkSampleCopy" onClick={() => set({ copy: SAMPLE_COPY })}>用示例文案</button></div>
+        <textarea className="fld" id="mkCopy" rows={5} value={d.copy} onChange={e => set({ copy: e.target.value })} placeholder="把写好的文案贴进来：一个观点、一段案例介绍都行。" />
+        <div className="s1ft">
+          {n > 0 ? <span className="xs ok">✓ 约 {n} 字</span> : <>
+            <span className="s">没有文案？</span>
+            <a className="btn y sm" id="mkGoWrite" href={COPY_URL} target="_blank" rel="noopener">去「开始创作文案」写 ↗</a>
+            {d.mats.length > 0 && <button className="btn g sm" id="mkAiWrite" disabled={!!busy} onClick={aiWrite}>{busy === 'write' ? 'AI 在看素材…' : '让 AI 看素材写'}</button>}
+            <span className="xs m3">不写也行，有画面就能做空间漫游</span>
+          </>}
         </div>
       </div>
-      <div className="or" aria-hidden="true">或</div>
-      <div className="txtbox">
-        <div className="row" style={{ justifyContent: 'space-between' }}><p className="t2">贴一段文案</p><button className="lnk xs" id="mkSampleCopy" onClick={() => set({ copy: SAMPLE_COPY })}>粘贴示例文案</button></div>
-        <textarea className="fld" id="mkCopy" rows={7} value={d.copy} onChange={e => set({ copy: e.target.value })} placeholder="想说的话、一个观点、一段案例介绍都行。不写也可以——有画面就能做空间漫游。" />
-        {n > 0 && <p className="xs ok" style={{ marginTop: 6 }}>✓ 已收到文案 · 约 {n} 字</p>}
-        {d.mats.length > 0 && !n && <div className="nocopy" id="mkNoCopy">
-          <span className="s">没有文案？</span>
-          <button className="btn g sm" id="mkAiWrite" disabled={!!busy} onClick={aiWrite}>{busy === 'write' ? 'AI 在看素材…' : '让 AI 看素材写一段'}</button>
-          <a className="lnk xs" href={`${DAZHEIP_URL}/`} target={DAZHEIP_URL ? '_blank' : undefined} rel="noopener">点这里去「开始创作文案」写 ↗</a>
-        </div>}
+      <div className={`s1box up${over ? ' over' : ''}`} id="mkUp" onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={e => { e.preventDefault(); setOver(false); void add([...e.dataTransfer.files]); }}>
+        <div className="s1hd"><p className="t2"><i>2</i>素材</p><span className="xs m3">照片、视频，拖进来也行</span></div>
+        {d.mats.length > 0 && <div className="matgrid">{d.mats.map(m => <div key={m.id} className="mat"><Thumb mat={m} /><button aria-label={`去掉 ${m.name}`} onClick={() => set({ mats: d.mats.filter(x => x.id !== m.id) })}>×</button><span>{m.kind === 'video' ? '视频' : '照片'}</span></div>)}</div>}
+        <div className="s1ft">
+          <button className="btn y sm" id="mkPick" disabled={!!busy} onClick={async () => add(await pickFiles(ACCEPT))}>{busy === 'up' ? '上传中…' : d.mats.length ? '＋ 再传' : '选择文件'}</button>
+          <button className="btn g sm" disabled={!!busy} onClick={fromLib}>从素材库选</button>
+          <button className="lnk xs" id="mkSamplesBtn" disabled={!!busy} onClick={samples}>{busy === 'smp' ? '在加…' : '用示例素材'}</button>
+        </div>
       </div>
     </div>
     <div className="typepick">
-      <label className="t2" htmlFor="mkType">成片类型（可选）</label>
-      <p className="s m">不确定就交给 AI，它会按你的素材挑最合适的；你已经想清楚了就自己定。</p>
+      <div className="s1hd"><label className="t2" htmlFor="mkType"><i>3</i>成片类型 <span className="xs m3">可选</span></label><span className="xs m3">不确定就交给 AI，按你的文案和素材挑</span></div>
       <select className="fld big" id="mkType" value={d.pick} onChange={e => set({ pick: e.target.value as VType | typeof AUTO })}>
         <option value={AUTO}>✓ 交给 AI 决定（推荐）</option>
         {VTYPES.map(t => <option key={t.id} value={t.id}>{t.n} · {t.pts} 点{t.tag ? ` · ${t.tag}` : ''}</option>)}
@@ -219,7 +220,7 @@ function Step1({ d, set, go }: SP) {
       {pick && <p className="xs m3" style={{ marginTop: 6 }}>{pick.d}。要准备：{pick.need}</p>}
     </div>
     <div className="stfoot">
-      <span className="xs m3">{!d.mats.length && !n ? '先放素材或者文案，至少一样' : `${d.mats.length} 份素材 · ${n ? `${n} 字文案` : '没有文案'}`}</span>
+      <span className="xs m3">{!d.mats.length && !n ? '文案和素材至少放一样' : `${d.mats.length} 份素材 · ${n ? `${n} 字文案` : '没有文案'}`}</span>
       <button className="btn k" id="mkNext1" disabled={!d.mats.length && !n} onClick={next}>下一步 · 让 AI 看看 →</button>
     </div>
   </div>;

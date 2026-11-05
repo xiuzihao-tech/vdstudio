@@ -168,7 +168,8 @@ await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发�
   if ((await $('#mkType').inputValue()) !== 'tour') throw new Error('做同款没带上类型');
   if (!(await $('#mkNext1').isDisabled())) throw new Error('什么都没放也能下一步');
   await $('#mkSamplesBtn').click(); await $('#mkStep1 .matgrid .mat').first().waitFor();
-  await $('#mkNoCopy').waitFor();
+  await $('#mkAiWrite').waitFor();
+  if (!/dazheip\.com\/$/.test(await $('#mkGoWrite').getAttribute('href'))) throw new Error('没文案的跳转不对');
   await $('#mkType').selectOption('auto'); await $('#mkSampleCopy').click();
   await $('#mkNext1').click(); await $('#mkStep2').waitFor();
   await $('#mkReco').waitFor();
