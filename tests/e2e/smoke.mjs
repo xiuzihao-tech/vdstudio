@@ -32,8 +32,8 @@ const shot = n => page.screenshot({ path: join(shots, `${n}.png`), fullPage: tru
 
 await page.goto(base + '/gen');
 const COPY = '你家玄关，是不是一进门就乱？\n这个项目，我们只解决了一件事。\n鞋、外套、快递，三样东西三个高度。\n凳面四十二公分，老人孩子都好坐。\n很多人装修只看效果图，没想过住进去以后每天怎么用。\n想看你家能怎么改，私信发户型图。';
-await run('导航：视频 IP 主线 5 个入口（苗苗原型），旧入口不在菜单里', async () => {
-  const tabs = (await $('.tabs [data-go]').allTextContents()).map(t => t.replace(/\d+$/, ''));
+await run('导航：视频 IP 5 个入口和 dazheip 菜单同级（苗苗原型），旧入口不在菜单里', async () => {
+  const tabs = (await $('.tabs [data-go]').allTextContents()).map(t => t.replace(/\d+$|🔥/gu, ''));
   for (const t of ['大哲诊断账号', '一键生成视频', '管理我的素材', '安排发布计划', '查看作品数据']) if (!tabs.includes(t)) throw new Error('缺少入口 ' + t + '：' + tabs.join(','));
   for (const t of ['今天', 'AI 运营', '知识库与形象', '口播数字人', '数字人与品牌']) if (tabs.includes(t)) throw new Error('旧入口还在：' + t);
 });

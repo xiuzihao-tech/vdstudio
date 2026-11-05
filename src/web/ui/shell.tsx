@@ -18,7 +18,7 @@ export const TAB_MODS: Record<string, string[]> = { make: ['real', 'talk', 'aiVi
 const DZ_BEFORE: [string, string, string][] = [['开始创作文案', '/', 'i-pen'], ['查找选题灵感', '/topics', 'i-target'], ['制作封面图文', '/covers', 'i-flame']];
 const DZ_AFTER: [string, string, string][] = [['常用创作工具', '/tools', 'i-tool'], ['大哲实战课堂', '/classroom', 'i-cap'], ['家居IP资讯', '/news', 'i-news'], ['我的资产', '/assets', 'i-box']];
 const TABS: [View, string, string][] = [['diag', '大哲诊断账号', '诊断'], ['make', '一键生成视频', '出片'], ['mat', '管理我的素材', '素材'], ['sched', '安排发布计划', '计划'], ['data', '查看作品数据', '数据']];
-const ICON: Record<string, string> = { diag: 'i-target', make: 'i-wb', mat: 'i-lib', sched: 'i-cal', data: 'i-chart' };
+const ICON: Record<string, string> = { diag: 'i-diag', make: 'i-wb', mat: 'i-lib', sched: 'i-cal', data: 'i-chart' };
 const THEMES: [string, string][] = [['dazhe', '大哲'], ['studio', '展厅'], ['cinema', '放映'], ['glass', '天光'], ['poster', '海报']];
 const JST: Record<string, [string, string]> = { queued: ['', '排队'], running: ['gen', '生成中'], done: ['real', '完成'], failed: ['err', '失败'] };
 
@@ -33,7 +33,7 @@ export function Header() {
   const locked = st && !st.diag.unlocked;
   const cur = (v: View) => route.view === v || (v === 'make' && route.view === 'home');
   const dzLink = ([n, path, ic]: [string, string, string]) => <a key={path} className="dzl" href={`${DAZHEIP_URL}${path}`} target={DAZHEIP_URL ? '_blank' : undefined} rel="noopener"><svg className="nav-ic" aria-hidden="true"><use href={`#${ic}`} /></svg>{n}{DAZHEIP_URL && <span className="ext" aria-label="在大哲 IP 主站打开">↗</span>}</a>;
-  const tabBtn = ([v, n]: [View, string, string]) => <button key={v} data-go={v} aria-current={cur(v) ? 'page' : undefined} onClick={() => nav(v)}><svg className="nav-ic" aria-hidden="true"><use href={`#${ICON[v]}`} /></svg>{n}{v === 'diag' && locked && <svg className="lock" aria-label="付费解锁"><use href="#i-lock" /></svg>}{v === 'sched' && week > 0 && <span className="cnt">{week}</span>}{badge(v)}</button>;
+  const tabBtn = ([v, n]: [View, string, string]) => <button key={v} data-go={v} aria-current={cur(v) ? 'page' : undefined} onClick={() => nav(v)}><svg className="nav-ic" aria-hidden="true"><use href={`#${ICON[v]}`} /></svg>{n}{v === 'make' && <span className="fire" aria-label="热门">🔥</span>}{v === 'diag' && locked && <svg className="lock" aria-label="付费解锁"><use href="#i-lock" /></svg>}{v === 'sched' && week > 0 && <span className="cnt">{week}</span>}{badge(v)}</button>;
   // 「生成视频」整区只是预告时，角标挂在第一个模块上
   const badge = (v: string) => mods.any(...TAB_MODS[v]) ? null : <SoonBadge id={TAB_MODS[v][0]} />;
 
@@ -84,7 +84,6 @@ export function Header() {
       <div className="logo"><span>FIND AI</span><span className="x">×</span><span className="dz">大哲<br className="sub" />IP研究院</span><span className="sub">视频工作室 · FIND AI 联合出品</span></div>
       <p className="menu-lb">菜单 / MODULES</p>
       <div className="dzlinks">{DZ_BEFORE.map(dzLink)}</div>
-      <p className="dzg"><svg className="nav-ic" aria-hidden="true"><use href="#i-play" /></svg>视频 IP<span className="new">新</span><span className="dzg2">主线</span></p>
       <nav className="tabs" aria-label="主导航">
         {tabs.map(tabBtn)}
         {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
@@ -122,6 +121,7 @@ export function Icons() {
       <symbol id="i-lib" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2" /><rect x="13.5" y="3.5" width="7" height="7" rx="2" /><rect x="3.5" y="13.5" width="7" height="7" rx="2" /><rect x="13.5" y="13.5" width="7" height="7" rx="2" /></symbol>
       <symbol id="i-task" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></symbol>
       <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" /></symbol>
+      <symbol id="i-diag" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4h6v3H9zM9 13l2 2 4-4" /></symbol>
       <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
       <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8" /></symbol>
       <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></symbol>

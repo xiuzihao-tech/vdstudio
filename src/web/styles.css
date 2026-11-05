@@ -1122,8 +1122,8 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
   body[data-theme=dazhe] .dzl .ext{margin-left:auto;font-size:11px;opacity:.45}
   body[data-theme=dazhe] .dzg{display:flex;align-items:center;gap:10px;margin:8px 0 0;padding:10px 12px 4px;font-size:14.5px;font-weight:800;border-top:1px dashed rgba(11,11,12,.22)}
   body[data-theme=dazhe] .new{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;line-height:1;padding:3px 5px;border-radius:3px;background:var(--tx);color:var(--side)}
-  body[data-theme=dazhe] .tabs>button{padding-left:30px;font-size:13.5px}
-  body[data-theme=dazhe] .tabs>button .nav-ic{width:15px;height:15px}
+  body[data-theme=dazhe] .tabs>button{font-size:14.5px;font-weight:600}
+  body[data-theme=dazhe] .tabs>button[aria-current="page"]{font-weight:800}
   body[data-theme=dazhe] .dzsolo{display:flex;align-items:center;border-bottom:1px dashed rgba(11,11,12,.22);margin-bottom:6px;padding-bottom:8px}
   body[data-theme=dazhe] .dzsolo button{flex:1;font-size:14.5px;font-weight:800}
   body[data-theme=dazhe] .dzsolo .new{margin:0 8px 0 -50px;pointer-events:none}
@@ -1466,3 +1466,7 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 .typepick{max-width:860px;margin-top:14px}
 .typepick .t2{display:flex;align-items:center;gap:8px;margin:0}
 .typepick select{margin-top:0}
+
+/* 视频 IP 的五个入口和 dazheip 原有菜单同一个样式，不再单独分组；一键生成视频带个 🔥 */
+.gbar .fire{display:inline;font-size:14px;line-height:1;margin-left:-4px}
+.tbar .fire{display:none}
