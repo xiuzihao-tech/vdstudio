@@ -372,3 +372,13 @@ test('后台登录：后台不在前台显示，/api/auth/admin-login 只放后�
   assert.equal((await out('GET', '/api/admin/me')).json.me.email, 'boss@x.com');
   assert.equal((await out('GET', '/api/auth/config')).json.demoLogin, undefined, '正式环境不提示演示账号');
 });
+
+test('后台登录：指定的后台账号还没注册过，第一次登录就用这个密码建好；没被指定的邮箱不会被建', async () => {
+  await boss('POST', '/api/admin/admins', { email: 'newop@x.com', role: 'ops' });
+  const c = client();
+  const r = await c('POST', '/api/auth/admin-login', { email: 'newop@x.com', password: 'first-pass-1' });
+  assert.equal(r.status, 200); assert.equal(r.json.me.role, 'ops');
+  assert.equal((await client()('POST', '/api/auth/admin-login', { email: 'newop@x.com', password: 'other-pass-2' })).status, 401, '建好以后密码就定了');
+  assert.equal((await client()('POST', '/api/auth/admin-login', { email: 'random@x.com', password: 'whatever1' })).status, 401);
+  assert.equal(app.db.prepare("SELECT 1 FROM users WHERE email='random@x.com'").get(), undefined);
+});

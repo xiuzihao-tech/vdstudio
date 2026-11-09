@@ -1,5 +1,5 @@
 // 登录 / 注册表单。注册时匿名期间做的内容会原样带进账号。
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
 import { clearRef, refCode } from './invite.tsx';
@@ -19,15 +19,20 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
   useEffect(() => { if (ref) api.referral.preview(ref).then(r => setPv(r.preview)).catch(() => undefined); }, [ref]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault(); setErr(''); setBusy(true);
+  // 不用 <form> 提交：嵌在 claude.ai 页面（沙箱 iframe）里表单提交会被浏览器拦掉
+  const submit = async () => {
+    if (busy) return;
+    const miss = mode === 'register' && !name.trim() ? '填一下名字' : !/^\S+@\S+\.\S+$/.test(email.trim()) ? '邮箱格式不对' : password.length < 8 ? '密码至少 8 位'
+      : mode === 'register' && needInvite && !pv && !invite.trim() ? '现在是邀请制，需要邀请码' : '';
+    if (miss) { setErr(miss); return; }
+    setErr(''); setBusy(true);
     try {
       const r = mode === 'login' ? await api.login(email, password) : await api.register(email, password, name, invite, pv ? ref : undefined);
       if (mode === 'register') clearRef();
       await reloadSession(); bump(); toast(r.message); onDone?.();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : '出错了'); } finally { setBusy(false); }
   };
-  return <form onSubmit={submit} id="authForm">
+  return <div id="authForm" role="form" onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') void submit(); }}>
     <div className="seg" role="group" style={{ marginBottom: 16 }}>
       <button type="button" aria-pressed={mode === 'login'} onClick={() => setMode('login')}>登录</button>
       <button type="button" aria-pressed={mode === 'register'} onClick={() => setMode('register')}>注册</button>
@@ -41,8 +46,8 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
     <input className="fld" id="auPw" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={e => setPassword(e.target.value)} required minLength={8} />
     {err && <p className="s" role="alert" style={{ color: 'var(--err)', marginTop: 12 }}>{err}</p>}
     <p className="note">{mode === 'register' ? '注册后，没登录时做的选题、文案、素材、排期都会带进账号。' : '登录后，没登录时新开的身份会并进账号。'}</p>
-    <button className="btn y" id="auGo" type="submit" disabled={busy} style={{ width: '100%', marginTop: 14 }}>{busy ? '请稍候…' : mode === 'login' ? '登录' : '注册并登录'}</button>
-  </form>;
+    <button className="btn y" id="auGo" type="button" disabled={busy} onClick={() => void submit()} style={{ width: '100%', marginTop: 14 }}>{busy ? '请稍候…' : mode === 'login' ? '登录' : '注册并登录'}</button>
+  </div>;
 }
 
 export function LoginScreen() {

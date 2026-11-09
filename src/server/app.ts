@@ -137,8 +137,9 @@ export function createApp(opts: AppOptions) {
   const auth = makeAuth(db);
   // 演示版：建好后台账号（邮箱必须在 ADMIN_EMAILS 里），后台登录页把账号密码提示出来
   const demoLogin = (() => { const i = o.demoLogin.indexOf(':'); return i > 0 ? { email: o.demoLogin.slice(0, i).trim().toLowerCase(), password: o.demoLogin.slice(i + 1) } : null; })();
-  if (demoLogin && !db.prepare('SELECT 1 FROM users WHERE email=?').get(demoLogin.email))
-    void auth.register(demoLogin.email, demoLogin.password, '演示管理员', undefined, o.initialPoints).catch(e => console.warn('建演示后台账号失败：', (e as Error).message));
+  const seeded = demoLogin && !db.prepare('SELECT 1 FROM users WHERE email=?').get(demoLogin.email)
+    ? auth.register(demoLogin.email, demoLogin.password, '演示管理员', undefined, o.initialPoints).then(() => undefined, e => console.warn('建演示后台账号失败：', (e as Error).message))
+    : Promise.resolve();
   auth.purgeExpired();
   const cookie = (k: string, v: string, maxAge: number) => `${k}=${v}; Path=/; HttpOnly; SameSite=${o.cookieSameSite}; Max-Age=${maxAge}${o.secureCookies ? '; Secure' : ''}`;
 
@@ -218,6 +219,12 @@ export function createApp(opts: AppOptions) {
   /** 后台登录（/admin 的登录页）：只有后台账号能登进去；不是后台账号不给会话，前台的登录状态也不动 */
   r.post('/api/auth/admin-login', async (req, res) => {
     const d = await body(req, credSchema);
+    await seeded; // 演示账号刚启动时还在建（算密码要一会儿），等它建好
+    // 指定的后台账号（ADMIN_EMAILS、「后台账号」里加的）还没注册过：第一次登录就用这个密码建好账号
+    if (!db.prepare('SELECT 1 FROM users WHERE email=?').get(d.email) && (o.adminEmails.includes(d.email) || db.prepare('SELECT 1 FROM admins WHERE email=?').get(d.email))) {
+      const r = await auth.register(d.email, d.password, d.email.split('@')[0], undefined, o.initialPoints);
+      if (r.ok) auth.logout(r.session.token);
+    }
     const out = await auth.login(d.email, d.password, undefined);
     if (!out.ok) throw new HttpError(401, out.error);
     const me = adminOf(out.user as User);
