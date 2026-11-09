@@ -5,6 +5,7 @@ import qrcode from 'qrcode-generator';
 import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { AuthForm } from './auth.tsx';
+import { saveFile } from './save.ts';
 
 const KEY = 'findai.ref', CLICKED = 'findai.refclick';
 
@@ -88,11 +89,15 @@ export function InviteCard() {
 function Poster({ title, text, code, link, bonus, name, onSaved }: { title: string; text: string; code: string; link: string; bonus: number; name: string; onSaved: () => void }) {
   const { toast } = useApp();
   const url = useMemo(() => drawPoster({ title, text, code, link, bonus, name }), [title, text, code, link, bonus, name]);
-  const save = () => { const a = document.createElement('a'); a.href = url; a.download = `邀请海报-${code}.png`; document.body.appendChild(a); a.click(); a.remove(); toast('海报已保存，发到朋友圈或群里'); onSaved(); };
+  const save = async () => {
+    const blob = await (await fetch(url)).blob();
+    if (await saveFile(`邀请海报-${code}.png`, blob) === 'declined') return;
+    toast('海报已保存，发到朋友圈或群里'); onSaved();
+  };
   return <div id="posterSheet" style={{ textAlign: 'center' }}>
     <img src={url} alt="邀请海报" style={{ width: '100%', maxWidth: 300, border: '1px solid var(--ln2)', borderRadius: 8 }} />
     <p className="xs m3" style={{ margin: '8px 0 12px' }}>手机上长按图片也能保存</p>
-    <button className="btn y" id="posterSave" onClick={save}>保存海报图片</button>
+    <button className="btn y" id="posterSave" onClick={() => void save()}>保存海报图片</button>
   </div>;
 }
 

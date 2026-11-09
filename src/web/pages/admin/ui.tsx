@@ -1,5 +1,6 @@
 // 后台通用小部件（dazheip 后台同款）：描边数据块、黑表头表格、状态小标签、表单字段、时间格式。
 import type { ReactNode } from 'react';
+import { saveFile } from '../../ui/save.ts';
 
 export const fmtTime = (s: string | null | undefined, withYear = false) => s ? new Date(s).toLocaleString('zh-CN', { ...(withYear ? { year: 'numeric' } : {}), month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 export const fmtNum = (n: number | null | undefined) => ((n ?? 0) || 0).toLocaleString('zh-CN');
@@ -75,7 +76,4 @@ export function Doc({ text }: { text: string }) {
 }
 
 /** 下载一个文件（导出用） */
-export function download(name: string, blob: Blob) {
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-}
+export const download = (name: string, blob: Blob) => saveFile(name, blob);

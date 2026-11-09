@@ -88,7 +88,7 @@ function SkillDetail({ id }: { id: string }) {
     if (s.data.enabled && !confirm(s.category === 'ai' ? `停用「${s.name}」以后不再调用大模型，按规则兜底。确定？` : `停用「${s.name}」？`)) return;
     try { const r = await api.admin.enableSkill(id, !s.data.enabled); d.set({ skill: r.skill, calls: d.data!.calls }); toast(r.skill.data.enabled ? '已启用' : '已停用'); } catch (e) { fail(e); }
   };
-  const exp = async () => { try { const f = await api.admin.exportSkill(id); download(f.name, f.blob); toast(`已导出 ${f.name}`); } catch (e) { fail(e); } };
+  const exp = async () => { try { const f = await api.admin.exportSkill(id); if (await download(f.name, f.blob) !== 'declined') toast(`已导出 ${f.name}`); } catch (e) { fail(e); } };
   const tabs: [Tab, string][] = [
     ...(promptKeys.length ? [['prompts', `提示词 ${promptKeys.length} 段`] as [Tab, string]] : []),
     ...(s.category !== 'upstream' ? [['config', '参数'] as [Tab, string], ['test', '试运行'] as [Tab, string], ['versions', `版本 ${s.versions.length}`] as [Tab, string]] : []),
