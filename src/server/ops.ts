@@ -78,11 +78,13 @@ export function makeOps(db: DB) {
           (SELECT MAX(created_at) FROM events e WHERE e.owner_id=u.owner_id) AS lastActive
         FROM users u JOIN owners o ON o.id=u.owner_id ORDER BY u.created_at DESC`).all() as Row[];
     },
-    addPoints(userId: string, delta: number) {
+    addPoints(userId: string, delta: number, reason = '') {
       const u = db.prepare('SELECT owner_id FROM users WHERE id=?').get(userId) as Row | undefined;
       if (!u) return false;
-      db.prepare('UPDATE owners SET balance = MAX(0, balance + ?) WHERE id=?').run(delta, u.owner_id);
-      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), `owner:${u.owner_id}`, delta, '管理员调整', null, now());
+      const bal = (db.prepare('SELECT balance FROM owners WHERE id=?').get(u.owner_id) as Row).balance as number;
+      const real = delta < 0 ? -Math.min(bal, -delta) : delta;
+      db.prepare('UPDATE owners SET balance = balance + ? WHERE id=?').run(real, u.owner_id);
+      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,?,?)').run(newId('led'), `owner:${u.owner_id}`, real, reason ? `管理员调整：${reason}` : '管理员调整', null, now(), u.owner_id, 'admin');
       return true;
     },
 

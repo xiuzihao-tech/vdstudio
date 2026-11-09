@@ -1,0 +1,80 @@
+{
+  "avatars": [
+    {
+      "id": "me-clone",
+      "n": "我·真人分身",
+      "d": "用你 1 分钟正脸视频做的，只改嘴型",
+      "mine": true,
+      "skin": "#E2B996",
+      "hair": "#2A2420",
+      "top": "#1F2A36",
+      "bg": "#D9CDBB",
+      "bg2": "#B9A78E",
+      "hairStyle": "crop"
+    },
+    {
+      "id": "me-photo",
+      "n": "我·照片形象",
+      "d": "一张正脸照片驱动",
+      "mine": true,
+      "skin": "#E2B996",
+      "hair": "#2A2420",
+      "top": "#3A3A3A",
+      "bg": "#E7E1D6",
+      "bg2": "#CFC5B4",
+      "hairStyle": "crop",
+      "glasses": true
+    },
+    {
+      "id": "lin",
+      "n": "林设计师",
+      "d": "女 · 干练 · 浅灰西装 · 展厅背景",
+      "skin": "#F0C9A8",
+      "hair": "#1D1A18",
+      "top": "#8E8F91",
+      "bg": "#EFEAE2",
+      "bg2": "#D8CDBD",
+      "hairStyle": "bob"
+    },
+    {
+      "id": "zhou",
+      "n": "周老师",
+      "d": "男 · 沉稳 · 深色衬衫 · 书房背景",
+      "skin": "#D9A986",
+      "hair": "#3B3530",
+      "top": "#2D3A2F",
+      "bg": "#C9B79C",
+      "bg2": "#8F7A5E",
+      "hairStyle": "short",
+      "glasses": true
+    },
+    {
+      "id": "jie",
+      "n": "阿杰",
+      "d": "男 · 年轻 · 工装 · 工地背景",
+      "skin": "#D6A27C",
+      "hair": "#14110F",
+      "top": "#C98A2B",
+      "bg": "#BEB8AD",
+      "bg2": "#8F887C",
+      "hairStyle": "crop"
+    },
+    {
+      "id": "xia",
+      "n": "夏主理人",
+      "d": "女 · 亲和 · 米色针织 · 客厅背景",
+      "skin": "#F2CDB0",
+      "hair": "#4A3426",
+      "top": "#D8C4A6",
+      "bg": "#F0E6D8",
+      "bg2": "#D9C3A6",
+      "hairStyle": "long"
+    }
+  ],
+  "voices": [
+    "数字人本人声音",
+    "AI 配音·沉稳男声",
+    "AI 配音·知性女声",
+    "不要人声，只放音乐"
+  ]
+}

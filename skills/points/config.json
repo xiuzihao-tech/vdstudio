@@ -1,0 +1,44 @@
+{
+  "pointName": "点",
+  "secondsPerPoint": 1,
+  "sampleRate": 0.4,
+  "sampleMin": 10,
+  "minCost": 20,
+  "initialPoints": null,
+  "signupBonus": 0,
+  "lowBalance": 60,
+  "diagPrice": 89900,
+  "packages": [
+    {
+      "id": "p20",
+      "n": "体验包",
+      "price": 1990,
+      "points": 200,
+      "bonus": 0
+    },
+    {
+      "id": "p99",
+      "n": "常用包",
+      "price": 9900,
+      "points": 990,
+      "bonus": 110
+    },
+    {
+      "id": "p299",
+      "n": "进阶包",
+      "price": 29900,
+      "points": 2990,
+      "bonus": 510,
+      "tag": "推荐"
+    },
+    {
+      "id": "p999",
+      "n": "专业包",
+      "price": 99900,
+      "points": 9990,
+      "bonus": 2510,
+      "tag": "最划算"
+    }
+  ],
+  "orderTtlMin": 15
+}

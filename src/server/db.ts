@@ -84,6 +84,40 @@ const MIGRATIONS: string[] = [
      trade_no TEXT, created_at TEXT NOT NULL, paid_at TEXT);
    CREATE INDEX orders_owner ON orders(owner_id, created_at);
    CREATE INDEX orders_status ON orders(status, created_at);`,
+  // 10：11/9 后台：积分流水按用户和类型记、邀请赠送、技能版本、调用记录、操作日志、后台账号
+  `ALTER TABLE ledger ADD COLUMN owner_id TEXT;
+   ALTER TABLE ledger ADD COLUMN kind TEXT NOT NULL DEFAULT 'other';
+   UPDATE ledger SET owner_id = substr(ws, 7) WHERE ws LIKE 'owner:%';
+   UPDATE ledger SET owner_id = (SELECT w.owner_id FROM workspaces w WHERE w.id = ledger.ws) WHERE owner_id IS NULL;
+   UPDATE ledger SET kind = CASE
+     WHEN delta < 0 AND reason LIKE '退款%' THEN 'order_refund'
+     WHEN reason LIKE '充值%' THEN 'recharge'
+     WHEN reason LIKE '兑换码%' THEN 'redeem'
+     WHEN reason LIKE '管理员%' THEN 'admin'
+     WHEN delta < 0 THEN 'spend'
+     WHEN job_id IS NOT NULL OR reason LIKE '%退点%' THEN 'refund'
+     ELSE 'other' END;
+   CREATE INDEX ledger_owner ON ledger(owner_id, created_at);
+   CREATE INDEX ledger_kind ON ledger(kind, created_at);
+   ALTER TABLE users ADD COLUMN ref_code TEXT;
+   CREATE UNIQUE INDEX users_ref ON users(ref_code);
+   CREATE TABLE referrals (id TEXT PRIMARY KEY, inviter_owner TEXT NOT NULL, invitee_owner TEXT NOT NULL UNIQUE, invitee_user TEXT NOT NULL, code TEXT NOT NULL,
+     ip TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, activated_at TEXT, revoked_at TEXT, note TEXT NOT NULL DEFAULT '');
+   CREATE INDEX referrals_inviter ON referrals(inviter_owner, created_at);
+   CREATE TABLE ref_clicks (code TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(code, day));
+   CREATE TABLE rewards (key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, kind TEXT NOT NULL, points INTEGER NOT NULL, referral_id TEXT, order_id TEXT,
+     created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+   CREATE INDEX rewards_owner ON rewards(owner_id, created_at);
+   CREATE INDEX rewards_ref ON rewards(referral_id);
+   CREATE TABLE skill_versions (id TEXT PRIMARY KEY, skill TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+     author TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, UNIQUE(skill, version));
+   CREATE TABLE skill_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, skill TEXT NOT NULL, path TEXT NOT NULL, ok INTEGER NOT NULL, ms INTEGER NOT NULL,
+     error TEXT, created_at TEXT NOT NULL);
+   CREATE INDEX skill_calls_skill ON skill_calls(skill, created_at);
+   CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', detail TEXT,
+     created_at TEXT NOT NULL);
+   CREATE INDEX audit_time ON audit_log(created_at);
+   CREATE TABLE admins (email TEXT PRIMARY KEY, role TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '');`,
 ];
 
 export type DB = DatabaseSync;
@@ -105,7 +139,11 @@ export function openDb(file: string): DB {
 
 export const newId = (p: string) => `${p}_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 export const now = () => new Date().toISOString();
+/** 事务；可以嵌套（里面那层直接并进外面的事务，一起提交或回滚） */
+const depth = new WeakMap<DB, number>();
 export function tx<T>(db: DB, fn: () => T): T {
-  db.exec('BEGIN');
-  try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
+  const d = depth.get(db) ?? 0;
+  if (d > 0) { depth.set(db, d + 1); try { return fn(); } finally { depth.set(db, d); } }
+  db.exec('BEGIN'); depth.set(db, 1);
+  try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } finally { depth.set(db, 0); }
 }

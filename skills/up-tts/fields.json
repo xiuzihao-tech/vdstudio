@@ -1,0 +1,30 @@
+[
+  {
+    "key": "baseUrl",
+    "label": "接口地址",
+    "env": "TTS_BASE_URL",
+    "placeholder": "https://api.minimax.cn/v1"
+  },
+  {
+    "key": "apiKey",
+    "label": "API Key",
+    "env": "TTS_API_KEY",
+    "secret": true
+  },
+  {
+    "key": "model",
+    "label": "模型",
+    "env": "TTS_MODEL",
+    "placeholder": "speech-2.8-hd"
+  },
+  {
+    "key": "p1",
+    "label": "沉稳男声 音色 id",
+    "env": "TTS_VOICE_P1"
+  },
+  {
+    "key": "p2",
+    "label": "知性女声 音色 id",
+    "env": "TTS_VOICE_P2"
+  }
+]

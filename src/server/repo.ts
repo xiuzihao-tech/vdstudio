@@ -35,7 +35,7 @@ export function makeRepo(db: DB) {
     setPositioning: (ws: string, p: Positioning) => { db.prepare('UPDATE workspaces SET positioning=? WHERE id=?').run(JSON.stringify(p), ws); },
     setVoiceClone: (ws: string, s: VoiceCloneState) => { db.prepare('UPDATE workspaces SET voice_clone=? WHERE id=?').run(s, ws); },
     setAvatar: (ws: string, kind: 'clone' | 'photo', st: VoiceCloneState) => { db.prepare(`UPDATE workspaces SET ${kind === 'clone' ? 'avatar_clone' : 'avatar_photo'}=? WHERE id=?`).run(st, ws); },
-    ledger(ws: string, limit = 50) { return db.prepare('SELECT delta, reason, created_at AS createdAt FROM ledger WHERE ws IN (SELECT id FROM workspaces WHERE owner_id=(SELECT owner_id FROM workspaces WHERE id=?)) ORDER BY created_at DESC LIMIT ?').all(ws, limit) as { delta: number; reason: string; createdAt: string }[]; },
+    ledger(ws: string, limit = 50) { return db.prepare('SELECT delta, reason, kind, created_at AS createdAt FROM ledger WHERE owner_id=(SELECT owner_id FROM workspaces WHERE id=?) ORDER BY created_at DESC LIMIT ?').all(ws, limit) as { delta: number; reason: string; kind: string; createdAt: string }[]; },
     /* ---------- AI 运营：发布与回填 ---------- */
     slotMeta(planId: string): Map<string, { publishedAt: string | null; metrics: SlotMetrics | null }> {
       return new Map((db.prepare('SELECT * FROM slot_meta WHERE plan_id=?').all(planId) as Row[]).map(r => [r.date, { publishedAt: r.published_at, metrics: j(r.metrics) }]));
@@ -59,7 +59,7 @@ export function makeRepo(db: DB) {
       db.prepare('INSERT INTO redeem_uses (code, owner_id, created_at) VALUES (?,?,?)').run(code, owner, now());
       db.prepare('UPDATE redeem_codes SET used = used + 1 WHERE code=?').run(code);
       db.prepare('UPDATE owners SET balance = balance + ? WHERE id=?').run(c.points, owner);
-      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), ws, c.points, `兑换码 ${code}`, null, now());
+      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,?,?)').run(newId('led'), ws, c.points, `兑换码 ${code}`, null, now(), owner, 'redeem');
       return { ok: true, points: c.points };
     },
     setTheme: (ws: string, t: string) => { db.prepare('UPDATE workspaces SET theme=? WHERE id=?').run(t, ws); },
@@ -93,7 +93,7 @@ export function makeRepo(db: DB) {
         const o = this.order(id)!;
         if (o.points > 0) {
           db.prepare('UPDATE owners SET balance = balance + ? WHERE id=?').run(o.points, o.ownerId);
-          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), o.ws, o.points, `充值 ${o.title}`, null, now());
+          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,?,?)').run(newId('led'), o.ws, o.points, `充值 ${o.title}`, null, now(), o.ownerId, 'recharge');
         }
         return true;
       });
@@ -107,7 +107,7 @@ export function makeRepo(db: DB) {
           const bal = (db.prepare('SELECT balance FROM owners WHERE id=?').get(o.ownerId) as Row).balance as number;
           const back = Math.min(bal, o.points);
           db.prepare('UPDATE owners SET balance = balance - ? WHERE id=?').run(back, o.ownerId);
-          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), o.ws, -back, `退款 ${o.title}`, null, now());
+          db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,?,?)').run(newId('led'), o.ws, -back, `退款 ${o.title}`, null, now(), o.ownerId, 'order_refund');
         }
         return true;
       });
@@ -118,12 +118,12 @@ export function makeRepo(db: DB) {
     charge(ws: string, amount: number, reason: string, jobId: string | null): boolean {
       const r = db.prepare('UPDATE owners SET balance = balance - ? WHERE id=(SELECT owner_id FROM workspaces WHERE id=?) AND balance >= ?').run(amount, ws, amount);
       if (!r.changes) return false;
-      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), ws, -amount, reason, jobId, now());
+      db.prepare("INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,(SELECT owner_id FROM workspaces WHERE id=?),'spend')").run(newId('led'), ws, -amount, reason, jobId, now(), ws);
       return true;
     },
     refund(ws: string, amount: number, reason: string, jobId: string) {
       db.prepare('UPDATE owners SET balance = balance + ? WHERE id=(SELECT owner_id FROM workspaces WHERE id=?)').run(amount, ws);
-      db.prepare('INSERT INTO ledger (id, ws, delta, reason, job_id, created_at) VALUES (?,?,?,?,?,?)').run(newId('led'), ws, amount, reason, jobId, now());
+      db.prepare("INSERT INTO ledger (id, ws, delta, reason, job_id, created_at, owner_id, kind) VALUES (?,?,?,?,?,?,(SELECT owner_id FROM workspaces WHERE id=?),'refund')").run(newId('led'), ws, amount, reason, jobId, now(), ws);
     },
 
     /* ---------- 选题 ---------- */

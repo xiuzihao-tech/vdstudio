@@ -8,7 +8,8 @@ import { files, idbClear, loadFiles, openStore } from './shims/vfs.ts';
 import { getHandler } from './shims/misc.ts';
 
 const W = window as any;
-const ENV = { AI_PROVIDER: 'mock', MOCK_DELAY_MS: '600', ADMIN_EMAILS: 'admin@demo.local', MODULES_PRESET: 'phase1', INITIAL_POINTS: '1280' };
+// DEMO_ADMIN：演示版不用登录就能进后台（看技能中心、上游接口、积分和邀请赠送）；正式部署不能开
+const ENV = { AI_PROVIDER: 'mock', MOCK_DELAY_MS: '600', ADMIN_EMAILS: 'admin@demo.local', MODULES_PRESET: 'phase1', INITIAL_POINTS: '1280', DEMO_ADMIN: '1' };
 Object.assign((globalThis as any).process.env, ENV);
 
 const JAR = 'findai.offline.cookies';
@@ -21,7 +22,7 @@ async function boot() {
   const SQL = await initSqlJs();
   setSqlJs(SQL, saved.get('db') ?? null);
   const { createApp } = await import('../src/server/app.ts');
-  createApp({ dbFile: '/data/app.db', dataDir: '/data', webDir: '/web', env: ENV as any, modulesPreset: 'phase1', adminEmails: ['admin@demo.local'] });
+  createApp({ dbFile: '/data/app.db', dataDir: '/data', webDir: '/web', env: ENV as any, modulesPreset: 'phase1', adminEmails: ['admin@demo.local'], demoAdmin: true });
   const handle = getHandler()!;
 
   const realFetch = window.fetch.bind(window);

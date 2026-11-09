@@ -9,7 +9,11 @@
   },
   "scripts": {
     "dev": "node build.mjs --watch & tsx watch src/server/index.ts",
+    "skills": "node scripts/build-skills.mjs",
+    "skills:check": "node scripts/build-skills.mjs --check",
+    "prebuild": "node scripts/build-skills.mjs",
     "build": "node build.mjs",
+    "prebuild:offline": "node scripts/build-skills.mjs",
     "build:offline": "node offline/build.mjs",
     "start": "node --no-warnings=ExperimentalWarning dist/server.js",
     "local": "node scripts/local.mjs",
@@ -17,6 +21,7 @@
     "backup": "node --no-warnings deploy/backup.mjs",
     "serve": "tsx src/server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "node scripts/build-skills.mjs",
     "test": "tsx --test tests/unit/*.test.ts",
     "test:e2e": "node tests/e2e/smoke.mjs",
     "seed:reset": "rm -f data/app.db && echo 数据库已清空，下次启动自动重建"

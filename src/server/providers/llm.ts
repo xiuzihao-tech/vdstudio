@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CATS, FAMILIES } from '../../shared/catalog.ts';
 import type { CopyProvider, Ctx, TopicDraft, TopicProvider } from './types.ts';
 import { HttpError } from '../http.ts';
+import { renderTemplate } from '../../shared/skills.ts';
 
 export interface LlmConfig {
   baseUrl: string; apiKey: string;
@@ -14,6 +15,10 @@ export interface LlmConfig {
   /** 主模型出错（服务端错误、模型不存在、超时）时依次改用的备用模型 */
   fallbacks?: () => string[];
   timeoutMs?: number; fetch?: typeof fetch;
+  /** 技能中心「文案写手」里的提示词（system / write_style / fine_note / footage / humanize）；没有就用这里写死的 */
+  prompt?: (key: string) => string;
+  /** 每次调用模型后回调（记上游调用统计） */
+  onCall?: (x: { model: string; ok: boolean; ms: number; error?: string }) => void;
 }
 export type Quality = 'fast' | 'fine';
 /** 换一个模型可能就好了的错误：网关 / 上游故障、模型下线、限流 */
@@ -22,6 +27,15 @@ const RETRYABLE = (status: number, msg: string) => status >= 500 || status === 4
 const catOf = (ctx: Ctx) => ['designer', 'deco', 'custom', 'material', 'soft', 'agent', 'dev', 'stay'].indexOf(ctx.persona.id);
 const PARA: Record<number, number> = { 30: 3, 45: 4, 60: 5, 90: 6 };
 
+/** 系统提示词的变量（技能「文案写手」的 system 段用） */
+export function systemVars(ctx: Ctx): Record<string, string> {
+  const p = ctx.persona, pos = ctx.positioning;
+  return {
+    industry: CATS[Math.max(0, catOf(ctx))], persona: p.n,
+    profile: [pos.name && `账号：${pos.name}。`, pos.line && `定位：${pos.line}。`, pos.aud.length && `受众：${pos.aud.join('、')}。`, `语气：${pos.tone}。`, pos.tags.length && `人设标签：${pos.tags.join('、')}。`].filter(Boolean).join(''),
+    goal: pos.goal || p.goal, pillars: pos.pillars.length ? `常讲的栏目：${pos.pillars.join('、')}。` : '', platforms: pos.platforms?.length ? `发布平台：${pos.platforms.join('、')}。` : '',
+  };
+}
 function system(ctx: Ctx) {
   const p = ctx.persona, pos = ctx.positioning;
   // 只用用户自己的资料：人设档案 + 面诊写回的定位和标签。行业模板里的示例项目（某某海景 140㎡ 之类）不给模型，免得写进别人的文案
@@ -60,15 +74,23 @@ export function makeLlm(cfg: LlmConfig) {
   /** 这次调用依次尝试的模型：精写先用精写模型，不行再退回默认模型，最后是备用模型 */
   const chain = (q: Quality) => [...new Set([q === 'fine' ? cfg.fineModel?.() ?? '' : '', primary(), ...(cfg.fallbacks?.() ?? [])].filter(Boolean))];
   let lastUsed = '';
+  const P = (key: string, dflt: string) => cfg.prompt?.(key)?.trim() || dflt;
+  const sysOf = (ctx: Ctx) => { const t = cfg.prompt?.('system')?.trim(); return t ? renderTemplate(t, systemVars(ctx)).text : system(ctx); };
 
   async function chat<T>(ctx: Ctx, user: string, schema: z.ZodType<T>, temperature = 0.8, quality: Quality = 'fast'): Promise<T> {
+    return (await complete(sysOf(ctx), user, schema, temperature, quality)).value;
+  }
+  /** 任意系统提示词 + 用户提示词（技能中心的 AI 技能用），返回解析好的结果和原文 */
+  async function complete<T>(sys: string, user: string, schema: z.ZodType<T>, temperature = 0.8, quality: Quality = 'fast'): Promise<{ value: T; raw: string; model: string }> {
     const models = chain(quality);
-    if (!models.length) throw new HttpError(503, '还没选文案模型，请在后台「AI 服务」里选一个');
+    if (!models.length) throw new HttpError(503, '还没选文案模型，请在后台「上游接口 → 文案大模型」里填一个');
     let lastErr: HttpError | null = null;
     for (const model of models) {
-      try { const out = await once(model, ctx, user, schema, temperature); lastUsed = model; return out; }
+      const t0 = Date.now();
+      try { const out = await once(model, sys, user, schema, temperature); lastUsed = model; cfg.onCall?.({ model, ok: true, ms: Date.now() - t0 }); return { ...out, model }; }
       catch (e) {
         lastErr = e instanceof HttpError ? e : new HttpError(502, String((e as Error).message));
+        cfg.onCall?.({ model, ok: false, ms: Date.now() - t0, error: lastErr.message });
         if (!(lastErr as HttpError & { retry?: boolean }).retry) throw lastErr;
         console.warn(`文案模型 ${model} 出错，换下一个：${lastErr.message}`);
       }
@@ -76,7 +98,7 @@ export function makeLlm(cfg: LlmConfig) {
     throw lastErr!;
   }
 
-  async function once<T>(model: string, ctx: Ctx, user: string, schema: z.ZodType<T>, temperature: number): Promise<T> {
+  async function once<T>(model: string, sys: string, user: string, schema: z.ZodType<T>, temperature: number): Promise<{ value: T; raw: string }> {
     const fail = (status: number, msg: string, retry: boolean) => Object.assign(new HttpError(status, msg), { retry });
     const send = async (jsonMode: boolean) => {
       const ac = new AbortController(), h = setTimeout(() => ac.abort(), cfg.timeoutMs ?? 25_000);
@@ -84,7 +106,7 @@ export function makeLlm(cfg: LlmConfig) {
         return await f(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST', signal: ac.signal,
           headers: { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ model, temperature, ...(jsonMode ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: system(ctx) }, { role: 'user', content: user }] }),
+          body: JSON.stringify({ model, temperature, ...(jsonMode ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] }),
         });
       } catch (e) { throw fail(502, (e as Error).name === 'AbortError' ? `文案模型 ${Math.round((cfg.timeoutMs ?? 25_000) / 1000)} 秒没有响应，稍后再点一次` : '连不上文案模型，稍后再点一次', true); }
       finally { clearTimeout(h); }
@@ -99,7 +121,7 @@ export function makeLlm(cfg: LlmConfig) {
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     const text = data.choices?.[0]?.message?.content ?? '';
     // 格式不对也换个模型再试（有备用模型时）
-    try { return schema.parse(extractJson(text)); } catch { throw fail(502, '文案模型返回的格式不对，再试一次', true); }
+    try { return { value: schema.parse(extractJson(text)), raw: text }; } catch { throw fail(502, '文案模型返回的格式不对，再试一次', true); }
   }
 
   const topicSchema = z.object({ topics: z.array(z.object({ title: z.string().min(1).max(60), hook: z.string().max(120), dir: z.string(), type: z.number().int().min(0).max(2) })).min(1).max(5) });
@@ -139,9 +161,9 @@ ${materials.length ? `本人素材（只能用这些事实，不要编数字和�
 开头参考：${t.hook}
 方向：${t.dir}
 ${kb}${voice}${no}${col}
-写法：像本人对着镜头说话——短句、有判断、有具体细节；不要排比、对仗、成语堆砌，不要每段都升华，不要硬加语气词。
+${P('write_style', '写法：像本人对着镜头说话——短句、有判断、有具体细节；不要排比、对仗、成语堆砌，不要每段都升华，不要硬加语气词。')}
 要求：标题 3 个；开头钩子 3 个（一句话）；正文 ${n} 段，每段对应一个镜头，**只写这一镜要说出口的话**，不要写镜头说明、不要写「口播：」「第几段」；开头 + 正文 + 结尾合计约 ${Math.round(len * 4.5)} 字（每段不超过 ${Math.round((len * 4.5) / (n + 1))} 字）；结尾引导落到「${ctx.positioning.goal || ctx.persona.goal}」；话题标签 5 个（带 #）。
-${quality === 'fine' ? '这是「精写」：多花心思在开头钩子和细节画面感上，句子要有节奏，少用套话。\n' : ''}输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9, quality ?? 'fast');
+${quality === 'fine' ? `${P('fine_note', '这是「精写」：多花心思在开头钩子和细节画面感上，句子要有节奏，少用套话。')}\n` : ''}输出：{"titles":[],"hooks":[],"body":[],"cta":"","tags":[]}`, copySchema, 0.9, quality ?? 'fast');
       return {
         topicId: t.id, kind, len, tone, titles: r.titles, title: r.titles[0], hooks: r.hooks.map(spokenOnly), hook: spokenOnly(r.hooks[0]),
         body: r.body.map(spokenOnly).filter(Boolean), shots: r.body.map((_, i) => fam[Math.min(i + 1, fam.length - 1)].d), cta: r.cta, tags: r.tags, live: 70, version,
@@ -165,7 +187,7 @@ ${qa.map(x => `【${x.section}】问：${x.q}\n答：${x.a}`).join('\n')}
       return r;
     },
     async footage(ctx, clips, idea, materials, style) {
-      const r = await chat(ctx, `用户拍了 ${clips.length} 段素材，要串成一条画外音视频。按素材顺序，每段写一句画外音（第 i 句配第 i 段），口语、具体，第一句是钩子，最后一句落到「${ctx.positioning.goal || ctx.persona.goal}」。再起一个 24 字以内的标题。
+      const r = await chat(ctx, `${renderTemplate(P('footage', '用户拍了 {{count}} 段素材，要串成一条画外音视频。按素材顺序，每段写一句画外音（第 i 句配第 i 段），口语、具体，第一句是钩子，最后一句落到「{{goal}}」。再起一个 24 字以内的标题。'), { count: clips.length, goal: ctx.positioning.goal || ctx.persona.goal }).text}
 ${idea ? `用户想讲的：${idea}\n` : ''}${style ? `视频风格「${style.n}」，画外音按这个写法：${style.copy}\n` : ''}素材：
 ${clips.map((c, i) => `${i + 1}. ${c.noteSrc === 'name' ? `（只知道文件名，看不到画面）${c.note}` : c.note}${c.dur ? `，${c.dur.toFixed(1)} 秒，这句不超过 ${Math.max(6, Math.floor(c.dur * 4.5))} 字` : ''}`).join('\n')}
 ${clips.some(c => c.noteSrc === 'name') ? '只知道文件名的素材：台词别描述画面细节，按文件名和上下文写一句不会出错的话。\n' : ''}${materials.length ? `可以用的本人素材（只用这些事实）：${materials.join(' / ')}\n` : ''}输出：{"title":"","lines":[]}（lines 正好 ${clips.length} 句）`, z.object({ title: z.string().max(40).default(''), lines: z.array(z.string().max(120)).min(1).max(30) }), 0.8);
@@ -173,9 +195,9 @@ ${clips.some(c => c.noteSrc === 'name') ? '只知道文件名的素材：台词�
       return { title: r.title || (idea || lines[0] || '').slice(0, 24), lines };
     },
     async humanize(ctx, text) {
-      const r = await chat(ctx, `把下面这段文案改得更口语、更像真人在说话，意思不变，长度差不多。原文：${text}\n输出：{"text":""}`, z.object({ text: z.string().max(6000) }), 0.7);
+      const r = await chat(ctx, `${P('humanize', '把下面这段文案改得更口语、更像真人在说话，意思不变，长度差不多。')}原文：${text}\n输出：{"text":""}`, z.object({ text: z.string().max(6000) }), 0.7);
       return r.text;
     },
   };
-  return { topics, copy, chat, chain, lastUsed: () => lastUsed };
+  return { topics, copy, chat, complete, chain, lastUsed: () => lastUsed };
 }

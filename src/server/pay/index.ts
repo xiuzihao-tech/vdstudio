@@ -23,6 +23,8 @@ export interface PayProvider {
   notify(headers: Record<string, string | string[] | undefined>, raw: string): Promise<PaidInfo | null>;
   /** 回调处理成功后给平台的响应 */
   ack: { status: number; body: string; type: string };
+  /** 后台「测试连接」：查一个不存在的订单，平台说「订单不存在」就说明签名和密钥都对 */
+  ping?: () => Promise<{ ok: boolean; message: string }>;
 }
 
 const pem = (env: NodeJS.ProcessEnv, k: string) => {

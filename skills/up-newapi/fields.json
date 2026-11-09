@@ -1,0 +1,41 @@
+[
+  {
+    "key": "baseUrl",
+    "label": "接口地址",
+    "env": "VIDEO_BASE_URL",
+    "placeholder": "https://api.tudou.example/v1"
+  },
+  {
+    "key": "apiKey",
+    "label": "API Key",
+    "env": "VIDEO_API_KEY",
+    "secret": true
+  },
+  {
+    "key": "s25",
+    "label": "Seedance 2.5 对应的模型名",
+    "env": "VIDEO_MODEL_S25"
+  },
+  {
+    "key": "s20",
+    "label": "Seedance 2.0 对应的模型名",
+    "env": "VIDEO_MODEL_S20"
+  },
+  {
+    "key": "draft",
+    "label": "样片用的模型名",
+    "env": "VIDEO_MODEL_DRAFT"
+  },
+  {
+    "key": "createPath",
+    "label": "创建路径（可选）",
+    "env": "VIDEO_CREATE_PATH",
+    "placeholder": "/video/generations"
+  },
+  {
+    "key": "pollMs",
+    "label": "查询间隔（毫秒）",
+    "env": "VIDEO_POLL_MS",
+    "type": "number"
+  }
+]

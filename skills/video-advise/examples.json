@@ -1,0 +1,35 @@
+[
+  {
+    "name": "只有文案",
+    "input": {
+      "mats": [],
+      "copy": "岩板背景墙到底值不值？我说三点。",
+      "pick": "auto"
+    }
+  },
+  {
+    "name": "只有照片",
+    "input": {
+      "mats": [
+        {
+          "kind": "photo",
+          "name": "客厅全景"
+        },
+        {
+          "kind": "photo",
+          "name": "餐厨"
+        },
+        {
+          "kind": "photo",
+          "name": "主卧"
+        },
+        {
+          "kind": "video",
+          "name": "走一圈"
+        }
+      ],
+      "copy": "",
+      "pick": "auto"
+    }
+  }
+]

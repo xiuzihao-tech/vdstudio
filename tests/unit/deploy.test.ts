@@ -20,7 +20,7 @@ test('生产环境：缺 Secure Cookie、签名密钥、管理员就拒绝启动
   const lines: string[] = [];
   assert.equal(reportConfig(bad, s => lines.push(s)), false);
   assert.ok(lines.some(l => /已停止启动/.test(l)));
-  const envOk = { NODE_ENV: 'production', SECURE_COOKIES: '1', FILE_SIGN_SECRET: SECRET, ADMIN_EMAILS: 'boss@x.com', AUTH_REQUIRED: '1', INVITE_REQUIRED: '1', DAILY_BUDGET_POINTS: '2000', STORAGE: 's3', LLM_API_KEY: 'k', VIDEO_API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.com', WXPAY_MCHID: 'm', WXPAY_API_V3_KEY: 'a'.repeat(32) };
+  const envOk = { NODE_ENV: 'production', SECURE_COOKIES: '1', FILE_SIGN_SECRET: SECRET, ADMIN_EMAILS: 'boss@x.com', AUTH_REQUIRED: '1', INVITE_REQUIRED: '1', DAILY_BUDGET_POINTS: '2000', STORAGE: 's3', LLM_API_KEY: 'k', VIDEO_API_KEY: 'k', PUBLIC_BASE_URL: 'https://x.com', WXPAY_MCHID: 'm', WXPAY_API_V3_KEY: 'a'.repeat(32), SECRETS_KEY: 'k'.repeat(40) };
   const ok = checkConfig(configFromEnv(envOk), envOk);
   assert.deepEqual(ok, { errors: [], warnings: [] });
   const cross = { ...envOk, COOKIE_SAMESITE: 'none', SECURE_COOKIES: '0' };

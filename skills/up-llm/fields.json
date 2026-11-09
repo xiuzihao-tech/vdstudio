@@ -1,0 +1,38 @@
+[
+  {
+    "key": "baseUrl",
+    "label": "接口地址",
+    "env": "LLM_BASE_URL",
+    "placeholder": "https://ark.cn-beijing.volces.com/api/v3",
+    "help": "到 /v1 或 /api/v3 为止，不要带 /chat/completions"
+  },
+  {
+    "key": "apiKey",
+    "label": "API Key",
+    "env": "LLM_API_KEY",
+    "secret": true
+  },
+  {
+    "key": "model",
+    "label": "默认模型",
+    "env": "LLM_MODEL",
+    "placeholder": "deepseek-v4-flash"
+  },
+  {
+    "key": "fineModel",
+    "label": "精写模型（可选）",
+    "env": "LLM_MODEL_FINE"
+  },
+  {
+    "key": "fallbacks",
+    "label": "备用模型（逗号分隔）",
+    "env": "LLM_FALLBACK_MODELS"
+  },
+  {
+    "key": "timeoutMs",
+    "label": "超时（毫秒）",
+    "env": "LLM_TIMEOUT_MS",
+    "type": "number",
+    "placeholder": "25000"
+  }
+]

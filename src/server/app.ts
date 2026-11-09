@@ -26,7 +26,16 @@ import { MODULES, PRESETS, closedParents, moduleForApi, normalizeConfig, presetS
 import { makeRetention } from './retention.ts';
 import { costOf, defaultStudio, emptyDiag, sampleCost, toGen, type StudioState } from '../shared/studio.ts';
 import { loadPay } from './pay/index.ts';
-import { CHANNEL_NAME, ORDER_TTL_MIN, normalizeBilling, totalPoints, yuan, type BillingConfig, type PayChannel } from '../shared/billing.ts';
+import type { AiKey } from './providers/index.ts';
+import { makeSkills } from './skills/registry.ts';
+import { makeUpstreams } from './upstreams.ts';
+import { makeGrowth, type PointsCfg } from './growth.ts';
+import { makeStudioAi } from './studio-ai.ts';
+import { registerAdmin } from './admin-routes.ts';
+import { ROLES, type AdminMe, type AdminRole } from '../shared/admin.ts';
+import { systemVars } from './providers/llm.ts';
+import { applyCatalog, type Catalog } from '../shared/studio.ts';
+import { CHANNEL_NAME, normalizeBilling, totalPoints, type BillingConfig, type PayChannel } from '../shared/billing.ts';
 import type { CopyDraft, GenSettings, Workspace } from '../shared/types.ts';
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.map': 'application/json',
@@ -41,8 +50,37 @@ export function createApp(opts: AppOptions) {
   const db = openDb(o.dbFile);
   const repo = makeRepo(db);
   const ops = makeOps(db);
-  const ai = loadProviders(o.env ?? process.env, { get: k => ops.getSetting(k) });
+  /* ---------- 技能中心、上游接口、积分和邀请（11/9） ---------- */
+  const skills = makeSkills(db);
+  skills.prune();
+  const ENV = o.env ?? process.env;
+  // 后台填的上游密钥用它加密：SECRETS_KEY > FILE_SIGN_SECRET > 本机自动生成一个存在数据库里（只适合开发）
+  const secretKey = ENV.SECRETS_KEY || o.fileSignSecret || ops.getSetting('secrets_key') || (() => { const k = randomBytes(32).toString('hex'); ops.setSetting('secrets_key', k); return k; })();
+  const ups = makeUpstreams(db, skills, { env: ENV, secretKey });
+  const growth = makeGrowth(db, skills);
+  const aiRt = { get: (k: AiKey) => ops.getSetting(k) };
+  const aiHooks = {
+    prompt: (k: string) => skills.enabled('copywriter') ? skills.prompt('copywriter', k) : '',
+    onLlmCall: (x: { model: string; ok: boolean; ms: number; error?: string }) => skills.logCall('up-llm', 'upstream', x.ok, x.ms, x.error ? `${x.model}：${x.error}` : null),
+  };
+  let ai = loadProviders(ups.env(), aiRt, aiHooks);
   const { providers, info: providerInfo } = ai;
+  const studioAi = makeStudioAi(skills, () => ai.llm);
+  /** 前台用的目录：成片类型和价格、样片、积分口径、系统数字人（后台改了马上换） */
+  const catalog = () => {
+    const vt = skills.config<{ types: Catalog['types']; samples: Catalog['samples']; sampleCats: string[] }>('video-types');
+    const p = skills.config<PointsCfg>('points'), av = skills.config<{ avatars: Catalog['avatars']; voices: string[] }>('avatars');
+    const dg = skills.config<{ stages: string[]; welcome: string; minAnswers: number; demoName: string; demoAnswers: string[] }>('diag-agent');
+    const pk = skills.config<{ tagMin: number; tagMax: number; titleMax: number; banned: string[] }>('publish-pack');
+    return {
+      types: vt.types, samples: vt.samples, sampleCats: vt.sampleCats, avatars: av.avatars, voices: av.voices,
+      pricing: { pointName: p.pointName, secondsPerPoint: p.secondsPerPoint, sampleRate: p.sampleRate, sampleMin: p.sampleMin, minCost: p.minCost, lowBalance: p.lowBalance },
+      diag: { stages: dg.stages, welcome: dg.welcome, minAnswers: dg.minAnswers, demoName: dg.demoName, demoAnswers: dg.demoAnswers, sample: skills.config<{ sample: unknown }>('diag-report').sample },
+      pack: { tagMin: pk.tagMin, tagMax: pk.tagMax, titleMax: pk.titleMax, banned: pk.banned },
+    };
+  };
+  applyCatalog(catalog());
+  skills.onChange(id => { if (['video-types', 'points', 'avatars'].includes(id)) applyCatalog(catalog()); });
   // 视频档位按实际接入的服务显示能力（土豆：Seedance 系列最高 720p 等）；没接真实服务时用通用目录
   setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}，配音 ${providerInfo.tts}，看素材 ${providerInfo.vision}`);
@@ -76,7 +114,7 @@ export function createApp(opts: AppOptions) {
   // 到期文件每小时清一次
   const purgeTimer = setInterval(() => { retention.purge(policy()).catch(e => console.warn('清理过期文件失败：', e.message)); }, 3600e3); purgeTimer.unref(); void retention.purge(policy()).catch(() => undefined);
   console.log(`文件存储：${storage.kind === 's3' ? `对象存储 ${(o.env ?? process.env).S3_BUCKET}` : filesDir}`);
-  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, musicDir: (o.env ?? process.env).MUSIC_DIR || join(o.dataDir, 'music'), onDone: (ws, job, ok) => ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }) }, async a => {
+  const runner = new JobRunner(repo, providers, { compose: o.compose, font: o.subtitleFont, storage, musicDir: (o.env ?? process.env).MUSIC_DIR || join(o.dataDir, 'music'), onDone: (ws, job, ok) => { if (ok) { const own = repo.ws(ws)?.ownerId; if (own) growth.onFirstGen(own); } ops.track(repo.ws(ws)?.ownerId ?? '', ws, ok ? 'gen_done' : 'gen_failed', { job: job.id, cost: job.cost }); skills.logCall('upstream:video', job.kind, ok, 0, ok ? null : (job as { error?: string | null }).error ?? null); } }, async a => {
     if (!a.url || !a.mime?.startsWith('image/')) return null;
     const key = a.url.slice(7);
     // 有公网地址：给签名链接（对象存储直接给它的签名链接）；本机运行（没有公网地址）：把图片内联成 Base64 发给视频服务
@@ -113,7 +151,7 @@ export function createApp(opts: AppOptions) {
     else {
       if (o.authRequired) throw new HttpError(401, '请先登录');
       owner = req.cookies.fid;
-      if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(o.initialPoints); setCookie = cookie('fid', owner, 31536000); }
+      if (!owner || !repo.ownerExists(owner)) { owner = repo.createOwner(growth.initialPoints(o.initialPoints)); setCookie = cookie('fid', owner, 31536000); }
     }
     let ws = (() => { const id = repo.currentWsId(owner); const w = id ? repo.ws(id) : null; return w && w.ownerId === owner ? w : null; })();
     if (!ws) { ws = repo.wsByPersona(owner, 'designer') ?? seedWorkspace(db, repo, owner, 'designer'); repo.setCurrentWs(owner, ws.id); }
@@ -123,8 +161,15 @@ export function createApp(opts: AppOptions) {
   const aiCtx = (ws: Workspace) => ({ persona: personaOf(ws.persona), positioning: ws.positioning });
   const topicOr404 = (ws: Workspace, id: string) => { const t = repo.topic(ws.id, id); if (!t) throw new HttpError(404, '选题不存在'); return t; };
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
-  const isAdmin = (u: User | null) => !!u && o.adminEmails.includes(u.email);
-  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
+  /** 后台账号：ADMIN_EMAILS 里的是超级管理员；后台「管理权限」加的按角色给权限 */
+  const adminOf = (u: User | null): AdminMe | null => {
+    const role: AdminRole | null = o.demoAdmin ? 'super' : !u ? null : o.adminEmails.includes(u.email) ? 'super'
+      : ((db.prepare('SELECT role FROM admins WHERE email=?').get(u.email) as { role?: AdminRole } | undefined)?.role ?? null);
+    if (!role || !ROLES[role]) return null;
+    return { email: u?.email ?? 'demo@offline', role, roleName: ROLES[role].n, perms: [...ROLES[role].perms] };
+  };
+  const isAdmin = (u: User | null) => !!adminOf(u);
+  const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), admin: adminOf(ctx(req).user), catalog: catalog(), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
     limits: { dailyJobs: o.dailyJobsPerUser, jobsToday: ops.jobsToday(ctx(req).owner), genPaused: ops.genPaused() }, ai: { ...providerInfo, firstFrame: firstFrameOk() }, workspace: (({ ownerId: _o, ...w }: Workspace & { ownerId?: string }) => w)(ws), persona: personaOf(ws.persona), personas: PERSONAS.map(p => ({ id: p.id, n: p.n })), models: videoModels(), today: todayIso(),
     modules: viewFor(modCfg(), ctx(req).user?.email ?? null), modulePro: modCfg().pro, storage: { ...policy(), usedBytes: retention.usedBytes(ctx(req).owner) } });
   const planPayload = (ws: Workspace) => repo.plans(ws.id).map(p => ({ plan: p, slots: withProgress(repo, ws, p, scheduleView(repo, ws, p)) }));
@@ -146,12 +191,16 @@ export function createApp(opts: AppOptions) {
   /* ---------- 账号 ---------- */
   const credSchema = z.object({ email: z.string().trim().toLowerCase().email('邮箱格式不对').max(120), password: z.string().min(8, '密码至少 8 位').max(128) });
   r.post('/api/auth/register', async (req, res) => {
-    const d = await body(req, credSchema.extend({ name: z.string().trim().min(1, '填一下名字').max(40), invite: z.string().max(40).optional() }));
-    const out = await auth.register(d.email, d.password, d.name, req.cookies.fid, o.initialPoints, d.invite ?? null, o.inviteRequired && !o.adminEmails.includes(d.email));
+    const d = await body(req, credSchema.extend({ name: z.string().trim().min(1, '填一下名字').max(40), invite: z.string().max(40).optional(), ref: z.string().max(20).optional() }));
+    // 邀请制下，好友的分享链接也能当邀请码用
+    const viaRef = o.inviteRequired && !d.invite && !!d.ref && !!growth.preview(d.ref);
+    const out = await auth.register(d.email, d.password, d.name, req.cookies.fid, growth.initialPoints(o.initialPoints), d.invite ?? null, o.inviteRequired && !viaRef && !o.adminEmails.includes(d.email));
     if (!out.ok) throw new HttpError(409, out.error);
-    ops.track(out.user.ownerId, null, 'register', { invite: d.invite ?? null });
+    const g = growth.onRegister({ userId: out.user.id, ownerId: out.user.ownerId, ip: clientIp(req.raw) || null, code: d.ref ?? null });
+    ops.track(out.user.ownerId, null, 'register', { invite: d.invite ?? null, ref: d.ref ?? null, referral: g.referral });
     res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
-    return { user: { email: out.user.email, name: out.user.name }, message: out.kept ? '注册好了，之前做的选题、文案、素材都在' : '注册好了' };
+    const gift = g.signup + (g.referral === 'rewarded' || g.referral === 'capped' ? skills.config<{ invite: { inviteePoints: number } }>('referral').invite.inviteePoints : 0);
+    return { user: { email: out.user.email, name: out.user.name }, gift, message: `${out.kept ? '注册好了，之前做的选题、文案、素材都在' : '注册好了'}${gift ? `，送你 ${gift} 点` : ''}` };
   });
   r.post('/api/auth/login', async (req, res) => {
     const d = await body(req, credSchema);
@@ -556,15 +605,97 @@ export function createApp(opts: AppOptions) {
     ops.track(owner, ws.id, sample ? 'gen_started' : 'final_started', { model: g.model, len: g.len, cost, studio: true });
     res.statusCode = 201; return { job: out.job, cost, balance: repo.ws(ws.id)!.balance };
   });
+  /* ---------- 一键生成视频 / 诊断的 AI 技能（提示词和规则在技能中心维护） ---------- */
+  r.get('/api/catalog', () => catalog());
+  const matSchema = z.object({ id: z.string().max(40).default(''), name: z.string().max(120).default(''), kind: z.enum(['photo', 'video']), k: z.string().max(20).default('live'), url: z.string().max(400).nullable().optional(), mime: z.string().max(80).nullable().optional() });
+  const typeSchema = z.enum(['tour', 'explain', 'talk', 'before', 'case', 'product', 'site', 'vlog']);
+  r.post('/api/studio/advise', async req => {
+    W(req);
+    const d = await body(req, z.object({ mats: z.array(matSchema).max(40), copy: z.string().max(4000), pick: z.union([typeSchema, z.literal('auto')]) }));
+    const r1 = await studioAi.advise(d);
+    return { advice: r1.out, path: r1.path };
+  });
+  r.post('/api/studio/storyboard', async req => {
+    W(req);
+    const d = await body(req, z.object({ mats: z.array(matSchema).max(40), copy: z.string().max(4000), type: typeSchema, face: z.enum(['avatar', 'none']), target: z.number().int().min(3).max(600).optional() }));
+    const r1 = await studioAi.storyboard({ ...d, mats: d.mats.map(m => ({ ...m, url: m.url ?? null, mime: m.mime ?? null })) });
+    return { shots: r1.out.shots, path: r1.path };
+  });
+  r.post('/api/studio/pack', async req => {
+    const ws = W(req);
+    const d = await body(req, z.object({ type: typeSchema, lines: z.array(z.string().max(300)).min(1).max(20), city: z.string().max(10).optional() }));
+    const city = d.city || (ws.positioning.line.match(/(北京|上海|广州|深圳|沈阳|大连|杭州|成都|重庆|武汉|南京|苏州|天津|西安|长沙|青岛|郑州|济南|合肥|厦门|福州|昆明|哈尔滨|长春|石家庄|太原|南宁|贵阳|南昌|宁波|无锡|佛山|东莞)/)?.[1] ?? undefined);
+    const r1 = await studioAi.pack({ ...d, city });
+    return { ...r1.out, path: r1.path };
+  });
+  const diagMsg = z.object({ who: z.enum(['ai', 'me']), text: z.string().max(2000), stage: z.number().int().min(0).max(3).optional(), n: z.number().int().optional() });
+  r.post('/api/studio/diag/next', async req => {
+    const ws = W(req);
+    if (!studioOf(ws.id).diag.unlocked) throw new HttpError(402, '先解锁大哲诊断账号');
+    const d = await body(req, z.object({ msgs: z.array(diagMsg).max(400), asked: z.number().int().min(0).max(400) }));
+    const r1 = await studioAi.diagNext(d);
+    return { msg: r1.out, path: r1.path };
+  });
+  r.post('/api/studio/diag/report', async req => {
+    const ws = W(req);
+    if (!studioOf(ws.id).diag.unlocked) throw new HttpError(402, '先解锁大哲诊断账号');
+    const d = await body(req, z.object({ answers: z.array(z.string().max(2000)).min(1).max(200), name: z.string().max(20).optional() }));
+    const min = skills.config<{ minAnswers: number }>('diag-agent').minAnswers;
+    if (d.answers.length < min) throw new HttpError(400, `至少回答 ${min} 个问题再生成诊断`);
+    const r1 = await studioAi.diagReport({ answers: d.answers, name: d.name || ws.positioning.name || '我' });
+    ops.track(ctx(req).owner, ws.id, 'diag_report', { path: r1.path });
+    return { result: r1.out, path: r1.path };
+  });
+  r.post('/api/studio/diag/topics', async req => {
+    const ws = W(req);
+    if (!studioOf(ws.id).diag.unlocked) throw new HttpError(402, '先解锁大哲诊断账号');
+    const col = z.object({ n: z.string().max(20), d: z.string().max(200), eg: z.string().max(80), freq: z.number().int().min(1).max(7), src: z.string().max(60), type: typeSchema, ask: z.string().max(80), unit: z.string().max(6) });
+    const d = await body(req, z.object({ result: z.object({ who: z.string().max(20), tags: z.object({ personal: z.array(z.string().max(30)), pro: z.array(z.string().max(40)), brand: z.array(z.string().max(60)) }), columns: z.array(col).min(1).max(8) }), counts: z.array(z.number().int().min(0).max(99)).max(8) }));
+    const r1 = await studioAi.diagTopics(d);
+    return { topics: r1.out.topics, path: r1.path, schedule: (({ weekdays, time }) => ({ weekdays, time }))(skills.config<{ weekdays: number[]; time: string }>('diag-topics')) };
+  });
+
+  /* ---------- 邀请有礼：分享链接 → 好友注册 → 好友充值，按「邀请赠送」规则发点 ---------- */
+  r.post('/api/referral/click', async req => { const d = await body(req, z.object({ code: z.string().trim().min(4).max(20) })); return { ok: growth.click(d.code) }; });
+  r.get('/api/referral/preview', req => ({ preview: growth.preview(String(req.query.get('code') ?? '')) }));
+  r.get('/api/referral', req => {
+    const c = ctx(req);
+    if (!c.user) return { needLogin: true as const };
+    return { needLogin: false as const, ...growth.mine(c.user.id, c.owner) };
+  });
+  r.post('/api/referral/share', req => { const c = ctx(req); if (!c.user) throw new HttpError(401, '登录后才能分享'); return { points: growth.onShare(c.owner) }; });
+
   /* ---------- 充值和在线支付 ---------- */
-  const pay = loadPay(o.env ?? process.env, o.publicBaseUrl);
-  const billing = (): BillingConfig => { try { return normalizeBilling(JSON.parse(ops.getSetting('billing') ?? 'null')); } catch { return normalizeBilling(null); } };
+  let pay = loadPay(ups.env(), o.publicBaseUrl);
+  /** 后台改了上游接口：重新接大模型、视频、配音、支付（不用重启） */
+  const reloadUpstreams = () => {
+    const next = loadProviders(ups.env(), aiRt, aiHooks);
+    for (const k of Object.keys(providers)) delete (providers as unknown as Record<string, unknown>)[k];
+    Object.assign(providers, next.providers);
+    Object.assign(providerInfo, next.info);
+    ai = { ...next, providers };
+    setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
+    pay = loadPay(ups.env(), o.publicBaseUrl);
+    console.log(`上游接口已重新接入：文案 ${providerInfo.copy}，视频 ${providerInfo.video}，配音 ${providerInfo.tts}，支付 ${pay.info.channels.join('/') || '无'}`);
+  };
+  const pointsCfg = () => skills.config<PointsCfg>('points');
+  /** 套餐和诊断价格：来自技能中心的「积分规则」 */
+  const billing = (): BillingConfig => { const p = pointsCfg(); return normalizeBilling({ packages: p.packages, diagPrice: p.diagPrice }); };
+  // 旧版后台存过「充值套餐」：第一次启动时搬进积分规则（存成一个版本）
+  {
+    const legacy = ops.getSetting('billing');
+    if (legacy && !skills.activeVersion('points')) {
+      try { const b = normalizeBilling(JSON.parse(legacy)); skills.save('points', { ...skills.data('points'), config: { ...skills.config('points'), packages: b.packages, diagPrice: b.diagPrice } }, '从旧版「充值套餐」设置搬过来', 'system'); } catch { /* 坏的就不搬 */ }
+    }
+    if (legacy) db.prepare("DELETE FROM settings WHERE k='billing'").run();
+  }
   /** 到账后要做的事：诊断单解锁诊断（点数单在 settleOrder 里已经加了） */
   const settle = (orderId: string, tradeNo: string, amount: number) => {
     const od = repo.order(orderId);
     if (!od) throw new HttpError(404, '订单不存在');
     if (amount >= 0 && amount !== od.amount) throw new HttpError(400, '金额对不上');
     if (!repo.settleOrder(orderId, tradeNo)) return false;
+    try { growth.onPaid({ id: od.id, ownerId: od.ownerId, product: od.product, points: od.points }); } catch (e) { console.warn('充值奖励发放失败：', (e as Error).message); }
     if (od.product === 'diag') { const st = studioOf(od.ws); st.diag.unlocked = true; saveStudio(od.ws, st); }
     ops.track(od.ownerId, od.ws, 'order_paid', { product: od.product, amount: od.amount, channel: od.channel });
     return true;
@@ -572,8 +703,8 @@ export function createApp(opts: AppOptions) {
   const publicOrder = (x: NonNullable<ReturnType<typeof repo.order>>) => { const { ws: _w, ownerId: _o, ...rest } = x; return rest; };
   r.get('/api/billing', req => {
     const ws = W(req);
-    repo.closeStale(new Date(Date.now() - ORDER_TTL_MIN * 60e3).toISOString());
-    return { ...billing(), channels: pay.info.channels, mock: pay.info.mock, balance: ws.balance, orders: repo.ordersOf(ws.id) };
+    repo.closeStale(new Date(Date.now() - pointsCfg().orderTtlMin * 60e3).toISOString());
+    return { ...billing(), orderTtlMin: pointsCfg().orderTtlMin, lowBalance: pointsCfg().lowBalance, channels: pay.info.channels, mock: pay.info.mock, balance: ws.balance, orders: repo.ordersOf(ws.id) };
   });
   r.post('/api/billing/orders', async (req, res) => {
     const ws = W(req), d = await body(req, z.object({ product: z.enum(['points', 'diag']), packageId: z.string().max(20).optional(), channel: z.enum(['wechat', 'alipay', 'mock']) }));
@@ -631,21 +762,26 @@ export function createApp(opts: AppOptions) {
     });
   }
   r.get('/api/admin/billing', req => {
-    admin(req);
+    admin(req, 'orders');
     const day = new Date(); day.setHours(0, 0, 0, 0);
     return { config: billing(), channels: pay.info.channels, mock: pay.info.mock, orders: repo.allOrders(), today: repo.orderTotals(day.toISOString()), month: repo.orderTotals(new Date(Date.now() - 30 * 864e5).toISOString()) };
   });
+  /** 充值套餐和诊断价格：存进技能中心「积分规则」（一个新版本，能回滚） */
   r.put('/api/admin/billing', async req => {
-    admin(req);
+    const a = admin(req, 'points');
     const d = await body(req, z.object({ packages: z.array(z.object({ id: z.string().min(1).max(20), n: z.string().min(1).max(12), price: z.number().int().min(1).max(10_000_000), points: z.number().int().min(1).max(10_000_000), bonus: z.number().int().min(0).max(10_000_000), tag: z.string().max(6).optional() })).min(1).max(8), diagPrice: z.number().int().min(1).max(10_000_000) }));
-    const c = normalizeBilling(d); ops.setSetting('billing', JSON.stringify(c)); return { config: c };
+    const c = normalizeBilling(d), cur = skills.data('points');
+    const v = skills.save('points', { ...cur, config: { ...cur.config, packages: c.packages, diagPrice: c.diagPrice } }, '改充值套餐', a.email);
+    audit(a, '修改充值套餐', 'points', { version: v, packages: c.packages.length, diagPrice: c.diagPrice });
+    return { config: billing() };
   });
   r.post('/api/admin/billing/orders/:id/refund', req => {
-    admin(req);
+    const a = admin(req, 'orders'); admin(req, 'points'); // 退款要财务权限（客服只能看订单）
     if (!repo.refundOrder(req.params.id)) throw new HttpError(400, '只有已支付的订单能标记退款');
-    return { ok: true, note: '已扣回点数。钱要在微信 / 支付宝商户后台原路退。' };
+    const revoked = growth.onRefund(req.params.id);
+    audit(a, '订单退款', req.params.id, { revokedRewards: revoked });
+    return { ok: true, note: `已扣回点数${revoked ? `，这笔订单带出的 ${revoked} 笔奖励（首充 / 返点）也收回了` : ''}。钱要在微信 / 支付宝商户后台原路退。` };
   });
-  void yuan;
   void CADENCE;
 
   /* ---------- 埋点与反馈 ---------- */
@@ -658,12 +794,22 @@ export function createApp(opts: AppOptions) {
     ops.feedback(ctx(req).owner, d.page, d.text, d.contact); ops.track(ctx(req).owner, ctx(req).ws.id, 'feedback'); return { ok: true };
   });
 
-  /* ---------- 管理后台（ADMIN_EMAILS 里的账号） ---------- */
-  const admin = (req: Req) => { if (!isAdmin(ctx(req).user)) throw new HttpError(403, '只有管理员能看'); };
-  r.get('/api/admin/overview', req => { admin(req); const days = Math.min(90, Math.max(1, Number(req.query.get('days') ?? 7))); return { ...ops.overview(days), settings: { genPaused: ops.genPaused() }, config: { inviteRequired: o.inviteRequired, authRequired: !!o.authRequired, initialPoints: o.initialPoints, dailyJobsPerUser: o.dailyJobsPerUser, dailyBudget: o.dailyBudget }, ai: providerInfo }; });
-  r.get('/api/admin/modules', req => { admin(req); return { modules: MODULES, presets: PRESETS, config: modCfg(), usage: ops.moduleUsage() }; });
+  /* ---------- 管理后台（dazheip 后台同款）：ADMIN_EMAILS 里的是超级管理员，别的后台账号按「管理权限」里的角色 ---------- */
+  const adm = registerAdmin(r, {
+    db, repo, skills, ups, growth, studioAi,
+    adminOf: req => adminOf(ctx(req).user),
+    reloadUpstreams,
+    clearAiRuntime: keys => keys.forEach(k => ops.setSetting(k, null)),
+    payInfo: () => pay.info,
+    providerInfo: () => providerInfo,
+    copyVars: req => systemVars(aiCtx(W(req))),
+    adminEmails: o.adminEmails, dazheipAdminUrl: o.dazheipAdminUrl,
+  });
+  const admin = adm.need, audit = adm.audit;
+  r.get('/api/admin/overview', req => { admin(req, 'overview'); const days = Math.min(90, Math.max(1, Number(req.query.get('days') ?? 7))); return { ...ops.overview(days), settings: { genPaused: ops.genPaused() }, config: { inviteRequired: o.inviteRequired, authRequired: !!o.authRequired, initialPoints: o.initialPoints, dailyJobsPerUser: o.dailyJobsPerUser, dailyBudget: o.dailyBudget }, ai: providerInfo }; });
+  r.get('/api/admin/modules', req => { admin(req, 'modules'); return { modules: MODULES, presets: PRESETS, config: modCfg(), usage: ops.moduleUsage() }; });
   r.put('/api/admin/modules', async req => {
-    admin(req);
+    const a = admin(req, 'modules');
     const st = z.enum(['on', 'beta', 'soon', 'off']);
     const d = await body(req, z.object({ preset: z.enum(['phase1', 'phase2', 'all']).optional(), states: z.record(st).optional(), beta: z.array(z.string().max(120)).max(500).optional(), pro: z.array(z.string().max(40)).max(80).optional(),
       price: z.number().int().min(0).max(100000).optional(), retentionDays: z.number().int().min(0).max(3650).optional(), capacityMb: z.number().int().min(0).max(1024 * 1024).optional(), withParents: z.boolean().optional() }));
@@ -677,23 +823,31 @@ export function createApp(opts: AppOptions) {
     }
     c = normalizeConfig({ ...c, ...(d.beta ? { beta: d.beta } : {}), ...(d.pro ? { pro: d.pro } : {}), ...(d.price !== undefined ? { price: d.price } : {}), ...(d.retentionDays !== undefined ? { retentionDays: d.retentionDays } : {}), ...(d.capacityMb !== undefined ? { capacityMb: d.capacityMb } : {}) }, o.modulesPreset, DIAG_PRICE);
     saveModCfg(c);
+    audit(a, '修改模块开关', 'modules', d);
     return { config: modCfg(), warn: Object.entries(c.states).filter(([id, v]) => v !== 'off' && closedParents(c, id).length).map(([id]) => ({ id, parents: closedParents(c, id) })) };
   });
-  r.get('/api/admin/users', req => { admin(req); return { users: ops.users() }; });
-  r.post('/api/admin/users/:id/points', async req => { admin(req); const { delta } = await body(req, z.object({ delta: z.number().int().min(-100000).max(100000) })); if (!ops.addPoints(req.params.id, delta)) throw new HttpError(404, '没有这个用户'); return { users: ops.users() }; });
-  r.get('/api/admin/invites', req => { admin(req); return { invites: ops.listInvites() }; });
-  r.post('/api/admin/invites', async req => { admin(req); const d = await body(req, z.object({ count: z.number().int().min(1).max(100), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') })); const codes = ops.createInvites(d.count, d.maxUses, d.note); return { codes, invites: ops.listInvites() }; });
-  r.get('/api/admin/redeem', req => { admin(req); return { codes: repo.redeemCodes() }; });
+  r.get('/api/admin/users', req => { admin(req, 'users'); return { users: ops.users() }; });
+  r.post('/api/admin/users/:id/points', async req => {
+    const a = admin(req, 'points');
+    const { delta, reason } = await body(req, z.object({ delta: z.number().int().min(-100000).max(100000), reason: z.string().trim().max(80).default('后台用户页') }));
+    if (!ops.addPoints(req.params.id, delta, reason)) throw new HttpError(404, '没有这个用户');
+    audit(a, '调整积分', req.params.id, { delta, reason });
+    return { users: ops.users() };
+  });
+  r.get('/api/admin/invites', req => { admin(req, 'codes'); return { invites: ops.listInvites() }; });
+  r.post('/api/admin/invites', async req => { const a = admin(req, 'codes'); const d = await body(req, z.object({ count: z.number().int().min(1).max(100), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') })); const codes = ops.createInvites(d.count, d.maxUses, d.note); audit(a, '生成邀请码', d.note, { count: d.count, maxUses: d.maxUses }); return { codes, invites: ops.listInvites() }; });
+  r.get('/api/admin/redeem', req => { admin(req, 'codes'); return { codes: repo.redeemCodes() }; });
   r.post('/api/admin/redeem', async req => {
-    admin(req);
+    const a = admin(req, 'codes');
     const d = await body(req, z.object({ count: z.number().int().min(1).max(100), points: z.number().int().min(1).max(100000), maxUses: z.number().int().min(1).max(1000).default(1), note: z.string().max(40).default('') }));
     const codes = Array.from({ length: d.count }, () => randomBytes(4).toString('hex').toUpperCase());
     codes.forEach(c => repo.createRedeem(c, d.points, d.maxUses, d.note));
+    audit(a, '生成兑换码', d.note, { count: d.count, points: d.points, maxUses: d.maxUses });
     return { codes, list: repo.redeemCodes() };
   });
-  r.get('/api/admin/feedback', req => { admin(req); return { feedback: ops.listFeedback() }; });
-  r.post('/api/admin/feedback/:id', async req => { admin(req); const { status } = await body(req, z.object({ status: z.enum(['new', 'read', 'done']) })); ops.setFeedback(req.params.id, status); return { feedback: ops.listFeedback() }; });
-  r.put('/api/admin/settings', async req => { admin(req); const d = await body(req, z.object({ genPaused: z.boolean() })); ops.setGenPaused(d.genPaused); return { settings: { genPaused: ops.genPaused() } }; });
+  r.get('/api/admin/feedback', req => { admin(req, 'feedback'); return { feedback: ops.listFeedback() }; });
+  r.post('/api/admin/feedback/:id', async req => { admin(req, 'feedback'); const { status } = await body(req, z.object({ status: z.enum(['new', 'read', 'done']) })); ops.setFeedback(req.params.id, status); return { feedback: ops.listFeedback() }; });
+  r.put('/api/admin/settings', async req => { const a = admin(req, 'modules'); const d = await body(req, z.object({ genPaused: z.boolean() })); ops.setGenPaused(d.genPaused); audit(a, d.genPaused ? '暂停生成' : '恢复生成', 'settings'); return { settings: { genPaused: ops.genPaused() } }; });
 
   /* ---------- 后台：AI 服务（查看接入、拉取模型、切换模型、连通测试） ---------- */
   const listModels = async (ep: { baseUrl: string; apiKey: string } | null) => {
@@ -705,19 +859,21 @@ export function createApp(opts: AppOptions) {
       return { ok: true, error: null, models: (j.data ?? []).map(m => m.id).sort() };
     } catch (e) { return { ok: false, error: (e as Error).name === 'TimeoutError' ? '超时' : '连不上', models: [] }; }
   };
-  r.get('/api/admin/ai', req => { admin(req); return { status: ai.status(), tiers: [...videoModels().filter(m => !m.off).map(m => ({ id: m.id, n: m.n, d: m.d })), { id: 'draft', n: '样片（低价预览）', d: '开了样片模式时所有档位都先用它出低清预览' }] }; });
-  r.post('/api/admin/ai/models', async req => { admin(req); const [llm, video] = await Promise.all([listModels(ai.endpoints.llm), listModels(ai.endpoints.video)]); return { llm, video }; });
+  // 旧版「AI 服务」接口（新版在「上游接口」页）：留着给老脚本用
+  r.get('/api/admin/ai', req => { admin(req, 'upstreams'); return { status: ai.status(), tiers: [...videoModels().filter(m => !m.off).map(m => ({ id: m.id, n: m.n, d: m.d })), { id: 'draft', n: '样片（低价预览）', d: '开了样片模式时所有档位都先用它出低清预览' }] }; });
+  r.post('/api/admin/ai/models', async req => { admin(req, 'upstreams'); const [llm, video] = await Promise.all([listModels(ai.endpoints.llm), listModels(ai.endpoints.video)]); return { llm, video }; });
   r.put('/api/admin/ai', async req => {
-    admin(req);
+    const a = admin(req, 'upstreams');
     const d = await body(req, z.object({ llmModel: z.string().trim().max(120).nullable().optional(), llmModelFine: z.string().trim().max(120).nullable().optional(), llmFallbacks: z.array(z.string().trim().min(1).max(120)).max(5).optional(), videoModels: z.record(z.string().trim().max(120)).optional() }));
     if (d.llmModel !== undefined) ops.setSetting('llm_model', d.llmModel || null);
     if (d.llmModelFine !== undefined) ops.setSetting('llm_model_fine', d.llmModelFine || null);
     if (d.llmFallbacks) ops.setSetting('llm_fallbacks', d.llmFallbacks.join(','));
     if (d.videoModels) ops.setSetting('video_models', JSON.stringify(Object.fromEntries(Object.entries(d.videoModels).filter(([, v]) => v))));
+    audit(a, '切换模型', 'ai', d);
     return { status: ai.status() };
   });
   r.post('/api/admin/ai/test', async req => {
-    admin(req);
+    admin(req, 'upstreams');
     const ep = ai.endpoints.llm, model = ai.llmModel();
     if (!ep) throw new HttpError(400, '文案模型还没配置密钥');
     if (!model) throw new HttpError(400, '还没选文案模型');

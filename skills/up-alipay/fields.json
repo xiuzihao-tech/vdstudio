@@ -1,0 +1,25 @@
+[
+  {
+    "key": "appId",
+    "label": "应用 ID",
+    "env": "ALIPAY_APP_ID"
+  },
+  {
+    "key": "privateKey",
+    "label": "应用私钥（PEM）",
+    "env": "ALIPAY_PRIVATE_KEY",
+    "secret": true,
+    "type": "textarea"
+  },
+  {
+    "key": "publicKey",
+    "label": "支付宝公钥（PEM）",
+    "env": "ALIPAY_PUBLIC_KEY",
+    "type": "textarea"
+  },
+  {
+    "key": "gateway",
+    "label": "网关（不填用正式环境）",
+    "env": "ALIPAY_GATEWAY"
+  }
+]

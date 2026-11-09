@@ -27,7 +27,11 @@ export interface AiStatus {
   vision: { kind: ProviderInfo['vision']; model?: string };
 }
 
-export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntime = noRuntime) {
+/** 技能中心接进来的钩子：文案写手的提示词、调用统计 */
+export interface ProviderHooks { prompt?: (key: string) => string; onLlmCall?: (x: { model: string; ok: boolean; ms: number; error?: string }) => void }
+export type LlmHandle = ReturnType<typeof makeLlm>;
+
+export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntime = noRuntime, hooks: ProviderHooks = {}) {
   const p: Providers = { ...mockProviders, topics: { ...mockProviders.topics }, copy: { ...mockProviders.copy } };
   const info: ProviderInfo = { copy: 'mock', video: 'mock', tts: 'mock', vision: 'none' };
   const llmModel = () => rt.get('llm_model') || env.LLM_MODEL || '';
@@ -37,22 +41,28 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
     try { return { ...defaults, ...JSON.parse(rt.get('video_models') || '{}') }; } catch { return defaults; }
   };
   let videoMap: (() => Record<string, string>) | null = null;
+  let llmHandle: LlmHandle | null = null;
+  // 视频用哪家：VIDEO_PROVIDER=seedance / newapi / mock；不设就有网关用网关，没有用方舟
+  const vp = (env.VIDEO_PROVIDER ?? '').trim();
+  const useNewapi = !!(env.VIDEO_API_KEY && env.VIDEO_BASE_URL) && vp !== 'seedance' && vp !== 'mock';
+  const useArk = !!env.ARK_API_KEY && vp !== 'newapi' && vp !== 'mock' && !useNewapi;
 
   if (env.AI_PROVIDER !== 'mock') {
     if (env.LLM_API_KEY && env.LLM_BASE_URL) {
-      const llm = makeLlm({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: llmModel, fineModel: llmFine, fallbacks: llmFallbacks, timeoutMs: Number(env.LLM_TIMEOUT_MS) || 25_000 });
+      const llm = makeLlm({ baseUrl: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: llmModel, fineModel: llmFine, fallbacks: llmFallbacks, timeoutMs: Number(env.LLM_TIMEOUT_MS) || 25_000, prompt: hooks.prompt, onCall: hooks.onLlmCall });
+      llmHandle = llm;
       p.copy = llm.copy;
       p.topics = { ...p.topics, fromCase: llm.topics.fromCase, angles: llm.topics.angles, forColumn: llm.topics.forColumn };
       info.copy = 'llm';
     }
-    if (env.VIDEO_API_KEY && env.VIDEO_BASE_URL) {
+    if (useNewapi) {
       videoMap = videoModels({ ...TUDOU_DEFAULT_MODELS, ...envModels(env) });
-      p.video = makeNewApiVideo({ baseUrl: env.VIDEO_BASE_URL, apiKey: env.VIDEO_API_KEY, models: videoMap, pollMs: env.VIDEO_POLL_MS ? Number(env.VIDEO_POLL_MS) : undefined, createPath: env.VIDEO_CREATE_PATH || undefined });
+      p.video = makeNewApiVideo({ baseUrl: env.VIDEO_BASE_URL!, apiKey: env.VIDEO_API_KEY!, models: videoMap, pollMs: env.VIDEO_POLL_MS ? Number(env.VIDEO_POLL_MS) : undefined, createPath: env.VIDEO_CREATE_PATH || undefined });
       info.video = 'newapi';
-    } else if (env.ARK_API_KEY) {
-      videoMap = videoModels({ s25: env.SEEDANCE_MODEL_S25 ?? DEFAULT_MODELS.s25, s20: env.SEEDANCE_MODEL_S20 ?? DEFAULT_MODELS.s20, s20f: env.SEEDANCE_MODEL_S20F ?? DEFAULT_MODELS.s20f });
+    } else if (useArk) {
+      videoMap = videoModels({ s25: env.SEEDANCE_MODEL_S25 || DEFAULT_MODELS.s25, s20: env.SEEDANCE_MODEL_S20 || DEFAULT_MODELS.s20, s20f: env.SEEDANCE_MODEL_S20F || DEFAULT_MODELS.s20f });
       p.video = makeSeedance({
-        apiKey: env.ARK_API_KEY, baseUrl: env.ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3', models: videoMap(),
+        apiKey: env.ARK_API_KEY!, baseUrl: env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3', models: videoMap(),
         pollMs: env.SEEDANCE_POLL_MS ? Number(env.SEEDANCE_POLL_MS) : undefined, watermark: env.SEEDANCE_WATERMARK === '1',
       });
       info.video = 'seedance';
@@ -68,7 +78,7 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
 
   const status = (): AiStatus => ({
     copy: { kind: info.copy, baseUrl: info.copy === 'llm' ? env.LLM_BASE_URL : undefined, model: info.copy === 'llm' ? llmModel() : undefined, envModel: env.LLM_MODEL, fineModel: info.copy === 'llm' ? llmFine() : undefined, fallbacks: info.copy === 'llm' ? llmFallbacks() : undefined },
-    video: { kind: info.video, baseUrl: info.video === 'newapi' ? env.VIDEO_BASE_URL : info.video === 'seedance' ? env.ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3' : undefined, models: videoMap?.() },
+    video: { kind: info.video, baseUrl: info.video === 'newapi' ? env.VIDEO_BASE_URL : info.video === 'seedance' ? env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' : undefined, models: videoMap?.() },
     tts: { kind: info.tts, model: info.tts === 'minimax' ? env.TTS_MODEL || 'speech-2.8-hd' : undefined },
     vision: { kind: info.vision, model: info.vision === 'llm' ? env.VISION_MODEL : undefined },
   });
@@ -77,7 +87,7 @@ export function loadProviders(env: NodeJS.ProcessEnv = process.env, rt: AiRuntim
     llm: info.copy === 'llm' ? { baseUrl: env.LLM_BASE_URL!, apiKey: env.LLM_API_KEY! } : null,
     video: info.video === 'newapi' ? { baseUrl: env.VIDEO_BASE_URL!, apiKey: env.VIDEO_API_KEY! } : null,
   };
-  return { providers: p, info, status, endpoints, llmModel };
+  return { providers: p, info, status, endpoints, llmModel, llm: llmHandle };
 }
 
 /** .env 里单独指定的档位模型：VIDEO_MODEL_S25=seedance-2.5 … */

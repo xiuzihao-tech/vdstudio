@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "invite": {
+    "inviterPoints": 100,
+    "inviteePoints": 100,
+    "rewardOn": "register",
+    "dailyCap": 10,
+    "monthlyCap": 50,
+    "ipDailyLimit": 3
+  },
+  "rebate": {
+    "rate": 0.1,
+    "scope": "all",
+    "days": 365,
+    "capPerInvitee": 5000
+  },
+  "firstRecharge": {
+    "fixed": 0,
+    "rate": 0
+  },
+  "shareDaily": 0,
+  "shareTitle": "我在用大哲 IP 视频工作室做短视频",
+  "shareText": "传素材就能出片，数字人帮我出镜。用我的链接注册，我们各得 100 点（约 100 秒成片）：",
+  "rules": [
+    "好友用你的链接注册，你得 {inviter} 点，好友多得 {invitee} 点",
+    "好友每次充值，你再得 TA 买到点数的 {rate}（注册后 {days} 天内）",
+    "每天最多奖励 {dailyCap} 位、每月 {monthlyCap} 位；同一网络重复注册不奖励",
+    "自己邀请自己、刷号拿的奖励会被收回"
+  ]
+}

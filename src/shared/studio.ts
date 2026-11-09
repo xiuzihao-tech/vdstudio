@@ -15,6 +15,8 @@ export interface VTypeSpec {
   parts: [kind: 'avatar' | 'scene' | 'pair' | 'macro', label: string][];
   bgm: string;
   tag?: string;
+  /** 后台停用后，下拉和「换一类」里不出现 */
+  enabled?: boolean;
 }
 export const VTYPES: VTypeSpec[] = [
   { id: 'tour', n: '空间漫游', pts: 80, secs: 45, d: '不说话，镜头一路走完整套房，配音乐和一句句字幕', need: '照片或视频 5–10 张', face: 'none', parts: [['scene', '入户'], ['scene', '客厅'], ['scene', '餐厨'], ['scene', '主卧'], ['scene', '收尾']], bgm: '轻钢琴', tag: '先上线' },
@@ -26,12 +28,14 @@ export const VTYPES: VTypeSpec[] = [
   { id: 'site', n: '工地记录', pts: 55, secs: 40, d: '今天到哪个阶段、看哪几处、标准是什么', need: '工地照片或视频', face: 'voice', parts: [['scene', '工地入口'], ['macro', '验收点'], ['macro', '验收点'], ['avatar', '一句结论']], bgm: '城市律动' },
   { id: 'vlog', n: 'Vlog', pts: 70, secs: 45, d: '跟着本人过一天：出门、工地、见客户、收工', need: '随手拍的几段', face: 'voice', parts: [['scene', '早上出门'], ['scene', '工地'], ['scene', '见客户'], ['scene', '收工']], bgm: '城市律动' },
 ];
-export const vtype = (id: string | null | undefined): VTypeSpec => VTYPES.find(t => t.id === id) ?? VTYPES[2];
+export const vtype = (id: string | null | undefined): VTypeSpec => VTYPES.find(t => t.id === id) ?? VTYPES.find(t => t.id === 'talk') ?? VTYPES[0];
+/** 能选的类型（后台没停用的） */
+export const liveTypes = () => VTYPES.filter(t => t.enabled !== false);
 export const AUTO = 'auto';
 
 /** 「成品长这样」：按模板分类放样片（像即梦的模板效果），创意模板不定期加 */
-export const SAMPLE_CATS = ['全部', '空间漫游', '真人口播', '改造前后', '空间讲解', '爆款复刻', '单品展示', '案例讲解', '创意模板', 'TVC 大片'] as const;
-export type SampleCat = typeof SAMPLE_CATS[number];
+export const SAMPLE_CATS: string[] = ['全部', '空间漫游', '真人口播', '改造前后', '空间讲解', '爆款复刻', '单品展示', '案例讲解', '创意模板', 'TVC 大片'];
+export type SampleCat = string;
 export interface Sample { id: string; cat: SampleCat; type: VType; t: string; d: string; dur: string; play?: string; ask?: number; scenes: string[]; custom?: boolean; soon?: boolean }
 export const SAMPLES: Sample[] = [
   { id: 's1', cat: '空间漫游', type: 'tour', t: '龙湖锦璘原著·一镜到底', d: '意式极简·全屋漫游', dur: '00:45', play: '2.1w', ask: 7, scenes: ['entry', 'live', 'kit', 'bed'] },
@@ -69,7 +73,7 @@ export const AVATARS: AvatarLook[] = [
   { id: 'xia', n: '夏主理人', d: '女 · 亲和 · 米色针织 · 客厅背景', skin: '#F2CDB0', hair: '#4A3426', top: '#D8C4A6', bg: '#F0E6D8', bg2: '#D9C3A6', hairStyle: 'long' },
 ];
 export const avatarOf = (id: string | null | undefined) => AVATARS.find(a => a.id === id) ?? AVATARS[0];
-export const VOICES = ['数字人本人声音', 'AI 配音·沉稳男声', 'AI 配音·知性女声', '不要人声，只放音乐'] as const;
+export const VOICES: string[] = ['数字人本人声音', 'AI 配音·沉稳男声', 'AI 配音·知性女声', '不要人声，只放音乐'];
 
 /* ---------- 一键生成视频：草稿 ---------- */
 export interface Mat { id: string; name: string; kind: 'photo' | 'video'; k: string; url?: string | null; mime?: string | null }
@@ -106,28 +110,54 @@ const durSecs = (d: string) => /(\d+)/.test(d) ? Number(d.match(/(\d+)/)![1]) : 
 
 /** 第 2 步：AI 看完素材和文案，推荐做哪一类、怎么出 */
 export interface Advice { type: VType; why: string; chips: [string, string][]; fit: 'ok' | 'thin'; fitText: string }
-export function advise(d: Pick<MakeDraft, 'mats' | 'copy' | 'pick'>): Advice {
+/** 「AI 建议」的规则（技能 video-advise 的 config；后台可改） */
+export interface AdviseCfg {
+  /** 文案里出现这些词就推荐这一类（从上往下匹配） */
+  keywords: { type: VType; words: string[] }[];
+  /** 只有文案没画面时默认的类型；只有画面没文案时默认的类型；都有但没匹配上关键词时的类型 */
+  copyOnly: VType; mediaOnly: VType; both: VType;
+  /** 只有文案时，哪些关键词类型仍然可以选（其余都按 copyOnly） */
+  copyOnlyAllow: VType[];
+  /** 这些类型要真实素材，少于 thinMin 份就提醒 */
+  needMedia: VType[]; thinMin: number;
+  /** 话术：{media} = 「3 张照片、1 段视频」，{type} = 类型名 */
+  msg: { copyOnly: string; mediaOnlyTour: string; mediaOnly: string; both: string; none: string; ok: string; thin: string };
+}
+export const ADVISE_DEFAULT: AdviseCfg = {
+  keywords: [
+    { type: 'before', words: ['改造', '前后', '翻新', '焕新'] },
+    { type: 'site', words: ['工地', '验收', '施工', '水电', '防水'] },
+    { type: 'product', words: ['产品', '板材', '岩板', '卖点', '新品'] },
+    { type: 'case', words: ['业主', '故事', '住进去', '回访'] },
+  ],
+  copyOnly: 'talk', mediaOnly: 'tour', both: 'explain', copyOnlyAllow: ['before'],
+  needMedia: ['tour', 'before', 'case', 'site', 'product'], thinMin: 3,
+  msg: {
+    copyOnly: '你只给了文案，没给画面。没关系——我用数字人照着念，再让 AI 生成空间画面做穿插，字幕自动配。',
+    mediaOnlyTour: '你给了{media}，没给文案。我按画面排一条「空间漫游」：镜头一路走完，配音乐和一句句字幕，不用说话。',
+    mediaOnly: '你给了{media}，没给文案。我按画面排一条「{type}」，旁白我先按画面写一版，第 3 步可以改。',
+    both: '素材和文案都有。我把每句文案配一张你的照片，缺的镜头 AI 补，字幕自动配。',
+    none: '还没有素材和文案。可以先按样片做：画面 AI 生成，文案我来写。',
+    ok: '素材匹配，可以出片', thin: '素材偏少：缺的画面会用 AI 生成，真实感会弱一些，最好补几张你的照片',
+  },
+};
+const fill = (t: string, v: Record<string, string>) => t.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
+export function advise(d: Pick<MakeDraft, 'mats' | 'copy' | 'pick'>, cfg: AdviseCfg = ADVISE_DEFAULT): Advice {
   const photos = d.mats.filter(m => m.kind === 'photo').length, videos = d.mats.filter(m => m.kind === 'video').length, media = photos + videos;
-  const has = chars(d.copy) > 0, s = d.copy.slice(0, 400);
+  const has = chars(d.copy) > 0, s = d.copy.slice(0, 400), names = d.mats.map(m => m.name).join();
+  const hit = (text: string, allow?: VType[]) => cfg.keywords.find(k => (!allow || allow.includes(k.type)) && k.words.some(w => w && text.includes(w)))?.type;
   let type: VType;
   if (d.pick !== AUTO) type = d.pick;
-  else if (!media) type = /改造|前后|翻新/.test(s) ? 'before' : 'talk';
-  else if (!has) type = /前后|改造/.test(d.mats.map(m => m.name).join()) ? 'before' : 'tour';
-  else if (/改造|前后|翻新|焕新/.test(s)) type = 'before';
-  else if (/工地|验收|施工|水电|防水/.test(s)) type = 'site';
-  else if (/产品|板材|岩板|卖点|新品/.test(s)) type = 'product';
-  else if (/业主|故事|住进去|回访/.test(s)) type = 'case';
-  else type = 'explain';
+  else if (!media) type = (has && hit(s, cfg.copyOnlyAllow)) || cfg.copyOnly;
+  else if (!has) type = hit(names, cfg.copyOnlyAllow) || cfg.mediaOnly;
+  else type = hit(s) || cfg.both;
+  if (vtype(type).id !== type) type = vtype(type).id;
   const t = vtype(type), mediaTxt = [photos && `${photos} 张照片`, videos && `${videos} 段视频`].filter(Boolean).join('、');
-  const why = !media && has ? '你只给了文案，没给画面。没关系——我用数字人照着念，再让 AI 生成空间画面做穿插，字幕自动配。'
-    : media && !has ? `你给了${mediaTxt}，没给文案。${type === 'tour' ? '我按画面排一条「空间漫游」：镜头一路走完，配音乐和一句句字幕，不用说话。' : `我按画面排一条「${t.n}」，旁白我先按画面写一版，第 3 步可以改。`}`
-      : media && has ? `素材和文案都有。我把每句文案配一张你的照片，缺的镜头 AI 补，字幕自动配。`
-        : '还没有素材和文案。可以先按样片做：画面 AI 生成，文案我来写。';
-  const needMedia = ['tour', 'before', 'case', 'site', 'product'].includes(type);
-  const fit = needMedia && media < 3 ? 'thin' : 'ok';
+  const why = fill(!media && has ? cfg.msg.copyOnly : media && !has ? (type === 'tour' ? cfg.msg.mediaOnlyTour : cfg.msg.mediaOnly) : media && has ? cfg.msg.both : cfg.msg.none, { media: mediaTxt, type: t.n });
+  const fit = cfg.needMedia.includes(type) && media < cfg.thinMin ? 'thin' : 'ok';
   return {
     type, why, fit,
-    fitText: fit === 'ok' ? '素材匹配，可以出片' : `素材偏少：缺的画面会用 AI 生成，真实感会弱一些，最好补几张你的照片`,
+    fitText: fit === 'ok' ? cfg.msg.ok : cfg.msg.thin,
     chips: [
       ['文案', has ? '已提供' : t.face === 'none' ? '不需要' : 'AI 写'],
       ['画面', media ? `你的素材 ${media} 份` : 'AI 生成'],
@@ -136,13 +166,15 @@ export function advise(d: Pick<MakeDraft, 'mats' | 'copy' | 'pick'>): Advice {
     ],
   };
 }
+/** 价格规则（技能 points 的 config；后台改了前台马上用新价） */
+export const PRICING = { pointName: '点', secondsPerPoint: 1, sampleRate: 0.4, sampleMin: 10, minCost: 20, lowBalance: 60 };
 export function costOf(type: VType, dur: string): number {
   const t = vtype(type), s = durSecs(dur);
-  return s ? Math.max(20, Math.round(t.pts * s / t.secs / 5) * 5) : t.pts;
+  return s ? Math.max(PRICING.minCost, Math.round(t.pts * s / t.secs / 5) * 5) : t.pts;
 }
 
 /** 每类片的镜头模板：标题、场景、拍摄建议 */
-const SCENES: Record<VType, [string, string, string][]> = {
+export const SCENES: Record<VType, [string, string, string][]> = {
   tour: [['门口一镜推进·玄关', 'entry', '站在门口往里推，竖屏拍 3 秒'], ['客厅全景·横移', 'live', '站在餐厅往客厅推一张全景'], ['餐厨·走动视频', 'kit', '从餐厅走到岛台，边走边拍 6 秒'], ['主卧·细节特写', 'bed', '贴近床头墙拍一张特写'], ['材质特写', 'stone', '侧光贴近拍纹理'], ['收尾·窗景', 'hotel', '对着窗外拍 3 秒']],
   explain: [['开场·数字人出镜', 'person', ''], ['客厅全景·横移', 'live', '站在餐厅往客厅推一张全景'], ['细节·材质特写', 'stone', '贴近拍材质和收口'], ['餐厨·走动视频', 'kit', '从餐厅走到岛台，边走边拍 6 秒'], ['收尾·数字人出镜', 'person', '']],
   talk: [['门口一镜推进·玄关', 'entry', '站在门口往里推，竖屏拍 3 秒'], ['客厅全景·横移', 'live', '站在餐厅往客厅推一张全景'], ['餐厨·走动视频', 'kit', '从餐厅走到岛台，边走边拍 6 秒'], ['主卧·细节特写', 'bed', '贴近洞石纹理拍一张特写'], ['收尾·数字人出镜', 'person', '']],
@@ -153,7 +185,7 @@ const SCENES: Record<VType, [string, string, string][]> = {
   vlog: [['早上出门', 'ext', '出门那一刻拍 3 秒'], ['到工地', 'site', '边走边拍'], ['见客户', 'store', '展厅或会议室一角'], ['收工', 'hotel', '傍晚的窗景']],
 };
 /** 没有文案时，按类型给的旁白 / 字幕 */
-const LINES: Record<VType, string[]> = {
+export const LINES: Record<VType, string[]> = {
   tour: ['推开门，先看玄关这一面。', '客厅没有吊顶，层高全留给了光。', '餐厨打通，动线短了一大截。', '主卧只留一面材质墙。', '住进来，就是这样的日常。'],
   explain: ['这个客厅看着贵，不是因为材料贵。', '第一，整面墙没做复杂造型。', '第二，收口全部做到了 1 毫米以内。', '第三，灯光只用了三种色温。', '想看你家能做成什么样，评论区扣 1。'],
   talk: ['这套140㎡意式极简，我最想让你看两个细节。', '整面岩板没有做复杂造型，靠体块穿插撑住气场。', '开放式餐厨把动线缩短了4米，做饭不再绕圈。', '床头这面洞石，是整套房子最贵也最值的一笔。', '想看你家能做成什么样，评论区扣1，发你清单。'],
@@ -164,22 +196,31 @@ const LINES: Record<VType, string[]> = {
   vlog: ['早上 6 点，我又到工地了。', '今天要看柜体进场。', '下午回展厅见一位老客户。', '收工，明天继续。'],
 };
 /** target：成片目标秒数，镜头时长按台词长短分 */
-export function buildShots(d: Pick<MakeDraft, 'mats' | 'copy' | 'type' | 'face'>, target?: number): Shot[] {
-  const tpl = SCENES[d.type];
+/** 分镜规则（技能 storyboard 的 config） */
+export interface StoryCfg { charsPerSec: number; minShots: number; maxShots: number; scenes: Record<VType, [string, string, string][]>; lines: Record<VType, string[]> }
+export const STORY_DEFAULT: StoryCfg = { charsPerSec: 4.5, minShots: 3, maxShots: 8, scenes: SCENES, lines: LINES };
+export function buildShots(d: Pick<MakeDraft, 'mats' | 'copy' | 'type' | 'face'>, target?: number, cfg: StoryCfg = STORY_DEFAULT): Shot[] {
   let lines = splitLines(d.copy);
-  if (!lines.length) lines = LINES[d.type];
-  // 镜头数跟着句子走，最多 8 镜
-  const n = Math.min(8, Math.max(lines.length, 3));
+  if (!lines.length) lines = cfg.lines[d.type]?.length ? cfg.lines[d.type] : LINES[d.type];
+  // 镜头数跟着句子走，最多 maxShots 镜
+  const n = Math.min(cfg.maxShots, Math.max(lines.length, cfg.minShots));
   const merged = lines.length > n ? [...lines.slice(0, n - 1), lines.slice(n - 1).join('')] : lines;
+  return layoutShots(d, merged.map(line => ({ line })), target, cfg);
+}
+/** 给一组台词排镜头：镜头名 / 拍摄建议（没给就按模板）、素材按顺序配、收尾数字人、每镜时长按字数分到目标时长 */
+export function layoutShots(d: Pick<MakeDraft, 'mats' | 'type' | 'face'>, items: { line: string; title?: string; tip?: string }[], target?: number, cfg: StoryCfg = STORY_DEFAULT): Shot[] {
+  const tpl = cfg.scenes[d.type]?.length ? cfg.scenes[d.type] : SCENES[d.type];
   const media = [...d.mats];
-  const raw = merged.map(secsOf), sum = raw.reduce((a, b) => a + b, 0);
+  const raw = items.map(x => Math.max(3, Math.round(chars(x.line) / (cfg.charsPerSec || 4.5)))), sum = raw.reduce((a, b) => a + b, 0) || 1;
   const scale = target ? target / sum : 1;
-  return merged.map((line, i) => {
-    const last = i === merged.length - 1;
-    const t = last && tpl[tpl.length - 1][1] === 'person' ? tpl[tpl.length - 1] : tpl[Math.min(i, tpl.length - (tpl[tpl.length - 1][1] === 'person' ? 2 : 1))];
+  const endsWithPerson = tpl[tpl.length - 1][1] === 'person';
+  return items.map((x, i) => {
+    const last = i === items.length - 1;
+    const t = last && endsWithPerson ? tpl[tpl.length - 1] : tpl[Math.min(i, tpl.length - (endsWithPerson ? 2 : 1))];
     const avatar = t[1] === 'person' && d.face === 'avatar';
     const mat = avatar ? null : media.shift() ?? null;
-    return { id: `sh${i + 1}`, title: t[1] === 'person' && !avatar ? t[0].replace('数字人出镜', '空镜收尾') : t[0], line, tip: t[2] || '用一张能代表这套房的照片', k: t[1] === 'person' && !avatar ? 'live' : t[1], mat, avatar, secs: Math.max(2, Math.round(raw[i] * scale)) };
+    const title = x.title?.trim() || (t[1] === 'person' && !avatar ? t[0].replace('数字人出镜', '空镜收尾') : t[0]);
+    return { id: `sh${i + 1}`, title, line: x.line, tip: x.tip?.trim() || t[2] || '用一张能代表这套房的照片', k: t[1] === 'person' && !avatar ? 'live' : t[1], mat, avatar, secs: Math.max(2, Math.round(raw[i] * scale)) };
   });
 }
 export const shotReady = (s: Shot) => !!s.mat || !!s.avatar;
@@ -189,18 +230,28 @@ export function newDraft(now: string): MakeDraft {
   return { step: 1, mats: [], copy: '', pick: AUTO, type: 'talk', face: 'avatar', avatar: 'me-clone', opt: { dur: 'AI 推荐', ratio: 'AI 推荐', font: 'AI 推荐', bgm: 'AI 推荐', voice: 'AI 推荐' }, shots: [], title: '', caption: '', tags: [], cover: 'A', cost: 60, updatedAt: now };
 }
 
+/** 发布包装规则（技能 publish-pack 的 config）：{city} 城市，{type} 类型名 */
+export interface PackCfg { city: string; titleMax: number; cta: string; groups: { name: string; tags: string[] }[]; pick: number[]; tagMin: number; tagMax: number; banned: string[] }
+export const PACK_DEFAULT: PackCfg = {
+  city: '沈阳', titleMax: 30, cta: '你家装修卡在哪一步？评论区告诉我，挑 3 个免费帮你看。',
+  groups: [{ name: '地域', tags: ['#{city}装修', '#{city}设计师', '#{city}大平层'] }, { name: '品类', tags: ['#{type}', '#大平层设计', '#全案落地', '#空间设计'] }, { name: '流量', tags: ['#装修避坑', '#装修灵感', '#家的样子'] }],
+  pick: [0, 1, 3, 7], tagMin: 3, tagMax: 5,
+  banned: ['最', '第一', '唯一', '顶级', '首选', '极致', '100%', '保证', '国家级', '万能', '永久'],
+};
 /** 第 4 步：标题、文案、话题 */
-export function pack(d: Pick<MakeDraft, 'copy' | 'type' | 'shots'>, city = '沈阳'): { title: string; caption: string; tags: [string, string[]][] } {
+export function pack(d: Pick<MakeDraft, 'copy' | 'type' | 'shots'>, city?: string, cfg: PackCfg = PACK_DEFAULT): { title: string; caption: string; tags: [string, string[]][] } {
+  const c = city || cfg.city;
   const first = (d.shots[0]?.line ?? '').replace(/[。！？!?，,]$/, '');
   const t = vtype(d.type);
-  const title = (first.length > 6 ? first : `${t.n}｜${first || '这套房我最想让你看两处'}`).slice(0, 30);
+  const title = (first.length > 6 ? first : `${t.n}｜${first || '这套房我最想让你看两处'}`).slice(0, cfg.titleMax);
   const body = d.shots.slice(1, 4).map(s => s.line.replace(/[。]$/, '')).join('，');
-  const caption = `${first}。${body ? `${body}。` : ''}\n你家装修卡在哪一步？评论区告诉我，挑 3 个免费帮你看。`;
-  return {
-    title, caption,
-    tags: [['地域', [`#${city}装修`, `#${city}设计师`, `#${city}大平层`]], ['品类', [`#${t.n === '真人口播' ? '意式极简' : t.n}`, '#大平层设计', '#全案落地', '#空间设计']], ['流量', ['#装修避坑', '#装修灵感', '#家的样子']]],
-  };
+  const caption = `${first}。${body ? `${body}。` : ''}${cfg.cta ? `\n${cfg.cta}` : ''}`;
+  return { title, caption, tags: cfg.groups.map(g => [g.name, g.tags.map(x => fill(x, { city: c, type: t.n }))] as [string, string[]]) };
 }
+/** 默认勾上的话题（按 config.pick 的序号，在全部候选里数） */
+export const defaultTags = (tags: [string, string[]][], cfg: PackCfg = PACK_DEFAULT) => { const all = tags.flatMap(([, l]) => l); return cfg.pick.map(i => all[i]).filter(Boolean); };
+/** 合规：标题、文案里出现的广告法敏感词 */
+export const bannedIn = (text: string, cfg: PackCfg = PACK_DEFAULT) => cfg.banned.filter(w => w && text.includes(w));
 
 /* ---------- 安排发布计划 ---------- */
 export type PlanStatus = '已排期' | '待确认' | '待生成' | '已发布';
@@ -308,14 +359,17 @@ export const SHENG: DiagResult = {
     { n: '盛哥的工地日记', d: '早6点到工地、和工人较真的日常，用人格特性吸粉，客户最先来这条', eg: '早上6点，我又到工地了', freq: 2, src: '吃苦耐劳·较真', type: 'vlog', ask: '一周能拍几天日常？', unit: '天' },
   ],
 };
-const PERSONAL = ['吃苦耐劳', '吃苦', '自律', '较真', '敢说', '直爽', '细致', '耐心', '幽默', '靠谱', '执着', '讲究', '爱学习', '有审美', '亲和'];
+export const PERSONAL = ['吃苦耐劳', '吃苦', '自律', '较真', '敢说', '直爽', '细致', '耐心', '幽默', '靠谱', '执着', '讲究', '爱学习', '有审美', '亲和'];
 const clauses = (s: string) => s.split(/[，,。；;、！!？?\n]/).map(x => x.trim()).filter(x => x.length >= 2 && x.length <= 16);
 /** 回答 → 三类标签 + 四档栏目（没接大模型时按规则出；接了大模型由 AI 出，格式一样） */
-export function diagResult(answers: string[], fallbackName = '我'): DiagResult {
+/** 诊断结果规则（技能 diag-report 的 config）：示例报告和它的触发词、个性词表 */
+export interface ReportCfg { sample: DiagResult; sampleKeyword: string; personal: string[] }
+export const REPORT_DEFAULT: ReportCfg = { sample: SHENG, sampleKeyword: '木里木外', personal: PERSONAL };
+export function diagResult(answers: string[], fallbackName = '我', cfg: ReportCfg = REPORT_DEFAULT): DiagResult {
   const all = answers.join('\n');
-  if (/木里木外/.test(all)) return SHENG;
+  if (cfg.sampleKeyword && all.includes(cfg.sampleKeyword)) return cfg.sample;
   const name = all.match(/我(?:叫|是)([一-龥A-Za-z]{1,4}?)(?:[，,。 ]|做|在|$)/)?.[1] ?? fallbackName;
-  const personal = PERSONAL.filter(w => all.includes(w)).slice(0, 4);
+  const personal = cfg.personal.filter(w => all.includes(w)).slice(0, 4);
   while (personal.length < 3) personal.push(['认真', '爱琢磨', '说到做到'][personal.length]);
   const proSrc = clauses(answers[6] ?? '')[0] ?? clauses(answers[1] ?? '')[0] ?? '做设计';
   const spec = proSrc.replace(/^(最)?擅长(做)?/, '').replace(/的?项目$/, '') || '住宅设计';
@@ -336,22 +390,26 @@ export function diagResult(answers: string[], fallbackName = '我'): DiagResult 
   };
 }
 /** 每档栏目的选题模板（{n} = 第几套 / 第几个） */
-const TOPIC_TPL: Record<string, string[]> = {
+export const TOPIC_TPL: Record<string, string[]> = {
   法式大宅品鉴: ['这套400㎡法式大宅，木作800万花在哪', '法式大宅第{n}套：护墙板的3个细节看懂档次', '法式线条做错了有多难看', '第{n}套法式大宅：为什么客户坚持全实木', '法式大宅的门，我只用这一种做法'],
   工地巡检: ['收口0.5毫米，我验收必看的3个细节', '工地第{n}站：柜体进场先看这两处', '护墙板安装，差1毫米我也返工', '工地第{n}站：油漆前我一定要摸一遍', '木作进场前，地面我先测这3个数'],
   '木里木外·品牌说': ['和国际设计师事务所合作的品牌，凭什么做高定', '北京「原宅」展厅，我带你走一圈', '100多家经销商，为什么我最较真', '一块木皮从选料到上墙要多久'],
   盛哥的工地日记: ['早上6点，我又到工地了', '和工人较真的一天', '今天被客户夸了一句', '一周跑3次工地，我图什么', '收工以后我在干嘛'],
 };
-const GENERIC_TPL = (c: DiagColumn) => [c.eg, `${c.n}第{n}期：一个细节讲透`, `${c.n}：客户最常问的问题`, `${c.n}第{n}期：做对和做错的区别`, `${c.n}：我踩过的一个坑`];
+/** 排选题规则（技能 diag-topics 的 config）：{col} 栏目名，{eg} 示例选题，{n} 第几套 */
+export interface TopicsCfg { total: number; weekdays: number[]; time: string; templates: Record<string, string[]>; generic: string[] }
+export const TOPICS_DEFAULT: TopicsCfg = { total: 15, weekdays: [2, 4, 6], time: '19:00', templates: TOPIC_TPL, generic: ['{eg}', '{col}第{n}期：一个细节讲透', '{col}：客户最常问的问题', '{col}第{n}期：做对和做错的区别', '{col}：我踩过的一个坑'] };
+const GENERIC_TPL = (c: DiagColumn, g: string[]) => g.map(x => x.replace(/\{col\}/g, c.n).replace(/\{eg\}/g, c.eg));
 /** 第二轮：按每档能拍几套 / 几个，排出约 15 条选题（一周 3 条，排 5 周） */
-export function makeTopics(cols: DiagColumn[], counts: number[], total = 15): { title: string; column: string; type: VType; why: string }[] {
+export function makeTopics(cols: DiagColumn[], counts: number[], total?: number, cfg: TopicsCfg = TOPICS_DEFAULT): { title: string; column: string; type: VType; why: string }[] {
+  total = total ?? cfg.total;
   const w = cols.map((c, i) => c.freq * Math.max(1, Math.min(counts[i] || 1, 5)));
   const sum = w.reduce((a, b) => a + b, 0);
   const per = w.map(x => Math.max(1, Math.round(x / sum * total)));
   while (per.reduce((a, b) => a + b, 0) > total) per[per.indexOf(Math.max(...per))]--;
   while (per.reduce((a, b) => a + b, 0) < total) per[w.indexOf(Math.max(...w))]++;
   const lists = cols.map((c, i) => {
-    const tpl = TOPIC_TPL[c.n] ?? GENERIC_TPL(c);
+    const tpl = cfg.templates[c.n]?.length ? cfg.templates[c.n] : GENERIC_TPL(c, cfg.generic);
     return Array.from({ length: per[i] }, (_, k) => ({ title: tpl[k % tpl.length].replace('{n}', String(1 + (k % Math.max(1, counts[i] || 1)))) + (k >= tpl.length ? `（${Math.floor(k / tpl.length) + 1}）` : ''), column: c.n, type: c.type, why: `来源标签：${c.src}` }));
   });
   // 栏目轮着排，不连着发同一档
@@ -360,9 +418,9 @@ export function makeTopics(cols: DiagColumn[], counts: number[], total = 15): { 
   return out;
 }
 /** 选题排进计划：一周 3 条（周二、周四、周六 19:00），从明天起 */
-export function schedule(topics: { title: string; column: string; type: VType; why: string }[], today: string, account: string): PlanItem[] {
-  const slots: string[] = [];
-  for (let d = 1; slots.length < topics.length && d < 120; d++) { const day = addDays(today, d); if ([2, 4, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay())) slots.push(`${day}T19:00`); }
+export function schedule(topics: { title: string; column: string; type: VType; why: string }[], today: string, account: string, cfg: Pick<TopicsCfg, 'weekdays' | 'time'> = TOPICS_DEFAULT): PlanItem[] {
+  const slots: string[] = [], days = cfg.weekdays.length ? cfg.weekdays : [2, 4, 6];
+  for (let d = 1; slots.length < topics.length && d < 400; d++) { const day = addDays(today, d); if (days.includes(new Date(`${day}T00:00:00Z`).getUTCDay())) slots.push(`${day}T${cfg.time || '19:00'}`); }
   return topics.map((t, i) => ({ id: `d${Date.now().toString(36)}${i}`, title: t.title, type: vtype(t.type).n, account, column: t.column, when: slots[i], status: '待确认', from: 'diag', why: t.why }));
 }
 
@@ -378,7 +436,19 @@ export function defaultStudio(today: string): StudioState {
 /* ---------- 出片：Seedance 2.5 样片模式 ---------- */
 /** 样片按成片价的四成收（480p，先看构图和节奏），满意再出 1080p 成片 */
 export const SAMPLE_RATE = 0.4;
-export const sampleCost = (finalCost: number) => Math.max(10, Math.round(finalCost * SAMPLE_RATE / 5) * 5);
+export const sampleCost = (finalCost: number) => Math.max(PRICING.sampleMin, Math.round(finalCost * PRICING.sampleRate / 5) * 5);
+
+/** 后台改过的目录（成片类型、价格、样片、系统数字人）：前后端拿到后原地替换，所有地方用新的 */
+export interface Catalog { types?: VTypeSpec[]; samples?: Sample[]; sampleCats?: string[]; pricing?: Partial<typeof PRICING>; avatars?: AvatarLook[]; voices?: string[] }
+export function applyCatalog(c: Catalog | null | undefined) {
+  if (!c) return;
+  if (c.types?.length) VTYPES.splice(0, VTYPES.length, ...c.types);
+  if (c.samples) SAMPLES.splice(0, SAMPLES.length, ...c.samples);
+  if (c.sampleCats?.length) SAMPLE_CATS.splice(0, SAMPLE_CATS.length, ...c.sampleCats);
+  if (c.voices?.length) VOICES.splice(0, VOICES.length, ...c.voices);
+  if (c.avatars?.length) AVATARS.splice(0, AVATARS.length, ...c.avatars);
+  if (c.pricing) Object.assign(PRICING, c.pricing);
+}
 export const SAMPLE_MODEL = 's25';
 
 const TYPE_MAP: Record<VType, 'tour' | 'talk' | 'house' | 'story' | 'product' | 'site' | 'vlog'> = { tour: 'tour', explain: 'talk', talk: 'talk', before: 'house', case: 'story', product: 'product', site: 'site', vlog: 'vlog' };
@@ -404,7 +474,7 @@ export function toGen(d: Pick<MakeDraft, 'shots' | 'type' | 'face' | 'avatar' | 
     assetIds: [...new Set(d.shots.map(s => s.mat?.id).filter((x): x is string => !!x))],
     model: SAMPLE_MODEL, len, ratio: RATIO_MAP[d.opt.ratio] ?? '9:16', res: '1080p' as const, draft: sample,
     voice: voice as 'me' | 'p1' | 'p2' | 'none', speed: 1, bgm: BGM_MAP[d.opt.bgm === 'AI 推荐' ? t.bgm : d.opt.bgm] ?? '城市律动',
-    subs: true, ambience: true, cover: false, style: 'AI 推荐', type: TYPE_MAP[d.type], avatar: (avatarOk ? mine : 'none') as 'clone' | 'photo' | 'none',
+    subs: true, ambience: true, cover: false, style: 'AI 推荐', type: TYPE_MAP[d.type], studio: d.type, avatar: (avatarOk ? mine : 'none') as 'clone' | 'photo' | 'none',
     emotion: '自动', pause: 0.3, bgmVol: 0.2, seed: false, shots,
   };
 }

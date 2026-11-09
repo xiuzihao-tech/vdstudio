@@ -71,6 +71,8 @@ export interface GenSettings {
   /** 视频类型（第 1 步）；老数据没有 = 按旧规则平均拆镜 */
   type?: VideoType;
   /** 小类（第 1 步） */ sub?: string;
+  /** 一键生成视频的成片类型（tour / explain / talk …）：后台按它统计「成片类型覆盖」 */
+  studio?: string;
   /** 数字人：none 不出镜；clone 真人分身；photo 照片形象 */
   avatar?: AvatarMode;
   emotion?: string; pause?: number; bgmVol?: number; seed?: boolean;

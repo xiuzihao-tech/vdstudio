@@ -46,5 +46,10 @@ export function makeAlipay(c: AlipayConfig): PayProvider {
       return { orderId: p.out_trade_no, tradeNo: p.trade_no, amount: Math.round(Number(p.total_amount) * 100) };
     },
     ack: { status: 200, body: 'success', type: 'text/plain' },
+    async ping() {
+      const r = await call('alipay.trade.query', { out_trade_no: `FINDAI_PING_${Date.now()}` });
+      if (r.sub_code === 'ACQ.TRADE_NOT_EXIST' || r.code === '10000') return { ok: true, message: '签名、应用 ID 都对（查了个不存在的订单）' };
+      return { ok: false, message: `${r.code ?? ''} ${r.sub_code ?? ''} ${r.sub_msg ?? r.msg ?? ''}`.trim() || '没有返回' };
+    },
   };
 }

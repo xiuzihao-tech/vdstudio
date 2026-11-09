@@ -1,0 +1,19 @@
+[
+  {
+    "key": "baseUrl",
+    "label": "接口地址（不填沿用文案大模型）",
+    "env": "VISION_BASE_URL"
+  },
+  {
+    "key": "apiKey",
+    "label": "API Key（不填沿用文案大模型）",
+    "env": "VISION_API_KEY",
+    "secret": true
+  },
+  {
+    "key": "model",
+    "label": "模型",
+    "env": "VISION_MODEL",
+    "placeholder": "doubao-1.5-vision-pro"
+  }
+]

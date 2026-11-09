@@ -1,0 +1,42 @@
+[
+  {
+    "key": "mchid",
+    "label": "商户号",
+    "env": "WXPAY_MCHID"
+  },
+  {
+    "key": "appid",
+    "label": "AppID",
+    "env": "WXPAY_APPID"
+  },
+  {
+    "key": "serialNo",
+    "label": "商户证书序列号",
+    "env": "WXPAY_SERIAL_NO"
+  },
+  {
+    "key": "privateKey",
+    "label": "商户私钥（PEM）",
+    "env": "WXPAY_PRIVATE_KEY",
+    "secret": true,
+    "type": "textarea"
+  },
+  {
+    "key": "apiV3Key",
+    "label": "APIv3 密钥",
+    "env": "WXPAY_API_V3_KEY",
+    "secret": true
+  },
+  {
+    "key": "platformPublicKey",
+    "label": "微信支付公钥（PEM）",
+    "env": "WXPAY_PLATFORM_PUBLIC_KEY",
+    "type": "textarea"
+  },
+  {
+    "key": "platformKeyId",
+    "label": "微信支付公钥 ID",
+    "env": "WXPAY_PLATFORM_KEY_ID",
+    "placeholder": "PUB_KEY_ID_…"
+  }
+]

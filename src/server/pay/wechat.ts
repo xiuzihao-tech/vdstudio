@@ -75,5 +75,11 @@ export function makeWechatPay(c: WechatPayConfig): PayProvider {
       return { orderId: t.out_trade_no, tradeNo: t.transaction_id, amount: t.amount?.total ?? -1 };
     },
     ack: { status: 204, body: '', type: 'text/plain' },
+    async ping() {
+      const r = await call<{ code?: string; message?: string; trade_state?: string }>('GET', `/v3/pay/transactions/out-trade-no/FINDAI_PING_${Date.now()}?mchid=${c.mchid}`);
+      if (r.status === 404 && r.json.code === 'ORDER_NOT_EXIST') return { ok: true, message: '签名、商户号都对（查了个不存在的订单）' };
+      if (r.status < 300) return { ok: true, message: '接通了' };
+      return { ok: false, message: `${r.status} ${r.json.code ?? ''} ${r.json.message ?? ''}`.trim() };
+    },
   };
 }

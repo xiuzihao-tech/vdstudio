@@ -1,0 +1,43 @@
+[
+  {
+    "key": "apiKey",
+    "label": "API Key",
+    "env": "ARK_API_KEY",
+    "secret": true
+  },
+  {
+    "key": "baseUrl",
+    "label": "接口地址",
+    "env": "ARK_BASE_URL",
+    "placeholder": "https://ark.cn-beijing.volces.com/api/v3"
+  },
+  {
+    "key": "s25",
+    "label": "Seedance 2.5 模型 id",
+    "env": "SEEDANCE_MODEL_S25",
+    "placeholder": "doubao-seedance-2-5"
+  },
+  {
+    "key": "s20",
+    "label": "Seedance 2.0 模型 id",
+    "env": "SEEDANCE_MODEL_S20"
+  },
+  {
+    "key": "s20f",
+    "label": "Seedance 2.0 fast 模型 id",
+    "env": "SEEDANCE_MODEL_S20F"
+  },
+  {
+    "key": "watermark",
+    "label": "加水印",
+    "env": "SEEDANCE_WATERMARK",
+    "type": "bool"
+  },
+  {
+    "key": "pollMs",
+    "label": "查询间隔（毫秒）",
+    "env": "SEEDANCE_POLL_MS",
+    "type": "number",
+    "placeholder": "5000"
+  }
+]
