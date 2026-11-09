@@ -135,6 +135,10 @@ export function createApp(opts: AppOptions) {
   }
 
   const auth = makeAuth(db);
+  // 演示版：建好后台账号（邮箱必须在 ADMIN_EMAILS 里），后台登录页把账号密码提示出来
+  const demoLogin = (() => { const i = o.demoLogin.indexOf(':'); return i > 0 ? { email: o.demoLogin.slice(0, i).trim().toLowerCase(), password: o.demoLogin.slice(i + 1) } : null; })();
+  if (demoLogin && !db.prepare('SELECT 1 FROM users WHERE email=?').get(demoLogin.email))
+    void auth.register(demoLogin.email, demoLogin.password, '演示管理员', undefined, o.initialPoints).catch(e => console.warn('建演示后台账号失败：', (e as Error).message));
   auth.purgeExpired();
   const cookie = (k: string, v: string, maxAge: number) => `${k}=${v}; Path=/; HttpOnly; SameSite=${o.cookieSameSite}; Max-Age=${maxAge}${o.secureCookies ? '; Secure' : ''}`;
 
@@ -163,10 +167,10 @@ export function createApp(opts: AppOptions) {
   const planOr404 = (ws: Workspace, id: string) => { const p = repo.plan(ws.id, id); if (!p) throw new HttpError(404, '账号排期不存在'); return p; };
   /** 后台账号：ADMIN_EMAILS 里的是超级管理员；后台「管理权限」加的按角色给权限 */
   const adminOf = (u: User | null): AdminMe | null => {
-    const role: AdminRole | null = o.demoAdmin ? 'super' : !u ? null : o.adminEmails.includes(u.email) ? 'super'
+    const role: AdminRole | null = !u ? null : o.adminEmails.includes(u.email) ? 'super'
       : ((db.prepare('SELECT role FROM admins WHERE email=?').get(u.email) as { role?: AdminRole } | undefined)?.role ?? null);
     if (!role || !ROLES[role]) return null;
-    return { email: u?.email ?? 'demo@offline', role, roleName: ROLES[role].n, perms: [...ROLES[role].perms] };
+    return { email: u!.email, role, roleName: ROLES[role].n, perms: [...ROLES[role].perms] };
   };
   const isAdmin = (u: User | null) => !!adminOf(u);
   const session = (ws: Workspace, req: Req) => ({ user: ctx(req).user && { email: ctx(req).user!.email, name: ctx(req).user!.name }, isAdmin: isAdmin(ctx(req).user), admin: adminOf(ctx(req).user), catalog: catalog(), authRequired: !!o.authRequired, inviteRequired: o.inviteRequired,
@@ -210,7 +214,18 @@ export function createApp(opts: AppOptions) {
     res.setHeader('set-cookie', [cookie('sid', out.session.token, out.session.maxAge), cookie('fid', '', 0)]);
     return { user: { email: out.user.email, name: out.user.name }, message: out.merged ? `登录了，未登录时做的 ${out.merged} 个身份的内容已并进账号` : '登录了' };
   });
-  r.get('/api/auth/config', () => ({ authRequired: !!o.authRequired, inviteRequired: o.inviteRequired }));
+  r.get('/api/auth/config', () => ({ authRequired: !!o.authRequired, inviteRequired: o.inviteRequired, ...(demoLogin ? { demoLogin: { email: demoLogin.email, password: demoLogin.password } } : {}) }));
+  /** 后台登录（/admin 的登录页）：只有后台账号能登进去；不是后台账号不给会话，前台的登录状态也不动 */
+  r.post('/api/auth/admin-login', async (req, res) => {
+    const d = await body(req, credSchema);
+    const out = await auth.login(d.email, d.password, undefined);
+    if (!out.ok) throw new HttpError(401, out.error);
+    const me = adminOf(out.user as User);
+    if (!me) { auth.logout(out.session.token); throw new HttpError(403, '这个账号没有后台权限。后台账号由超级管理员在后台「后台账号」里开'); }
+    ops.track(out.user.ownerId, null, 'login', { admin: me.role });
+    res.setHeader('set-cookie', cookie('sid', out.session.token, out.session.maxAge));
+    return { me };
+  });
   r.post('/api/auth/logout', (req, res) => { auth.logout(req.cookies.sid); res.setHeader('set-cookie', cookie('sid', '', 0)); return { ok: true }; });
 
   /* ---------- 选题 ---------- */

@@ -1715,3 +1715,25 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 .invrules ol{margin:6px 0 0;padding-left:20px}
 @media (max-width:520px){ .invstats{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .adm-req{color:var(--er);font-weight:900}
+.stuchip{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:60;display:flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;border-radius:99px;background:#0B0B0C;color:#fff;font-size:13px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.stuchip button{font:inherit;font-size:12.5px;padding:4px 10px;border-radius:99px;border:0;background:#FFCB05;color:#0B0B0C;cursor:pointer}
+/* 后台登录页 */
+.adm-login{min-height:100vh;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);background:#F2F2EF;color:#0B0B0C;font-family:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif}
+.adm-login-side{background:#FFCB05;padding:48px 44px;display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid rgba(11,11,12,.12)}
+.adm-login-side b{display:block;font-size:30px;font-weight:900;line-height:1.15}
+.adm-login-side small{display:block;font-size:11px;font-weight:800;letter-spacing:.06em;opacity:.72;margin-top:6px}
+.adm-login-side p{margin:0;font-size:14px;line-height:1.7;max-width:340px;opacity:.85}
+.adm-login-main{display:grid;place-items:center;padding:32px 20px}
+.adm-login-card{width:100%;max-width:380px;background:#fff;border:1.5px solid #0B0B0C;border-radius:8px;box-shadow:6px 6px 0 #FFCB05;padding:28px 26px}
+.adm-login-card h1{margin:0 0 4px;font-size:24px;font-weight:900}
+.adm-login-card .sub{margin:0 0 20px;font-size:13.5px;color:#6B6B6E}
+.adm-login-card label{display:block;font-size:13px;font-weight:700;color:#3F3F42;margin:14px 0 6px}
+.adm-login-card input{width:100%;font:inherit;font-size:15px;padding:10px 12px;border:1px solid rgba(11,11,12,.28);border-radius:6px;background:#fff;color:#0B0B0C;box-sizing:border-box}
+.adm-login-card input:focus{outline:2px solid #FFCB05;border-color:#0B0B0C}
+.adm-login-card .go{width:100%;margin-top:20px;height:44px;border:0;border-radius:3px;background:#0B0B0C;color:#fff;font:inherit;font-size:15px;font-weight:800;cursor:pointer}
+.adm-login-card .go[disabled]{opacity:.5}
+.adm-login-card .err{margin:12px 0 0;color:#9B1C1C;font-size:13.5px;font-weight:700}
+.adm-login-card .demo{margin:16px 0 0;padding:10px 12px;background:#FFF9DB;border:1px dashed #E8C55A;border-radius:6px;font-size:13px;line-height:1.6}
+.adm-login-card .demo button{font:inherit;font-size:12.5px;font-weight:700;margin-left:6px;border:1px solid #0B0B0C;background:#FFCB05;border-radius:4px;padding:2px 8px;cursor:pointer}
+.adm-login-card .back{display:block;margin-top:16px;text-align:center;font-size:13px;color:#6B6B6E;background:none;border:0;cursor:pointer;width:100%;text-decoration:underline}
+@media (max-width:760px){.adm-login{grid-template-columns:1fr}.adm-login-side{padding:24px 20px;gap:14px}.adm-login-side b{font-size:22px}}

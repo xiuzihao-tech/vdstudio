@@ -59,3 +59,11 @@ export const SoonBadge = ({ id }: { id: string }) => {
   const m = useMods();
   return m.view(id) === 'soon' ? <span className="soonb sm">即将上线</span> : null;
 };
+
+/** 后台账号在前台「按学员看」时：右下角一个小条，点了退出预览 / 回后台（学员看不到） */
+export function StudentChip() {
+  const { session, nav } = useApp();
+  const student = useAsStudent();
+  if (!session?.isAdmin || !student) return null;
+  return <div className="stuchip" id="stuChip">按学员看中 <button onClick={() => setAsStudent(false)}>退出预览</button><button onClick={() => nav('admin')}>回后台</button></div>;
+}

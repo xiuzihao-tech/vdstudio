@@ -6,7 +6,7 @@ import { Src } from './kit.tsx';
 import { AuthForm } from './auth.tsx';
 import { PointsSheet } from './points.tsx';
 import type { Job } from '../../shared/types.ts';
-import { SoonBadge, setAsStudent, useMods } from './mods.tsx';
+import { SoonBadge, useMods } from './mods.tsx';
 import { DAZHEIP_URL } from '../config.ts';
 import { useStudio } from '../pages/studio/common.tsx';
 import { weekStats } from '../../shared/studio.ts';
@@ -86,8 +86,6 @@ export function Header() {
       <div className="dzlinks">{DZ_BEFORE.map(dzLink)}</div>
       <nav className="tabs" aria-label="主导航">
         {tabs.map(tabBtn)}
-        {session?.isAdmin && <button data-go="admin" aria-current={route.view === 'admin' ? 'page' : undefined} onClick={() => nav('admin')}>后台</button>}
-        {session?.isAdmin && <button id="asStudent" className={mods.student ? 'on' : ''} title="管理员预览：和学员看到的一样" onClick={() => setAsStudent(!mods.student)}>{mods.student ? '按学员看 ✓' : '按学员看'}</button>}
       </nav>
       <div className="dzlinks">{DZ_AFTER.map(dzLink)}</div>
       <span className="sp" />

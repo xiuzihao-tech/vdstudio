@@ -22,7 +22,8 @@ export interface Config {
   /** 模块开关的默认分期（后台没改过时用）：phase1 只开一期 / phase2 开一二期 / all 全部打开 */
   modulesPreset: 'phase1' | 'phase2' | 'all';
   /** 演示用：所有人都当超级管理员（只给离线演示版用，生产环境会拒绝启动） */
-  demoAdmin: boolean;
+  /** 演示版的后台账号「邮箱:密码」（DEMO_ADMIN_LOGIN）：启动时建好，后台登录页提示出来；正式部署不能设 */
+  demoLogin: string;
   /** 后台「数据总览」里 dazheip 自己的后台链接（知识与情报、会员管理……） */
   dazheipAdminUrl: string;
 }
@@ -47,7 +48,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     cookieSameSite: (['Lax', 'Strict', 'None'] as const).find(v => v.toLowerCase() === (env.COOKIE_SAMESITE ?? '').toLowerCase()) ?? 'Lax',
     logRequests: env.LOG_REQUESTS ? env.LOG_REQUESTS === '1' : env.NODE_ENV === 'production',
     trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === '1' : env.NODE_ENV === 'production',
-    demoAdmin: env.DEMO_ADMIN === '1',
+    demoLogin: env.DEMO_ADMIN_LOGIN ?? '',
     dazheipAdminUrl: (env.DAZHEIP_ADMIN_URL || 'https://www.dazheip.com/admin').replace(/\/$/, ''),
   };
 }

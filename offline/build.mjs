@@ -14,15 +14,16 @@ const idx = readFileSync('src/web/index.html', 'utf8');
 const head = (idx.match(/<head>([\s\S]*?)<\/head>/) ?? [, ''])[1].replace(/<link[^>]*styles\.css[^>]*>/g, '').replace(/<script[^>]*src=[^>]*><\/script>/g, '').replace(/<link[^>]*(fonts\.googleapis|fonts\.gstatic)[^>]*>/g, '');
 const bodyTag = (idx.match(/<body[^>]*>/) ?? ['<body>'])[0];
 const esc = s => s.replace(/<\/script/gi, '<\\/script');
-const new_btn_html = `<button id="offReset" style="position:fixed;right:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="if(this.dataset.armed){window.__offlineReset&&window.__offlineReset()}else{this.dataset.armed=1;this.textContent='再点一次：清空演示数据';setTimeout(()=>{delete this.dataset.armed;this.textContent='演示版 · 清空演示数据'},4000)}">演示版 · 清空演示数据</button>`;
+const new_btn_html = `<button id="offAdmin" style="position:fixed;right:12px;bottom:46px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="location.hash='admin'" title="后台不在前台菜单里，正式版直接打开 域名/admin">演示版 · 后台登录</button><button id="offReset" style="position:fixed;right:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="if(this.dataset.armed){window.__offlineReset&&window.__offlineReset()}else{this.dataset.armed=1;this.textContent='再点一次：清空演示数据';setTimeout(()=>{delete this.dataset.armed;this.textContent='演示版 · 清空演示数据'},4000)}">演示版 · 清空演示数据</button>`;
 const html = `<!doctype html>
 <html lang="zh-CN"><head>${head}
 <title>FIND AI × 大哲 · 视频站（离线版）</title>
 <style>${css.outputFiles[0].text}</style>
-<style>#boot{position:fixed;inset:0;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f5f4f0}</style>
+<style>#boot{position:fixed;inset:0;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f5f4f0}body:has(#adm) #offAdmin,body:has(#admLogin) #offAdmin{display:none}</style>
 </head>${bodyTag}
 <div id="boot">正在启动（第一次打开要几秒）…</div>
 <div id="root"></div>
+<button id="offAdmin" style="position:fixed;right:12px;bottom:46px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="location.hash='admin'" title="后台不在前台菜单里，正式版直接打开 域名/admin">演示版 · 后台登录</button>
 <button id="offReset" style="position:fixed;right:12px;bottom:12px;z-index:50;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:99px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.9);color:#555;cursor:pointer" onclick="if(this.dataset.armed){window.__offlineReset&&window.__offlineReset()}else{this.dataset.armed=1;this.textContent='再点一次：清空演示数据';setTimeout(()=>{delete this.dataset.armed;this.textContent='演示版 · 清空演示数据'},4000)}">演示版 · 清空演示数据</button>
 <script type="text/plain" id="webapp">${esc(web.outputFiles[0].text)}</script>
 <script>${esc(server.outputFiles[0].text)}</script>
@@ -35,7 +36,7 @@ console.log(`dist/视频站-离线版.html  ${(html.length / 1e6).toFixed(2)} MB
 const attrs = [...bodyTag.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, k, v]) => `document.body.setAttribute(${JSON.stringify(k)},${JSON.stringify(v)});`).join('');
 const page = `<title>大哲 IP · 视频 IP 演示</title>
 <style>${css.outputFiles[0].text}</style>
-<style>#boot{position:fixed;inset:0;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f5f4f0;z-index:100}</style>
+<style>#boot{position:fixed;inset:0;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f5f4f0;z-index:100}body:has(#adm) #offAdmin,body:has(#admLogin) #offAdmin{display:none}</style>
 <script>${attrs}</script>
 <div id="boot">正在启动（第一次打开要几秒）…</div>
 <div id="root"></div>

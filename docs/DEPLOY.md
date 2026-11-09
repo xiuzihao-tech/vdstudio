@@ -45,7 +45,7 @@ npm run start:env           # = node --env-file=.env dist/server.js
    cd deploy && docker compose up -d --build
    ```
    Caddy 会自动申请 HTTPS 证书。`docker compose logs -f app` 看日志；`curl https://你的域名/healthz` 应返回 `{"ok":true,...}`。
-5. 用 `ADMIN_EMAILS` 里的邮箱注册（管理员不需要邀请码）→ 左侧菜单「后台」→「兑换码与邀请码」生成链接，发给试用者。后台怎么用见 `docs/后台与技能.md`。
+5. 用 `ADMIN_EMAILS` 里的邮箱注册（管理员不需要邀请码）→ 打开 `https://你的域名/admin` 用同一个账号登录后台 →「兑换码与邀请码」生成链接，发给试用者。后台怎么用见 `docs/后台与技能.md`。
 
 ### 日常运维
 
@@ -67,7 +67,7 @@ npm run start:env           # = node --env-file=.env dist/server.js
 - [ ] `.env` 里 `AUTH_REQUIRED=1`、`INVITE_REQUIRED=1`（`SECURE_COOKIES` 由 compose 自动设为 1）
 - [ ] 设了 `DAILY_BUDGET_POINTS`，并在 OpenLux、土豆两个站的后台也设了消费上限（双保险）
 - [ ] 设了 `FILE_SIGN_SECRET`（`openssl rand -hex 32` 生成）和 `ADMIN_EMAILS`——没设的话服务**会拒绝启动**，`docker compose logs app` 里能看到缺什么
-- [ ] 设了 `SECRETS_KEY`（同样 `openssl rand -hex 32`），没设启动时会提醒；`DEMO_ADMIN` 不能开
+- [ ] 设了 `SECRETS_KEY`（同样 `openssl rand -hex 32`），没设启动时会提醒；`DEMO_ADMIN_LOGIN` 不能设
 - [ ] 文件存储：建好 OSS / COS 桶，填 `STORAGE=s3` 和 `S3_*`（见 `.env.example`）；先用本机存储也行，但要备份数据卷
 - [ ] 两个 AI 站的密钥换成新生成的（旧的在聊天里出现过）
 - [ ] 后台「上游接口」：文案大模型、视频、支付逐个「测试连接」都通过

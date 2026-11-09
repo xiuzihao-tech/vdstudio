@@ -9,11 +9,11 @@ import { MePage } from './pages/Me.tsx';
 import { useOnboarding } from './ui/onboarding.tsx';
 import { LibraryPage } from './pages/Library.tsx';
 import { LoginScreen } from './ui/auth.tsx';
-import { AdminPage } from './pages/Admin.tsx';
 import { AdminShell } from './pages/admin/Shell.tsx';
+import { AdminLogin } from './pages/admin/Login.tsx';
 import { FeedbackButton } from './ui/feedback.tsx';
 import { TalkPage } from './pages/Talk.tsx';
-import { SoonCard, useMods } from './ui/mods.tsx';
+import { SoonCard, StudentChip, useMods } from './ui/mods.tsx';
 import { TAB_MODS } from './ui/shell.tsx';
 import { MakePage } from './pages/studio/Make.tsx';
 import { DiagPage } from './pages/studio/Diag.tsx';
@@ -54,7 +54,6 @@ function Pages() {
     case 'plan': case 'ops': return <OpsPage key={k} />;
     case 'me': return <MePage key={k} />;
     case 'lib': return <LibraryPage key={k} />;
-    case 'admin': return <AdminPage key={k} />;
     default: return <GenPage key={k} />;
   }
 }
@@ -65,15 +64,20 @@ function Foot() {
   return <footer className="foot">FIND AI × 大哲 联合出品 · {mockParts ? `开发版：${mockParts}为模拟结果` : '文案与视频由真实 AI 服务生成'}，热门选题为示意数据，“点”为占位单位</footer>;
 }
 
-/** 后台（dazheip 后台同款）整页换掉前台的侧栏和页脚 */
+/** 后台（/admin，dazheip 后台同款）不在前台显示：整页换掉前台的侧栏和页脚；没登录后台账号就是后台登录页 */
 function Body() {
-  const { route, session } = useApp();
-  if (route.view === 'admin' && session?.admin) return <AdminShell />;
+  const { route, session, needLogin } = useApp();
+  if (route.view === 'admin') {
+    if (session?.admin) return <AdminShell />;
+    if (session || needLogin) return <AdminLogin />;
+    return <div style={{ paddingTop: 120, textAlign: 'center' }}><p className="s m">加载中…</p></div>;
+  }
   return <>
     <Header />
     <main id="main"><RefBanner /><Pages /></main>
     <Foot />
     <FeedbackButton />
+    <StudentChip />
   </>;
 }
 

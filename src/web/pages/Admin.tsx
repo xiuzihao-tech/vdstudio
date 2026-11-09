@@ -3,15 +3,8 @@ import { useState } from 'react';
 import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Empty, Seg, Skel, Src } from '../ui/kit.tsx';
-import { AdminShell } from './admin/Shell.tsx';
 
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
-
-export function AdminPage() {
-  const { session } = useApp();
-  if (!session?.admin) return <section className="view on" id="v-admin"><div className="vb wrap"><Empty title="只有后台账号能看">把你的邮箱加进服务器的 ADMIN_EMAILS（超级管理员），或者让超级管理员在后台「后台账号」里加你，再用这个邮箱登录。</Empty></div></section>;
-  return <AdminShell />;
-}
 
 /** 使用漏斗、每天活跃、服务器配置、暂停全站生成（compact：数据总览里用，不重复显示上面的数字块） */
 export function Overview({ compact = false }: { compact?: boolean }) {

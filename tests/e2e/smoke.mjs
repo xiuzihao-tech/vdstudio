@@ -241,10 +241,17 @@ await run('提意见 → 管理员后台：漏斗、反馈、邀请码、暂停�
   const ctx2 = await browser.newContext({ viewport: { width: 1360, height: 900 } });
   const a = await ctx2.newPage();
   a.on('pageerror', e => errors.push(`admin pageerror: ${e.message}`));
+  // 后台不在前台显示；/admin 是后台登录页，普通账号登不进去
+  await a.goto(base + '/admin');
+  await a.locator('#admLogin').waitFor();
+  await a.locator('#admEmail').fill('lin@example.com'); await a.locator('#admPw').fill('secret123'); await a.locator('#admGo').click();
+  await a.locator('#admLogin .err', { hasText: '没有后台权限' }).waitFor();
   await a.goto(base);
   await a.locator('#loginBtn').click(); await a.locator('#authForm .seg button', { hasText: '注册' }).click();
   await a.locator('#auName').fill('管理员'); await a.locator('#auEmail').fill('boss@example.com'); await a.locator('#auPw').fill('secret123'); await a.locator('#auGo').click();
-  await a.locator('.tabs [data-go=admin]').click();
+  await a.waitForTimeout(400);
+  if (await a.locator('.tabs [data-go=admin]').count() || await a.getByText('后台', { exact: true }).count()) throw new Error('前台不该有后台入口');
+  await a.goto(base + '/admin');
   // 后台是 dazheip 后台同款：明黄侧栏、管理权限、管理菜单；数据总览里有描边数据块、成片类型覆盖、漏斗
   await a.locator('#adm #admPerm', { hasText: '超级管理员' }).waitFor();
   await a.locator('#admTiles').waitFor();
@@ -271,9 +278,9 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   const ctx3 = await browser.newContext({ viewport: { width: 1360, height: 900 } });
   const a = await ctx3.newPage();
   a.on('pageerror', e => errors.push(`mod pageerror: ${e.message}`));
-  await a.goto(base);
-  await a.locator('#loginBtn').click(); await a.locator('#auEmail').fill('boss@example.com'); await a.locator('#auPw').fill('secret123'); await a.locator('#auGo').click();
-  await a.locator('.tabs [data-go=admin]').click();
+  // 直接打开 /admin，用后台账号登录
+  await a.goto(base + '/admin');
+  await a.locator('#admEmail').fill('boss@example.com'); await a.locator('#admPw').fill('secret123'); await a.locator('#admGo').click();
   await a.locator('[data-adm=modules]').click();
   await a.locator('#modAdmin [data-preset=phase1]').click();
   await a.waitForTimeout(300);
@@ -302,10 +309,11 @@ await run('模块开关：管理员套用「只开一期」，学员看不到二
   await s.locator('#diagAttList', { hasText: '抖音' }).waitFor();
   await s.screenshot({ path: join(shots, '14_diag_attach.png'), fullPage: true });
   // 管理员「按学员看」后台入口还在、导航和学员一致
-  await a.locator('#admBack').click();
-  await a.locator('#asStudent').click(); await a.locator('.tabs [data-go=make]').click(); await a.locator('#v-make').waitFor();
-  await a.locator('#asStudent').click();
-  await a.locator('.tabs [data-go=admin]').click(); await a.locator('[data-adm=modules]').click();
+  await a.locator('#admAsStudent').click(); await a.locator('.tabs [data-go=make]').click(); await a.locator('#v-make').waitFor();
+  await a.locator('#stuChip button', { hasText: '回后台' }).click();
+  await a.locator('#admBack').click(); await a.locator('#v-make').waitFor();
+  if (await a.locator('#stuChip').count()) throw new Error('返回前台后还在按学员看');
+  await a.goto(base + '/admin'); await a.locator('[data-adm=modules]').click();
   await a.locator('#modAdmin [data-preset=all]').click(); await a.waitForTimeout(300);
   await s.goto(base + '/talk'); await s.locator('#v-talk #talkStyles').waitFor();
   await ctx3.close(); await ctx4.close();

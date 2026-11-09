@@ -359,3 +359,16 @@ test('密钥加密：换了 SECRETS_KEY 解不开；打码不露全文；模板�
   const t = renderTemplate('你好 {{name}}，今天 {{day}}', { name: '苗苗' });
   assert.equal(t.text, '你好 苗苗，今天 '); assert.deepEqual(t.missing, ['day']);
 });
+
+test('后台登录：后台不在前台显示，/api/auth/admin-login 只放后台账号进来；普通账号不给会话', async () => {
+  const u = client(); await reg(u, 'normal@x.com');
+  const out = client();
+  const bad = await out('POST', '/api/auth/admin-login', { email: 'normal@x.com', password: 'pass1234' });
+  assert.equal(bad.status, 403); assert.match(bad.json.error, /没有后台权限/);
+  assert.equal((await out('GET', '/api/admin/me')).status, 403, '没拿到后台会话');
+  assert.equal((await out('POST', '/api/auth/admin-login', { email: 'boss@x.com', password: 'wrong-pass' })).status, 401);
+  const ok = await out('POST', '/api/auth/admin-login', { email: 'boss@x.com', password: 'pass1234' });
+  assert.equal(ok.status, 200); assert.equal(ok.json.me.role, 'super');
+  assert.equal((await out('GET', '/api/admin/me')).json.me.email, 'boss@x.com');
+  assert.equal((await out('GET', '/api/auth/config')).json.demoLogin, undefined, '正式环境不提示演示账号');
+});

@@ -110,7 +110,9 @@ const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o)
 export const api = {
   session: () => call<Session>('GET', '/api/session'),
   register: (email: string, password: string, name: string, invite?: string, ref?: string) => call<{ user: { email: string; name: string }; message: string; gift: number }>('POST', '/api/auth/register', { email, password, name, invite: invite || undefined, ref: ref || undefined }),
-  authConfig: () => call<{ authRequired: boolean; inviteRequired: boolean }>('GET', '/api/auth/config'),
+  authConfig: () => call<{ authRequired: boolean; inviteRequired: boolean; demoLogin?: { email: string; password: string } }>('GET', '/api/auth/config'),
+  /** 后台登录：只有后台账号能登进去 */
+  adminLogin: (email: string, password: string) => call<{ me: AdminMe }>('POST', '/api/auth/admin-login', { email, password }),
   track: (name: string, props?: Record<string, string | number | boolean>) => call<{ ok: true }>('POST', '/api/events', { name, props }).catch(() => undefined),
   feedback: (text: string, page: string, contact: string) => call<{ ok: true }>('POST', '/api/feedback', { text, page, contact }),
   admin: {

@@ -15,6 +15,7 @@ import { AccountsPage, AuditPage } from './Accounts.tsx';
 import { AdminBilling } from '../AdminBilling.tsx';
 import { AdminModules } from '../AdminModules.tsx';
 import { FeedbackList, Invites, Redeem, Users } from '../Admin.tsx';
+import { setAsStudent } from '../../ui/mods.tsx';
 
 export type PageId = 'overview' | 'skills' | 'upstreams' | 'points' | 'referral' | 'orders' | 'jobs' | 'users' | 'codes' | 'feedback' | 'modules' | 'accounts' | 'audit';
 interface Ours { k: 'ours'; id: PageId; n: string; perm: AdminPerm; eb: string; icon: string; isNew?: boolean; d: string }
@@ -59,7 +60,7 @@ export function AdminShell() {
   const cur = allowed.find(m => m.id === route.sub) ?? allowed[0];
   const go = (id: PageId) => { setOpen(false); nav({ view: 'admin', sub: id }); };
   const dzUrl = (id: string) => dz?.menu.find(m => m.id === id)?.url ?? `https://www.dazheip.com/admin/${id}`;
-  const logout = async () => { try { await api.logout(); await reloadSession(); nav('make'); toast('已退出'); } catch (e) { fail(e); } };
+  const logout = async () => { try { await api.logout(); await reloadSession(); toast('已退出后台'); } catch (e) { fail(e); } };
   if (!cur) return <div className="adm"><main className="adm-main"><p>这个后台账号还没有分配能看的页面，找超级管理员在「后台账号」里设置。</p></main></div>;
   return <div className="adm" id="adm">
     <aside className={`adm-side${open ? ' open' : ''}`}>
@@ -73,8 +74,9 @@ export function AdminShell() {
           : me.perms.includes(m.perm) && <button key={m.id} data-adm={m.id} aria-current={cur.id === m.id ? 'page' : undefined} onClick={() => go(m.id)}><Ico id={m.icon} />{m.n}{m.isNew && <span className="new">新</span>}</button>)}
       </nav>
       <div className="adm-foot">
-        <button id="admBack" onClick={() => nav('make')}><Ico id="i-back" />返回前台</button>
-        {session!.user && <button id="admOut" onClick={logout}><Ico id="i-out" />退出登录</button>}
+        <button id="admBack" onClick={() => { setAsStudent(false); nav('make'); }} title="管理员视角：没开放的模块也能看到"><Ico id="i-back" />返回前台</button>
+        <button id="admAsStudent" onClick={() => { setAsStudent(true); nav('make'); }} title="和学员看到的一样"><Ico id="i-users" />按学员看前台</button>
+        <button id="admOut" onClick={logout}><Ico id="i-out" />退出登录</button>
       </div>
     </aside>
     <main className="adm-main" id="admMain">

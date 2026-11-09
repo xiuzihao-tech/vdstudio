@@ -29,7 +29,7 @@ export function AccountsPage() {
       <p className="adm-note" style={{ marginTop: 8 }}>退款要「充值订单」+「积分系统」两个权限（财务、超级管理员）；客服能看订单，退不了款。</p>
     </Sec>
     <Sec title="超级管理员" note="服务器 .env 的 ADMIN_EMAILS 里配的，这里改不了">
-      <div className="adm-chips">{x.supers.length ? x.supers.map(e => <Chip key={e} k="dark">{e}</Chip>) : <span className="adm-note">没配（演示版用 DEMO_ADMIN 进来的）</span>}</div>
+      <div className="adm-chips">{x.supers.length ? x.supers.map(e => <Chip key={e} k="dark">{e}</Chip>) : <span className="adm-note">没配</span>}</div>
     </Sec>
     <Sec title="后台账号" id="admAdmins">
       <Table head={['邮箱', '角色', '备注', '谁加的', '时间', '']} empty="还没有加别的后台账号"
