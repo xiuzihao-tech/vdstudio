@@ -177,6 +177,11 @@ await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发�
   if (!/真人口播/.test(await $('#mkReco').textContent())) throw new Error('换类没生效');
   await $('#mkAvSwap').click(); await $('[data-av=lin]').click();
   if (!/林设计师/.test(await $('#mkAvatar').textContent())) throw new Error('换数字人没生效');
+  // 视频风格：默认「AI 推荐」按类型挑；换成「“一条”式人物纪实」，画面说明和音乐跟着变
+  if (!/AI 推荐 · 大哲式观点口播/.test(await $('#mkStyles').textContent())) throw new Error('口播的默认风格不对');
+  await $('#mkStyleMore').click();
+  await $('#mkStyles [data-style=yitiao]:not(:first-child)').click();
+  if (!/自然光/.test(await $('#mkStyleNote').textContent())) throw new Error('换风格没生效');
   await shot('20_mk_step2');
   await $('#mkNext2').click(); await $('#mkShots li').first().waitFor();
   const before = Number((await $('#bal').textContent()).replace(/,/g, ''));
@@ -190,6 +195,8 @@ await run('视频 IP 新版：首页 → 四步出片（扣点）→ 加入发�
   if (Number((await $('#bal').textContent()).replace(/,/g, '')) !== before - 85) throw new Error('成片没按 60 点扣');
   if (!/5\/5/.test(await $('#mkPub').textContent())) throw new Error('发布清单没齐');
   if (await page.getByText('保存草稿').count()) throw new Error('还有保存草稿');
+  if (await $('.player .pl-tag').count() && !/一条/.test(await $('.player .pl-tag').first().textContent())) throw new Error('预览没带风格');
+  if (await $('#mkCovers [data-cover]').count() !== 3) throw new Error('封面模板不是 3 个');
   await shot('21_mk_step4');
   await $('#mkQueue').click(); await $('#mkQueueOk').click();
   await $('#v-sched .ptr.hl').waitFor();
@@ -330,9 +337,10 @@ await run('后台：技能中心改参数存成新版本、试运行、恢复默
   await a.locator('#admSkillTbl [data-skill=publish-pack]').click();
   await a.locator('#admSkill[data-id=publish-pack]').waitFor();
   await a.locator('[data-tab=config]').click();
-  const cfg = await a.locator('#skCfg').inputValue();
-  if (!cfg.includes('"titleMax": 30')) throw new Error('参数里没有 titleMax');
-  await a.locator('#skCfg').fill(cfg.replace('"titleMax": 30', '"titleMax": 28'));
+  // 参数默认是表单：直接改「标题最多几个字」
+  const tm = a.locator('#skForm [data-path=".titleMax"] input');
+  if (await tm.inputValue() !== '30') throw new Error('表单里 titleMax 不是 30');
+  await tm.fill('28');
   await a.locator('#skSave input').fill('标题短一点');
   await a.locator('#skSaveBtn').click();
   await a.locator('#admSkill .adm-chip', { hasText: '后台第 1 版' }).waitFor();
@@ -340,6 +348,18 @@ await run('后台：技能中心改参数存成新版本、试运行、恢复默
   if (cat.pack.titleMax !== 28) throw new Error('改了没生效：' + cat.pack.titleMax);
   await a.locator('[data-tab=test]').click(); await a.locator('#skRun').click(); await a.locator('#skOut').waitFor();
   await a.screenshot({ path: join(shots, '15_skill.png'), fullPage: true });
+  await a.locator('[data-tab=versions]').click(); await a.locator('#skDefault').click();
+  await a.locator('#admSkill .adm-chip', { hasText: '仓库默认' }).waitFor();
+  // 视频风格：表单里一条条改，存了前台目录马上变
+  await a.goto(base + '/admin/skills/video-styles');
+  await a.locator('#skForm .cf-item').first().waitFor();
+  if (await a.locator('#skForm [data-path=".styles"] > .cf-items > .cf-item').count() !== 10) throw new Error('风格不是 10 个');
+  await a.locator('#skForm [data-path=".styles"] .cf-it').nth(2).click();
+  await a.locator('#skForm [data-path=".styles[2].n"] input').fill('空间电影感·暖调');
+  await a.locator('#skSaveBtn').click(); await a.locator('#admSkill .adm-chip', { hasText: '后台第 1 版' }).waitFor();
+  const cat2 = await a.evaluate(() => fetch('/api/catalog').then(r => r.json()));
+  if (cat2.styles[2].n !== '空间电影感·暖调') throw new Error('风格改了没生效');
+  await a.screenshot({ path: join(shots, '15b_styles.png'), fullPage: true });
   await a.locator('[data-tab=versions]').click(); await a.locator('#skDefault').click();
   await a.locator('#admSkill .adm-chip', { hasText: '仓库默认' }).waitFor();
   await a.locator('[data-adm=referral]').click();

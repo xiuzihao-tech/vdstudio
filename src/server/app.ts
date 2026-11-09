@@ -72,15 +72,18 @@ export function createApp(opts: AppOptions) {
     const p = skills.config<PointsCfg>('points'), av = skills.config<{ avatars: Catalog['avatars']; voices: string[] }>('avatars');
     const dg = skills.config<{ stages: string[]; welcome: string; minAnswers: number; demoName: string; demoAnswers: string[] }>('diag-agent');
     const pk = skills.config<{ tagMin: number; tagMax: number; titleMax: number; banned: string[] }>('publish-pack');
+    const vs = skills.config<{ styles: NonNullable<Catalog['styles']>; typeDefault: Record<string, string> }>('video-styles');
     return {
       types: vt.types, samples: vt.samples, sampleCats: vt.sampleCats, avatars: av.avatars, voices: av.voices,
       pricing: { pointName: p.pointName, secondsPerPoint: p.secondsPerPoint, sampleRate: p.sampleRate, sampleMin: p.sampleMin, minCost: p.minCost, lowBalance: p.lowBalance },
       diag: { stages: dg.stages, welcome: dg.welcome, minAnswers: dg.minAnswers, demoName: dg.demoName, demoAnswers: dg.demoAnswers, sample: skills.config<{ sample: unknown }>('diag-report').sample },
       pack: { tagMin: pk.tagMin, tagMax: pk.tagMax, titleMax: pk.titleMax, banned: pk.banned },
+      styles: vs.styles, styleDefault: vs.typeDefault, options: skills.config<NonNullable<Catalog['options']>>('video-options'),
+      covers: skills.config<{ templates: Catalog['covers'] }>('cover-templates').templates, accounts: skills.config<{ accounts: string[] }>('publish-accounts').accounts,
     };
   };
   applyCatalog(catalog());
-  skills.onChange(id => { if (['video-types', 'points', 'avatars'].includes(id)) applyCatalog(catalog()); });
+  skills.onChange(id => { if (['video-types', 'points', 'avatars', 'video-styles', 'video-options', 'cover-templates', 'publish-accounts'].includes(id)) applyCatalog(catalog()); });
   // 视频档位按实际接入的服务显示能力（土豆：Seedance 系列最高 720p 等）；没接真实服务时用通用目录
   setVideoModels(providerInfo.video === 'newapi' ? withCaps(MODELS, TUDOU_CAPS) : MODELS);
   console.log(`AI 供应方：文案 ${providerInfo.copy}，视频 ${providerInfo.video}，配音 ${providerInfo.tts}，看素材 ${providerInfo.vision}`);
@@ -608,7 +611,7 @@ export function createApp(opts: AppOptions) {
     const ws = W(req), owner = ctx(req).owner;
     const d = await body(req, z.object({ mode: z.enum(['sample', 'final']), fromJob: z.string().max(40).optional(), draft: z.object({
       type: z.enum(['tour', 'explain', 'talk', 'before', 'case', 'product', 'site', 'vlog']), face: z.enum(['avatar', 'none']), avatar: z.string().max(40),
-      title: z.string().max(80), opt: z.object({ dur: z.string().max(20), ratio: z.string().max(20), font: z.string().max(20), bgm: z.string().max(20), voice: z.string().max(30) }),
+      title: z.string().max(80), opt: z.object({ dur: z.string().max(20), ratio: z.string().max(20), font: z.string().max(20), bgm: z.string().max(20), voice: z.string().max(30), style: z.string().max(40).optional() }),
       mats: z.array(z.record(z.unknown())).max(40),
       shots: z.array(z.object({ id: z.string().max(20), title: z.string().max(60), line: z.string().max(300), tip: z.string().max(120), k: z.string().max(20), secs: z.number().min(1).max(30), avatar: z.boolean().optional(),
         mat: z.object({ id: z.string().max(40), name: z.string().max(120), kind: z.enum(['photo', 'video']), k: z.string().max(20) }).passthrough().nullable().optional() })).min(1).max(12),

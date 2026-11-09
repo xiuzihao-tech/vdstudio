@@ -1737,3 +1737,58 @@ body[data-theme=dazhe] .foot{text-align:left;padding-left:32px}
 .adm-login-card .demo button{font:inherit;font-size:12.5px;font-weight:700;margin-left:6px;border:1px solid #0B0B0C;background:#FFCB05;border-radius:4px;padding:2px 8px;cursor:pointer}
 .adm-login-card .back{display:block;margin-top:16px;text-align:center;font-size:13px;color:#6B6B6E;background:none;border:0;cursor:pointer;width:100%;text-decoration:underline}
 @media (max-width:760px){.adm-login{grid-template-columns:1fr}.adm-login-side{padding:24px 20px;gap:14px}.adm-login-side b{font-size:22px}}
+
+/* ===== 封面模板颜色（技能「封面模板」）、风格的字幕样式、风格选择 ===== */
+.cv-A .cv-txt{background:var(--cvbg,var(--ac));color:var(--cvfg,var(--tx))}
+.cv-B .cv-txt{background:linear-gradient(180deg,color-mix(in srgb,var(--cvbg,#000) 72%,transparent),transparent 60%);color:var(--cvfg,#fff)}
+.cv-C .cv-txt{background:var(--cvbg,#fff);color:var(--cvfg,var(--tx))}
+.covers{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+.player[data-subs=doc] .pl-sub{font-size:clamp(12px,1.15vw,14px);font-weight:500;letter-spacing:.06em;bottom:56px}
+.player[data-subs=key] .pl-sub{font-size:clamp(16px,1.7vw,21px);font-weight:900}
+.player[data-subs=key] .pl-sub::first-line{background:#FFCB05;color:#0B0B0C;text-shadow:none}
+.stylerow{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.stylec{display:flex;flex-direction:column;gap:3px;text-align:left;padding:11px 12px;border-radius:var(--r1);border:1.5px solid var(--ln2);background:var(--pn);cursor:pointer;color:var(--tx);font:inherit}
+.stylec:hover{border-color:var(--tx)}
+.stylec[aria-checked="true"]{border-color:var(--tx);background:color-mix(in srgb,var(--ac) 26%,var(--pn));box-shadow:inset 0 0 0 1px var(--tx)}
+.stylec b{font-size:14.5px}
+.stylec .xs{line-height:1.45}
+.stylec .stylemeta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.stylec .stylemeta i{font-style:normal;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--pn2);border:1px solid var(--ln2);color:var(--tx2)}
+
+/* ===== 技能参数表单（ConfigForm） ===== */
+.cf{display:flex;flex-direction:column;gap:14px}
+.cf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 16px}
+.cf-f{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:13px;font-weight:700;color:var(--tx2)}
+.cf-f>span,.cf-set legend{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cf code{font-size:10.5px !important;font-weight:500;color:var(--tx3)}
+.cf em,.cf-hint{font-style:normal;font-size:12px;font-weight:400;color:var(--tx3);line-height:1.45}
+.cf input,.cf textarea,.cf select{font:inherit;font-size:14px;font-weight:500;color:var(--tx);background:#fff;border:1px solid var(--ln);border-radius:6px;padding:7px 10px;min-width:0;width:100%;box-sizing:border-box}
+.cf textarea{line-height:1.55;resize:vertical}
+.cf input:focus,.cf textarea:focus{outline:2px solid var(--ac);border-color:#0B0B0C}
+.cf-sw{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px}
+.cf-sw input{width:16px;height:16px;accent-color:#0B0B0C}
+.cf-color{display:flex;gap:6px;align-items:center}
+.cf-color input[type=color]{width:40px;height:34px;padding:2px;flex:none}
+.cf-set{border:1px solid var(--ln2);border-radius:8px;padding:12px 14px 14px;margin:0;background:#FCFCFA;min-width:0}
+.cf-set legend{font-size:14px;font-weight:900;color:var(--tx);padding:0 6px}
+.cf-set .cf-set{background:#fff}
+.cf-items{display:flex;flex-direction:column;gap:6px}
+.cf-item{border:1px solid var(--ln2);border-radius:6px;background:#fff}
+.cf-item.on{border-color:#0B0B0C;box-shadow:3px 3px 0 var(--ac)}
+.cf-item.off .cf-it{opacity:.55}
+.cf-ih{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 4px}
+.cf-it{flex:1;display:flex;align-items:center;gap:8px;text-align:left;font:inherit;font-size:14px;font-weight:700;color:var(--tx);background:none;border:0;padding:6px;cursor:pointer;min-width:0}
+.cf-it i{font-style:normal;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--erb);color:var(--er)}
+.cf-i{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:4px;background:#0B0B0C;color:#fff;font-size:11.5px;font-weight:800;flex:none}
+.cf-ops{display:flex;gap:4px;flex-wrap:wrap}
+.cf-ops button{font:inherit;font-size:12px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid var(--ln2);background:#fff;cursor:pointer;color:var(--tx2)}
+.cf-ops button:hover:not(:disabled){border-color:#0B0B0C;color:var(--tx)}
+.cf-ops button:disabled{opacity:.35;cursor:default}
+.cf-ib{padding:10px 12px 14px;border-top:1px dashed var(--ln2);display:flex;flex-direction:column;gap:12px}
+.cf-add{align-self:flex-start}
+.cf-tuples{display:flex;flex-direction:column;gap:6px}
+.cf-row{display:flex;gap:6px;align-items:center}
+.cf-row input{flex:1}
+.cf-x{border:0;background:none;font-size:18px;line-height:1;color:var(--tx3);cursor:pointer;padding:0 4px}
+.cf-x:hover{color:var(--er)}
+@media (max-width:860px){.cf-row{flex-wrap:wrap}.cf-row input{flex:1 1 40%}}

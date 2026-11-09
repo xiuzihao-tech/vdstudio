@@ -20,3 +20,7 @@
 2. **改仓库文件**（开发 / 大改）：改这里的文件 → `npm run skills` → 提交。后台「导出」能把线上调好的版本下载成 JSON，用 `node scripts/skill-import.mjs 导出的文件.json` 写回这个目录。
 
 后台改过的版本优先于仓库默认；后台点「恢复默认」就回到仓库里的版本。
+
+
+## labels.json（可选）
+后台「参数」表单里字段的中文名、说明、下拉选项：`{ "字段名": { "n": "中文名", "help": "说明", "kind": "textarea | color | lines", "options": ["可选值"] } }`。不写就用通用词表（`src/web/pages/admin/ConfigForm.tsx` 的 `LABELS`）。

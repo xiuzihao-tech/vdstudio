@@ -1,0 +1,5 @@
+{
+  "bgm": { "n": "默认音乐（曲库）", "options": ["温暖钢琴", "城市律动", "弦乐氛围", "轻电子", "不要"] },
+  "best": { "n": "最适合的视频类型（旧版生成页）", "kind": "lines", "help": "real 实拍 / talk 口播 / tour 漫游 / house 改造 / story 故事 / product 产品 / site 工地 / vlog" },
+  "typeDefault": { "n": "每类成片默认风格", "help": "选「AI 推荐」时用；填上面风格的编号" }
+}

@@ -1,0 +1,7 @@
+{
+  "templates": [
+    { "id": "A", "n": "大字压底", "d": "画面在上，底部一条黄底大字，最稳", "layout": "band", "bg": "#FFCB05", "fg": "#0B0B0C", "enabled": true },
+    { "id": "B", "n": "顶部标题", "d": "大字压在画面上方，配暗角，适合夜景和氛围", "layout": "top", "bg": "#000000", "fg": "#FFFFFF", "enabled": true },
+    { "id": "C", "n": "上图下字", "d": "上面画面、下面白底黑字，信息量大的时候用", "layout": "split", "bg": "#FFFFFF", "fg": "#0B0B0C", "enabled": true }
+  ]
+}

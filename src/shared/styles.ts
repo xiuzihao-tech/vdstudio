@@ -27,6 +27,8 @@ export interface VideoStyle {
   draft?: boolean;
   /** 招牌风格：在选择里永远排最前面 */
   hot?: boolean;
+  /** 后台停用后不出现在风格选择里 */
+  enabled?: boolean;
 }
 
 export const VIDEO_STYLES: VideoStyle[] = [
@@ -103,12 +105,16 @@ export const VIDEO_STYLES: VideoStyle[] = [
 ];
 
 export const AUTO_STYLE = 'AI 推荐';
+/** 能选的风格（后台没停用的） */
+export const liveStyles = () => VIDEO_STYLES.filter(s => s.enabled !== false);
+/** 一键生成视频每类成片默认用哪个风格（技能「视频风格」里改） */
+export const STYLE_DEFAULT: Record<string, string> = { tour: 'cinema', explain: 'dazhe', talk: 'dazhe', before: 'compare', case: 'yitiao', product: 'product', site: 'site', vlog: 'vlog' };
 /** 按名字或 id 找风格；旧数据里存的是名字 */
 export const styleOf = (s: string | null | undefined): VideoStyle | null => !s || s === AUTO_STYLE ? null : VIDEO_STYLES.find(x => x.n === s || x.id === s) ?? null;
 /** 某个视频类型下按推荐顺序排的风格 */
 export const stylesFor = (type: VideoType | undefined) => {
   const t = type ?? 'real';
-  return [...VIDEO_STYLES].sort((a, b) => (a.best.includes(t) ? a.best.indexOf(t) : 99) - (b.best.includes(t) ? b.best.indexOf(t) : 99));
+  return [...liveStyles()].sort((a, b) => (a.best.includes(t) ? a.best.indexOf(t) : 99) - (b.best.includes(t) ? b.best.indexOf(t) : 99));
 };
 /** 选「AI 推荐」时实际用哪个风格 */
 export const autoStyle = (type: VideoType | undefined) => stylesFor(type)[0];

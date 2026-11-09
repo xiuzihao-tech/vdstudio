@@ -56,6 +56,25 @@ const CONFIG: Record<string, z.ZodTypeAny> = {
     firstRecharge: z.object({ fixed: int(0, 1e6), rate: z.number().min(0).max(2) }),
     shareDaily: int(0, 10000), shareTitle: str(60), shareText: str(200), rules: strs(120),
   }).passthrough(),
+  'video-styles': z.object({
+    styles: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,20}$/, '风格 id 只能是小写英文、数字、- 和 _'), n: str(30).min(1), like: str(30), d: str(80), best: z.array(z.enum(['real', 'talk', 'tour', 'house', 'story', 'product', 'site', 'vlog'])).max(8),
+      copy: str(600).min(1), visual: str(600).min(1), pace: z.number().min(1).max(15), bgm: z.enum(['温暖钢琴', '城市律动', '弦乐氛围', '轻电子', '不要']), subs: z.enum(['doc', 'key', 'plain']),
+      draft: z.boolean().optional(), hot: z.boolean().optional(), enabled: z.boolean().optional() }).passthrough()).min(1).max(40)
+      .refine(a => new Set(a.map(x => x.id)).size === a.length, '风格 id 有重复').refine(a => a.some(x => x.enabled !== false), '至少留一个风格开着'),
+    typeDefault: z.record(z.string()),
+  }).superRefine((c, ctx) => { for (const [t, id] of Object.entries(c.typeDefault)) if (!c.styles.some(s => s.id === id)) ctx.addIssue({ code: 'custom', message: `「${t}」的默认风格 ${id} 不在风格列表里` }); }),
+  'video-options': z.object({
+    durations: z.array(str(20).min(1)).min(1).max(12).refine(a => a.every(x => x === 'AI 推荐' || /^\d+\s*秒$/.test(x)), '时长写成「30 秒」这样'),
+    ratios: z.array(z.enum(['9:16 竖屏', '3:4 竖屏', '1:1 方形', '16:9 横屏'])).min(1),
+    fonts: z.array(z.object({ n: str(20).min(1), note: str(60), enabled: z.boolean().optional() })).min(1).max(20).refine(a => a.some(x => x.enabled !== false), '至少留一个字体开着'),
+    bgm: z.array(z.object({ n: str(20).min(1), mood: str(60), use: z.enum(['温暖钢琴', '城市律动', '弦乐氛围', '轻电子', '不要']), enabled: z.boolean().optional() })).min(1).max(30).refine(a => a.some(x => x.enabled !== false), '至少留一首音乐开着'),
+  }),
+  'cover-templates': z.object({
+    templates: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{1,12}$/, '模板 id 只能是英文、数字'), n: str(12).min(1), d: str(60), layout: z.enum(['band', 'top', 'split']),
+      bg: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色写成 #RRGGBB'), fg: z.string().regex(/^#[0-9a-fA-F]{6}$/, '颜色写成 #RRGGBB'), enabled: z.boolean().optional() })).min(1).max(12)
+      .refine(a => new Set(a.map(x => x.id)).size === a.length, '模板 id 有重复').refine(a => a.some(x => x.enabled !== false), '至少留一个模板开着'),
+  }),
+  'publish-accounts': z.object({ accounts: z.array(str(20).min(1)).min(1).max(20) }),
   avatars: z.object({
     avatars: z.array(z.object({ id: str(20).min(1), n: str(12).min(1), d: str(60), skin: str(20), hair: str(20), top: str(20), bg: str(20), bg2: str(20), hairStyle: z.enum(['short', 'bob', 'long', 'crop']), glasses: z.boolean().optional(), mine: z.boolean().optional() }).passthrough()).min(1),
     voices: strs(30).min(1),

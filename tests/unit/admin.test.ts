@@ -78,12 +78,12 @@ test('权限：超级管理员看得到全部菜单；普通用户进不了后�
   assert.equal(dash.status, 200);
   assert.ok(dash.json.tiles.users >= 2);
   assert.equal(dash.json.trend.length, 14);
-  assert.equal(dash.json.tiles.skills, 18);
+  assert.equal(dash.json.tiles.skills, 22);
 });
 
 test('技能中心：改参数存成新版本马上生效；格式不对拒绝；能回滚、恢复默认；试运行和导出', async () => {
   const list = await boss('GET', '/api/admin/skills');
-  assert.equal(list.json.skills.length, 18);
+  assert.equal(list.json.skills.length, 22);
   assert.ok(list.json.skills.every((s: any) => s.name && s.category && typeof s.order === 'number'));
   const pk = (await boss('GET', '/api/admin/skills/publish-pack')).json.skill;
   assert.equal(pk.activeVersion, 0); assert.equal(pk.data.config.tagMax, 5);
@@ -381,4 +381,45 @@ test('后台登录：指定的后台账号还没注册过，第一次登录就�
   assert.equal((await client()('POST', '/api/auth/admin-login', { email: 'newop@x.com', password: 'other-pass-2' })).status, 401, '建好以后密码就定了');
   assert.equal((await client()('POST', '/api/auth/admin-login', { email: 'random@x.com', password: 'whatever1' })).status, 401);
   assert.equal(app.db.prepare("SELECT 1 FROM users WHERE email='random@x.com'").get(), undefined);
+});
+
+test('视频风格、成片参数、封面模板、发布账号：后台改了前台目录跟着变，出片按选的风格；格式不对拒绝', async () => {
+  const vs = (await boss('GET', '/api/admin/skills/video-styles')).json.skill;
+  assert.equal(vs.data.config.styles.length, 10);
+  const styles = vs.data.config.styles.map((s: any) => s.id === 'vlog' ? { ...s, enabled: false } : s);
+  const bad = await boss('PUT', '/api/admin/skills/video-styles', { data: { ...vs.data, config: { ...vs.data.config, styles, typeDefault: { ...vs.data.config.typeDefault, vlog: 'nope' } } } });
+  assert.equal(bad.status, 400); assert.match(bad.json.error, /默认风格 nope 不在风格列表里/);
+  const dup = await boss('PUT', '/api/admin/skills/video-styles', { data: { ...vs.data, config: { ...vs.data.config, styles: [...styles, styles[0]] } } });
+  assert.match(dup.json.error, /id 有重复/);
+  assert.equal((await boss('PUT', '/api/admin/skills/video-styles', { data: { ...vs.data, config: { ...vs.data.config, styles, typeDefault: { ...vs.data.config.typeDefault, vlog: 'yitiao' } } } })).status, 200);
+  const cat = (await boss('GET', '/api/catalog')).json;
+  assert.equal(cat.styles.find((s: any) => s.id === 'vlog').enabled, false);
+  assert.equal(cat.styleDefault.vlog, 'yitiao');
+
+  const op = (await boss('GET', '/api/admin/skills/video-options')).json.skill.data;
+  assert.equal((await boss('PUT', '/api/admin/skills/video-options', { data: { ...op, config: { ...op.config, durations: ['AI 推荐', '半分钟'] } } })).status, 400, '时长要写成「30 秒」');
+  const fonts = [...op.config.fonts, { n: '霞鹜文楷', note: '开源可商用', enabled: true }];
+  assert.equal((await boss('PUT', '/api/admin/skills/video-options', { data: { ...op, config: { ...op.config, fonts } } })).status, 200);
+  assert.ok((await boss('GET', '/api/catalog')).json.options.fonts.some((f: any) => f.n === '霞鹜文楷'));
+
+  const cv = (await boss('GET', '/api/admin/skills/cover-templates')).json.skill.data;
+  assert.equal((await boss('PUT', '/api/admin/skills/cover-templates', { data: { ...cv, config: { templates: [{ ...cv.config.templates[0], bg: 'yellow' }] } } })).status, 400);
+  assert.equal((await boss('PUT', '/api/admin/skills/cover-templates', { data: { ...cv, config: { templates: [...cv.config.templates, { id: 'D', n: '品牌红', d: '红底白字', layout: 'band', bg: '#C8102E', fg: '#FFFFFF', enabled: true }] } } })).status, 200);
+  assert.equal((await boss('GET', '/api/catalog')).json.covers.length, 4);
+
+  const ac = (await boss('GET', '/api/admin/skills/publish-accounts')).json.skill.data;
+  assert.equal((await boss('PUT', '/api/admin/skills/publish-accounts', { data: { ...ac, config: { accounts: ['木里木外官方号'] } } })).status, 200);
+  assert.deepEqual((await boss('GET', '/api/catalog')).json.accounts, ['木里木外官方号']);
+
+  // 出片：选「“一条”式人物纪实」，生成设置里就是这个风格（视频模型的提示词按它的画面拍法）
+  const u = client(); await reg(u, 'styler@x.com');
+  const draft = { type: 'tour', face: 'none', avatar: 'me-clone', title: '一套老房', opt: { dur: 'AI 推荐', ratio: 'AI 推荐', font: 'AI 推荐', bgm: 'AI 推荐', voice: 'AI 推荐', style: '“一条”式人物纪实' }, mats: [],
+    shots: [{ id: 's1', title: '客厅', line: '先看客厅', tip: '慢推', k: 'live', secs: 5 }] };
+  const r = await u('POST', '/api/studio/render', { mode: 'sample', draft });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const job = app.db.prepare('SELECT input FROM jobs WHERE id=?').get(r.json.job.id) as { input: string };
+  assert.equal(JSON.parse(job.input).style, '“一条”式人物纪实');
+  const r2 = await u('POST', '/api/studio/render', { mode: 'sample', draft: { ...draft, opt: { ...draft.opt, style: 'AI 推荐' } } });
+  assert.equal(JSON.parse((app.db.prepare('SELECT input FROM jobs WHERE id=?').get(r2.json.job.id) as { input: string }).input).style, '空间电影感', '漫游默认空间电影感');
+  for (const id of ['video-styles', 'video-options', 'cover-templates', 'publish-accounts']) await boss('POST', `/api/admin/skills/${id}/activate`, { version: 0 });
 });

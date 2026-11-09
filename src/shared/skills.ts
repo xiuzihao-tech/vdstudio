@@ -28,7 +28,10 @@ export interface SkillFile {
   config: Record<string, unknown>;
   examples: { name: string; input: Record<string, unknown> }[];
   fields: UpstreamField[];
+  /** 后台参数表单里字段的中文名和说明（labels.json，可选） */
+  labels?: Record<string, FieldLabel>;
 }
+export interface FieldLabel { n: string; help?: string; kind?: 'textarea' | 'color' | 'lines'; /** 只能从这几个里选 */ options?: string[] }
 
 /** 后台能改、会存版本的部分 */
 export interface SkillData { enabled: boolean; prompts: Record<string, string>; config: Record<string, unknown> }

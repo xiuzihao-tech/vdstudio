@@ -10,8 +10,9 @@ import { useRecharge } from './Pay.tsx';
 import { speak } from '../Gen.tsx';
 import { AvatarArt, CoverArt, Player, Schema, Thumb, useStudio } from './common.tsx';
 import { CAT, bannedWords } from '../../catalog.ts';
+import { stylesFor } from '../../../shared/styles.ts';
 import {
-  ACCOUNTS, AUTO, AVATARS, FONT_NOTE, OPT, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, liveTypes, mmss, newDraft, pack, sampleCost, shotReady, splitLines, totalSecs, vtype, whenLabel,
+  ACCOUNTS, AUTO, AUTO_STYLE, videoTypeOf, AVATARS, FONT_NOTE, OPT, liveCovers, studioStyle, styleBgm, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, liveTypes, mmss, newDraft, pack, sampleCost, shotReady, splitLines, totalSecs, vtype, whenLabel,
   type Advice, type MakeDraft, type Mat, type PlanItem, type Sample, type SampleCat, type Shot, type VType,
 } from '../../../shared/studio.ts';
 import type { Asset, Job, VideoOutput } from '../../../shared/types.ts';
@@ -288,6 +289,10 @@ function Step2({ d, set, go }: SP) {
   const a = useMemo(() => AI_ADVICE.get(adviceKey(d)) ?? advise({ ...d, pick: d.pick }), [d.mats, d.copy, d.pick]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sb, setSb] = useState(false);
   const t = vtype(d.type);
+  const style = studioStyle(d), defStyle = studioStyle({ type: d.type, opt: {} });
+  // 风格按适不适合这类片排；先显示 5 个，选中的不在前 5 也会放进来
+  const [allStyles, setAllStyles] = useState(false);
+  const fitStyles = (() => { const a = stylesFor(videoTypeOf(d.type)); const i = a.findIndex(x => x.n === d.opt.style); if (i >= 5) a.unshift(...a.splice(i, 1)); return a; })();
   const av = avatarOf(d.avatar);
   const built = !av.mine || session!.workspace.avatars?.[av.id === 'me-photo' ? 'photo' : 'clone'] === 'ready';
   const mine = d.pick !== AUTO && d.pick === d.type;
@@ -336,12 +341,26 @@ function Step2({ d, set, go }: SP) {
       <Schema type={d.type} face={d.face} avatar={d.avatar} />
     </div>
 
+    <p className="lb" style={{ marginTop: 26 }}>视频风格 <span className="xs m3">决定文案怎么写、画面怎么拍、节奏、音乐和字幕；风格在后台「技能中心 → 视频风格」里维护</span></p>
+    <div className="stylerow" id="mkStyles" role="radiogroup" aria-label="视频风格">
+      {[{ id: AUTO_STYLE, s: defStyle }, ...fitStyles.slice(0, allStyles ? undefined : 5).map(s => ({ id: s.n, s }))].map(({ id, s }) => {
+        const on = (d.opt.style ?? AUTO_STYLE) === id;
+        return <button key={id} role="radio" aria-checked={on} className="stylec" data-style={s.id} onClick={() => set({ opt: { ...d.opt, style: id } })}>
+          <b>{id === AUTO_STYLE ? `AI 推荐 · ${s.n}` : s.n}</b>
+          <span className="xs m3">{s.d}</span>
+          <span className="stylemeta"><i>参考 {s.like}</i><i>每镜约 {s.pace} 秒</i><i>{styleBgm(s)}</i><i>{{ doc: '纪录片小字', key: '关键词大字', plain: '普通字幕' }[s.subs]}</i></span>
+        </button>;
+      })}
+    </div>
+    {fitStyles.length > 5 && <button className="lnk xs" id="mkStyleMore" style={{ marginTop: 8 }} onClick={() => setAllStyles(!allStyles)}>{allStyles ? '收起' : `看全部 ${fitStyles.length} 个风格`}</button>}
+    <p className="xs m3" id="mkStyleNote" style={{ marginTop: 6 }}>画面：{style.visual}</p>
+
     <p className="lb" style={{ marginTop: 26 }}>这条怎么出</p>
     <div className="mkopts">
       <Opt id="mkDur" label="时长" value={d.opt.dur} options={OPT.dur} auto={`${autoSecs}秒`} onChange={v => set({ opt: { ...d.opt, dur: v } })} />
       <Opt id="mkRatio" label="画面比例" value={d.opt.ratio} options={OPT.ratio} auto="9:16竖屏" onChange={v => set({ opt: { ...d.opt, ratio: v } })} />
       <Opt id="mkFont" label="字体" value={d.opt.font} options={OPT.font} auto="思源黑体" note={`${FONT_NOTE[d.opt.font === 'AI 推荐' ? '思源黑体' : d.opt.font] ?? ''} · 授权上线前再核一遍`} onChange={v => set({ opt: { ...d.opt, font: v } })} />
-      <Opt id="mkBgm" label="背景音乐" value={d.opt.bgm} options={OPT.bgm} auto={t.bgm} onChange={v => set({ opt: { ...d.opt, bgm: v } })} />
+      <Opt id="mkBgm" label="背景音乐" value={d.opt.bgm} options={OPT.bgm} auto={styleBgm(style)} onChange={v => set({ opt: { ...d.opt, bgm: v } })} />
       <Opt id="mkVoice" label="声音" value={d.opt.voice} options={VOICES} auto={autoVoice} onChange={v => set({ opt: { ...d.opt, voice: v } })} />
     </div>
 
@@ -521,7 +540,7 @@ function Step4({ d, set, go }: SP) {
             <span className="xs">关掉页面也会接着生成，回来在「上次未完成」里接着看</span>
           </div>
             : out?.videoUrl ? <video className="realvid" src={fileUrl(out.videoUrl)} controls playsInline style={{ aspectRatio: ratio.startsWith('16:9') ? '16/9' : '9/16' }} />
-              : <Player shots={d.shots} ratio={ratio} font={font} title={d.title} avatar={d.avatar} tag={isFinal ? '成片 1080p · 示意' : '样片 480p · 示意'} />}
+              : <Player shots={d.shots} ratio={ratio} font={font} title={d.title} avatar={d.avatar} tag={isFinal ? '成片 1080p · 示意' : '样片 480p · 示意'} subs={studioStyle(d).subs} styleName={studioStyle(d).n} />}
           <div className="vmeta">
             <b>{d.title || p.title}</b><span className="xs m3">{t.n} · {mmss(totalSecs(d.shots))} · {isFinal ? '成片 1080p' : '样片 480p'}</span>
             <dl className="vstats"><div><dt>类型</dt><dd>{t.n}</dd></div><div><dt>时长</dt><dd>{totalSecs(d.shots)}秒</dd></div><div><dt>已花</dt><dd>{spent}点</dd></div><div><dt>余额</dt><dd>{Math.round(session!.workspace.balance).toLocaleString()}点</dd></div></dl>
@@ -543,7 +562,7 @@ function Step4({ d, set, go }: SP) {
         <ul className="checks">{checks.map(([k, ok]) => <li key={k} className={ok ? 'ok' : ''}>{ok ? '✓' : '·'} {k}</li>)}</ul>
 
         <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>封面</b><span className="xs m3">封面文案决定点击率，用大字说人话</span></div>
-          <div className="covers" id="mkCovers">{(['A', 'B', 'C'] as const).map(v => <button key={v} aria-pressed={d.cover === v} aria-label={`封面 ${v}`} onClick={() => set({ cover: v })}><CoverArt v={v} title={d.title || p.title} mat={first} k={firstK} /><span>{v}</span></button>)}</div>
+          <div className="covers" id="mkCovers">{liveCovers().map(c => <button key={c.id} data-cover={c.id} aria-pressed={d.cover === c.id} aria-label={`封面 ${c.n}`} title={c.d} onClick={() => set({ cover: c.id })}><CoverArt v={c.id} title={d.title || p.title} mat={first} k={firstK} /><span>{c.n}</span></button>)}</div>
           <a className="lnk xs" id="mkCoverTool" href={`${DAZHEIP_URL}/covers`} target={DAZHEIP_URL ? '_blank' : undefined} rel="noopener">去封面工具精修 →</a>
         </div>
         <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>标题</b><span className={`xs ${d.title.length > titleMax ? 'err' : 'm3'}`}>{d.title.length}/{titleMax} · 建议≤{titleMax}字</span></div>

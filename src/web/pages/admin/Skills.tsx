@@ -6,6 +6,7 @@ import { useApp, useData } from '../../store.tsx';
 import { Seg, Skel } from '../../ui/kit.tsx';
 import { CATEGORY_NAME, templateVars, type SkillCategory, type SkillData, type SkillView } from '../../../shared/skills.ts';
 import { Chip, Doc, Table, download, fmtTime } from './ui.tsx';
+import { ConfigForm } from './ConfigForm.tsx';
 
 const PROMPT_NAME: Record<string, string> = {
   system: '系统提示词（角色和总规则）', next: '下一个问题', report: '出诊断：标签和栏目', topics: '排选题', advise: '推荐成片类型', storyboard: '排分镜',
@@ -56,6 +57,7 @@ function SkillDetail({ id }: { id: string }) {
   const [draft, setDraft] = useState<SkillData | null>(null);
   const [cfgText, setCfgText] = useState('');
   const [cfgErr, setCfgErr] = useState<string | null>(null);
+  const [cfgMode, setCfgMode] = useState<'form' | 'json'>('form');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
   const [tab, setTab] = useState<Tab | null>(null);
@@ -134,12 +136,17 @@ function SkillDetail({ id }: { id: string }) {
     </div>}
 
     {tab === 'config' && <div id="skConfig">
-      <p className="adm-note" style={{ marginBottom: 8 }}>参数是 JSON：数字直接写，文字加英文双引号，最后一项后面不要逗号。保存时服务端会再检查一遍，格式不对不让存。</p>
-      <textarea className={`adm-code${cfgErr ? ' bad' : ''}`} id="skCfg" rows={Math.min(36, Math.max(10, cfgText.split('\n').length + 1))} value={cfgText} onChange={e => setCfg(e.target.value)} spellCheck={false} />
+      <div className="adm-chips" style={{ marginBottom: 10 }}>
+        <Seg value={cfgMode} options={['form', 'json'] as const} render={v => v === 'form' ? '表单' : 'JSON'} onChange={m => { if (m === 'form' && cfgErr) { toast(`先把 JSON 改对：${cfgErr}`); return; } setCfgMode(m); }} />
+        <span className="adm-note">{cfgMode === 'form' ? '每一项都能直接改；一组组的条目点开改，能新增、复制、上下移、删除。改完点下面的保存。' : '数字直接写，文字加英文双引号，最后一项后面不要逗号。'}保存时服务端会再检查一遍，格式不对不让存。</span>
+      </div>
+      {cfgMode === 'form'
+        ? <ConfigForm value={draft.config} labels={s.labels} onChange={c => { setDraft({ ...draft, config: c }); setCfgText(JSON.stringify(c, null, 2)); setCfgErr(null); }} />
+        : <textarea className={`adm-code${cfgErr ? ' bad' : ''}`} id="skCfg" rows={Math.min(36, Math.max(10, cfgText.split('\n').length + 1))} value={cfgText} onChange={e => setCfg(e.target.value)} spellCheck={false} />}
       <div className="adm-chips" style={{ marginTop: 8 }}>
         {cfgErr ? <span className="adm-err">JSON 格式不对：{cfgErr}</span> : <span className="adm-ok">✓ 格式没问题</span>}
         <span className="sp" />
-        <button className="btn g sm" disabled={!!cfgErr} onClick={() => setCfgText(JSON.stringify(draft.config, null, 2))}>整理格式</button>
+        {cfgMode === 'json' && <button className="btn g sm" disabled={!!cfgErr} onClick={() => setCfgText(JSON.stringify(draft.config, null, 2))}>整理格式</button>}
         <button className="btn g sm" disabled={same(draft.config, s.defaults.config)} onClick={() => { setDraft({ ...draft, config: clone(s.defaults.config) }); setCfgText(JSON.stringify(s.defaults.config, null, 2)); setCfgErr(null); }}>参数恢复默认</button>
       </div>
     </div>}

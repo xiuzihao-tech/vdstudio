@@ -1,6 +1,8 @@
 // 视频 IP 新版（苗苗原型）：大哲诊断账号 → 安排发布计划 ← 一键生成视频。两个入口（付费诊断 / 直接出片），最后都回到发布计划。
 // 这里放前后端共用的规则：成片类型和价格、AI 怎么推荐、分镜怎么排、诊断问题和结果、选题怎么排进计划。
 
+import { AUTO_STYLE, STYLE_DEFAULT, VIDEO_STYLES, liveStyles, styleOf, type VideoStyle } from './styles.ts';
+
 /* ---------- 成片类型 ---------- */
 export type VType = 'tour' | 'explain' | 'talk' | 'before' | 'case' | 'product' | 'site' | 'vlog';
 export interface VTypeSpec {
@@ -54,13 +56,33 @@ export const SAMPLES: Sample[] = [
 ];
 
 /* ---------- 这条怎么出 ---------- */
-export const OPT = {
+// 时长、比例、字体、音乐的选项都在技能「成片参数」里维护（applyCatalog 原地替换）
+export const OPT: { dur: string[]; ratio: string[]; font: string[]; bgm: string[] } = {
   dur: ['AI 推荐', '15 秒', '30 秒', '45 秒', '60 秒'],
   ratio: ['9:16 竖屏', '3:4 竖屏', '1:1 方形', '16:9 横屏'],
   font: ['思源黑体', '思源宋体', '阿里巴巴普惠体', '站酷快乐体'],
   bgm: ['轻钢琴', '城市律动', '弦乐氛围', '轻电子', '不要音乐'],
-} as const;
+};
 export const FONT_NOTE: Record<string, string> = { 思源黑体: '可免费商用', 思源宋体: '可免费商用', 阿里巴巴普惠体: '可免费商用', 站酷快乐体: '可免费商用' };
+/** 音乐名 → 合成时用的曲子（服务端曲库：温暖钢琴、城市律动、弦乐氛围、轻电子、不要） */
+export const BGM_MAP: Record<string, string> = { 轻钢琴: '温暖钢琴', 城市律动: '城市律动', 弦乐氛围: '弦乐氛围', 轻电子: '轻电子', 不要音乐: '不要' };
+
+/* ---------- 封面模板（技能「封面模板」） ---------- */
+export interface CoverTpl { id: string; n: string; d: string; layout: 'band' | 'top' | 'split'; bg: string; fg: string; enabled?: boolean }
+export const COVERS: CoverTpl[] = [
+  { id: 'A', n: '大字压底', d: '画面在上，底部一条黄底大字，最稳', layout: 'band', bg: '#FFCB05', fg: '#0B0B0C' },
+  { id: 'B', n: '顶部标题', d: '大字压在画面上方，配暗角，适合夜景和氛围', layout: 'top', bg: '#000000', fg: '#FFFFFF' },
+  { id: 'C', n: '上图下字', d: '上面画面、下面白底黑字，信息量大的时候用', layout: 'split', bg: '#FFFFFF', fg: '#0B0B0C' },
+];
+export const liveCovers = () => COVERS.filter(c => c.enabled !== false);
+
+/** 这条视频实际用的风格：选了就用选的；「AI 推荐」按成片类型的默认风格 */
+export const studioStyle = (d: { type: VType; opt: { style?: string } }): VideoStyle => {
+  const picked = styleOf(d.opt.style);
+  if (picked && picked.enabled !== false) return picked;
+  return VIDEO_STYLES.find(s => s.id === STYLE_DEFAULT[d.type] && s.enabled !== false) ?? liveStyles()[0] ?? VIDEO_STYLES[0];
+};
+export { AUTO_STYLE };
 
 /** 数字人：自己的两个（来自「管理我的素材」）+ 系统形象（没有自己的也能出镜） */
 export interface AvatarLook { id: string; n: string; d: string; mine?: boolean; skin: string; hair: string; top: string; bg: string; bg2: string; hairStyle: 'short' | 'bob' | 'long' | 'crop'; glasses?: boolean }
@@ -86,9 +108,9 @@ export interface MakeDraft {
   /** 实际用的类型（第 2 步 AI 推荐或用户换的） */
   type: VType;
   face: 'avatar' | 'none'; avatar: string;
-  opt: { dur: string; ratio: string; font: string; bgm: string; voice: string };
+  opt: { dur: string; ratio: string; font: string; bgm: string; voice: string; style?: string };
   shots: Shot[];
-  title: string; caption: string; tags: string[]; cover: 'A' | 'B' | 'C';
+  title: string; caption: string; tags: string[]; cover: string;
   /** 从发布计划某一条来的 */
   planId?: string | null;
   cost: number; rendered?: boolean; updatedAt: string;
@@ -227,7 +249,7 @@ export const shotReady = (s: Shot) => !!s.mat || !!s.avatar;
 export const totalSecs = (shots: Shot[]) => shots.reduce((a, s) => a + s.secs, 0);
 export const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 export function newDraft(now: string): MakeDraft {
-  return { step: 1, mats: [], copy: '', pick: AUTO, type: 'talk', face: 'avatar', avatar: 'me-clone', opt: { dur: 'AI 推荐', ratio: 'AI 推荐', font: 'AI 推荐', bgm: 'AI 推荐', voice: 'AI 推荐' }, shots: [], title: '', caption: '', tags: [], cover: 'A', cost: 60, updatedAt: now };
+  return { step: 1, mats: [], copy: '', pick: AUTO, type: 'talk', face: 'avatar', avatar: 'me-clone', opt: { dur: 'AI 推荐', ratio: 'AI 推荐', font: 'AI 推荐', bgm: 'AI 推荐', voice: 'AI 推荐', style: 'AI 推荐' }, shots: [], title: '', caption: '', tags: [], cover: 'A', cost: 60, updatedAt: now };
 }
 
 /** 发布包装规则（技能 publish-pack 的 config）：{city} 城市，{type} 类型名 */
@@ -439,7 +461,12 @@ export const SAMPLE_RATE = 0.4;
 export const sampleCost = (finalCost: number) => Math.max(PRICING.sampleMin, Math.round(finalCost * PRICING.sampleRate / 5) * 5);
 
 /** 后台改过的目录（成片类型、价格、样片、系统数字人）：前后端拿到后原地替换，所有地方用新的 */
-export interface Catalog { types?: VTypeSpec[]; samples?: Sample[]; sampleCats?: string[]; pricing?: Partial<typeof PRICING>; avatars?: AvatarLook[]; voices?: string[] }
+export interface Catalog {
+  types?: VTypeSpec[]; samples?: Sample[]; sampleCats?: string[]; pricing?: Partial<typeof PRICING>; avatars?: AvatarLook[]; voices?: string[];
+  styles?: VideoStyle[]; styleDefault?: Record<string, string>;
+  options?: { durations: string[]; ratios: string[]; fonts: { n: string; note: string; enabled?: boolean }[]; bgm: { n: string; mood: string; use: string; enabled?: boolean }[] };
+  covers?: CoverTpl[]; accounts?: string[];
+}
 export function applyCatalog(c: Catalog | null | undefined) {
   if (!c) return;
   if (c.types?.length) VTYPES.splice(0, VTYPES.length, ...c.types);
@@ -448,16 +475,34 @@ export function applyCatalog(c: Catalog | null | undefined) {
   if (c.voices?.length) VOICES.splice(0, VOICES.length, ...c.voices);
   if (c.avatars?.length) AVATARS.splice(0, AVATARS.length, ...c.avatars);
   if (c.pricing) Object.assign(PRICING, c.pricing);
+  if (c.styles?.length) VIDEO_STYLES.splice(0, VIDEO_STYLES.length, ...c.styles);
+  if (c.styleDefault) Object.assign(STYLE_DEFAULT, c.styleDefault);
+  if (c.options) {
+    const o = c.options, fonts = o.fonts.filter(f => f.enabled !== false), bgm = o.bgm.filter(b => b.enabled !== false);
+    if (o.durations.length) OPT.dur.splice(0, OPT.dur.length, ...o.durations);
+    if (o.ratios.length) OPT.ratio.splice(0, OPT.ratio.length, ...o.ratios);
+    if (fonts.length) OPT.font.splice(0, OPT.font.length, ...fonts.map(f => f.n));
+    if (bgm.length) OPT.bgm.splice(0, OPT.bgm.length, ...bgm.map(b => b.n));
+    for (const f of o.fonts) FONT_NOTE[f.n] = f.note;
+    for (const b of o.bgm) BGM_MAP[b.n] = b.use;
+  }
+  if (c.covers?.length) COVERS.splice(0, COVERS.length, ...c.covers);
+  if (c.accounts?.length) ACCOUNTS.splice(0, ACCOUNTS.length, ...c.accounts);
 }
 export const SAMPLE_MODEL = 's25';
 
+/** 一键生成视频的成片类型 → 旧版视频类型（风格的 best 用这个） */
+export const videoTypeOf = (t: VType) => TYPE_MAP[t];
 const TYPE_MAP: Record<VType, 'tour' | 'talk' | 'house' | 'story' | 'product' | 'site' | 'vlog'> = { tour: 'tour', explain: 'talk', talk: 'talk', before: 'house', case: 'story', product: 'product', site: 'site', vlog: 'vlog' };
-const BGM_MAP: Record<string, string> = { 轻钢琴: '温暖钢琴', 城市律动: '城市律动', 弦乐氛围: '弦乐氛围', 轻电子: '轻电子', 不要音乐: '不要' };
+/** 风格里写的是曲库名（温暖钢琴…），一键生成视频里的音乐名反查 */
+const BGM_BACK: Record<string, string> = { 温暖钢琴: '轻钢琴', 城市律动: '城市律动', 弦乐氛围: '弦乐氛围', 轻电子: '轻电子', 不要: '不要音乐' };
+/** 风格默认配的音乐，换成一键生成视频里的叫法 */
+export const styleBgm = (s: VideoStyle) => BGM_BACK[s.bgm] ?? Object.keys(BGM_MAP).find(k => BGM_MAP[k] === s.bgm) ?? s.bgm;
 const RATIO_MAP: Record<string, '9:16' | '16:9' | '1:1' | '3:4'> = { '9:16 竖屏': '9:16', '3:4 竖屏': '3:4', '1:1 方形': '1:1', '16:9 横屏': '16:9' };
 
 /** 一键生成视频的草稿 → 生成任务的设置（每镜来源：你的照片做首帧 / 你的视频原片 / 你的数字人出镜 / AI 生成） */
 export function toGen(d: Pick<MakeDraft, 'shots' | 'type' | 'face' | 'avatar' | 'opt' | 'title' | 'mats'>, env: { voiceReady: boolean; avatars?: { clone: string; photo: string } }, sample: boolean) {
-  const t = vtype(d.type), av = avatarOf(d.avatar);
+  const t = vtype(d.type), av = avatarOf(d.avatar), style = studioStyle(d);
   const mine = av.mine ? (av.id === 'me-photo' ? 'photo' : 'clone') : null;
   const avatarOk = !!mine && env.avatars?.[mine] === 'ready';
   const voice = d.opt.voice === '不要人声，只放音乐' || (d.opt.voice === 'AI 推荐' && d.face === 'none' && t.face === 'none') ? 'none'
@@ -473,8 +518,8 @@ export function toGen(d: Pick<MakeDraft, 'shots' | 'type' | 'face' | 'avatar' | 
     copy: d.shots.map(s => s.line).join('\n'), prompt: '', title: d.title, topicId: null,
     assetIds: [...new Set(d.shots.map(s => s.mat?.id).filter((x): x is string => !!x))],
     model: SAMPLE_MODEL, len, ratio: RATIO_MAP[d.opt.ratio] ?? '9:16', res: '1080p' as const, draft: sample,
-    voice: voice as 'me' | 'p1' | 'p2' | 'none', speed: 1, bgm: BGM_MAP[d.opt.bgm === 'AI 推荐' ? t.bgm : d.opt.bgm] ?? '城市律动',
-    subs: true, ambience: true, cover: false, style: 'AI 推荐', type: TYPE_MAP[d.type], studio: d.type, avatar: (avatarOk ? mine : 'none') as 'clone' | 'photo' | 'none',
+    voice: voice as 'me' | 'p1' | 'p2' | 'none', speed: 1, bgm: BGM_MAP[d.opt.bgm === 'AI 推荐' ? (BGM_BACK[style.bgm] ?? t.bgm) : d.opt.bgm] ?? style.bgm ?? '城市律动',
+    subs: true, ambience: true, cover: false, style: style.n, type: TYPE_MAP[d.type], studio: d.type, avatar: (avatarOk ? mine : 'none') as 'clone' | 'photo' | 'none',
     emotion: '自动', pause: 0.3, bgmVol: 0.2, seed: false, shots,
   };
 }

@@ -136,7 +136,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "diag-report",
@@ -278,7 +279,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "diag-topics",
@@ -417,7 +419,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "video-advise",
@@ -535,7 +538,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "storyboard",
@@ -856,7 +860,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "publish-pack",
@@ -943,7 +948,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "copywriter",
@@ -980,7 +986,8 @@ export const SKILL_FILES: SkillFile[] = [
     }
    }
   ],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "video-types",
@@ -1449,7 +1456,8 @@ export const SKILL_FILES: SkillFile[] = [
    ]
   },
   "examples": [],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "points",
@@ -1506,7 +1514,8 @@ export const SKILL_FILES: SkillFile[] = [
    "orderTtlMin": 15
   },
   "examples": [],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "referral",
@@ -1549,7 +1558,8 @@ export const SKILL_FILES: SkillFile[] = [
    ]
   },
   "examples": [],
-  "fields": []
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "avatars",
@@ -1642,7 +1652,378 @@ export const SKILL_FILES: SkillFile[] = [
    ]
   },
   "examples": [],
-  "fields": []
+  "fields": [],
+  "labels": {}
+ },
+ {
+  "id": "video-styles",
+  "name": "视频风格",
+  "category": "rule",
+  "version": "1.0.0",
+  "order": 44,
+  "summary": "一条视频「像谁拍的」：文案写法、画面拍法、节奏、音乐、字幕样式；一键生成视频第 2 步选，AI 写文案和生成画面都按它来",
+  "uses": [],
+  "doc": "# 视频风格\n\n每个风格决定三件事：**文案怎么写**（交给写文案的大模型）、**画面怎么拍**（交给视频模型，Seedance / 网关的每镜提示词里都会带上）、**节奏和包装**（每镜几秒、默认音乐、字幕样式）。\n\n| 字段 | 说明 |\n| --- | --- |\n| `id` | 英文编号，别改（老数据靠它找风格） |\n| `n` | 风格名，用户看到的 |\n| `like` | 参考谁（大家熟悉的账号或片种）：只学写法和节奏，不用对方的素材和名字 |\n| `d` | 一句话：好在哪 |\n| `best` | 最适合的视频类型（旧版生成页用：real 实拍、talk 口播、tour 漫游、house 改造、story 故事、product 产品、site 工地、vlog） |\n| `copy` | 文案写法（给大模型） |\n| `visual` | 画面拍法（给视频模型） |\n| `pace` | 每镜大约几秒 |\n| `bgm` | 默认音乐（曲库：温暖钢琴 / 城市律动 / 弦乐氛围 / 轻电子 / 不要） |\n| `subs` | 字幕样式：`doc` 纪录片小字、`key` 关键词大字黄底、`plain` 普通 |\n| `hot` | 招牌风格，排最前 |\n| `draft` | 还没和大哲 IP 研究院对过样片 |\n| `enabled` | 关掉就不出现在选择里 |\n\n**typeDefault**：一键生成视频的 8 类成片选「AI 推荐」时默认用哪个风格（填风格的 `id`）。\n\n加新风格：在列表里「新增一项」，填好 `id`（英文、不重复）和上面各项；停用比删除好（老视频还能找到风格名）。",
+  "prompts": {},
+  "config": {
+   "styles": [
+    {
+     "id": "yitiao",
+     "n": "“一条”式人物纪实",
+     "like": "一条",
+     "d": "人讲自己的家和作品，慢慢讲，细节多，看完记住这个人",
+     "best": [
+      "story",
+      "tour",
+      "real",
+      "vlog"
+     ],
+     "copy": "第一人称，像采访里自然说出来的话；从一个具体的人、一个具体的细节开场，不喊口号、不用感叹号、不堆形容词；中间讲一个选择背后的原因；结尾落在住进去以后的生活感受上，引导说得轻一点。",
+     "visual": "自然光，镜头慢推慢移；人在空间里做事的中景和手部特写穿插，留一些安静的空镜；色调干净偏暖，不要特效和花字。",
+     "pace": 5,
+     "bgm": "温暖钢琴",
+     "subs": "doc",
+     "hot": true,
+     "enabled": true
+    },
+    {
+     "id": "dazhe",
+     "n": "大哲式观点口播",
+     "like": "大哲 IP 研究院",
+     "d": "本人出镜，第一句就给判断，三点讲透，结尾告诉观众做什么",
+     "best": [
+      "talk",
+      "site",
+      "real",
+      "product"
+     ],
+     "copy": "第一句直接给结论或一个反常识的判断；中间分三点，每点一句话加一个自己项目里的例子；短句、口语，像当面跟业主讲；不绕弯、不说空话；结尾明确告诉观众下一步做什么。",
+     "visual": "本人正面半身出镜，背景是自己的作品、工地或工作室；讲到哪一点就插那一点的实拍画面；机位稳定，画面亮。",
+     "pace": 3,
+     "bgm": "轻电子",
+     "subs": "key",
+     "draft": true,
+     "hot": true,
+     "enabled": true
+    },
+    {
+     "id": "cinema",
+     "n": "空间电影感",
+     "like": "家居品牌片",
+     "d": "画面和氛围先打动人，旁白少，适合完工案例",
+     "best": [
+      "tour",
+      "story",
+      "real"
+     ],
+     "copy": "旁白少而短，每句不超过 12 个字，说感受不说参数；开头用一句画面感强的话，结尾一句点题。",
+     "visual": "电影感构图：对称、低机位、慢推；光影层次明显，晨光或黄昏；镜头之间用光线和动作衔接。",
+     "pace": 5,
+     "bgm": "弦乐氛围",
+     "subs": "doc",
+     "enabled": true
+    },
+    {
+     "id": "vlog",
+     "n": "主理人 Vlog",
+     "like": "设计师日常 Vlog",
+     "d": "跟着本人过一天，轻松真实，建立信任",
+     "best": [
+      "vlog",
+      "site",
+      "real",
+      "talk"
+     ],
+     "copy": "像跟朋友聊天：今天去了哪、做了什么决定、为什么；可以有一点自嘲；结尾随口提一句可以私信聊。",
+     "visual": "第一视角或手持跟拍，画面有生活感，可以有轻微晃动；人和现场同时出现。",
+     "pace": 3,
+     "bgm": "城市律动",
+     "subs": "plain",
+     "enabled": true
+    },
+    {
+     "id": "site",
+     "n": "工地透明",
+     "like": "工地实拍类账号",
+     "d": "用现场说话，验收点、工艺、标准一条讲清",
+     "best": [
+      "site",
+      "real",
+      "talk"
+     ],
+     "copy": "先说这是什么阶段、看哪几处；每处一句标准一句做法；用数字和工具说话（打压、水平仪）；不夸自己，结尾邀请来工地看。",
+     "visual": "现场实拍为主，特写验收点和工具读数；保留现场声音；画面真实不修饰。",
+     "pace": 3,
+     "bgm": "城市律动",
+     "subs": "key",
+     "enabled": true
+    },
+    {
+     "id": "compare",
+     "n": "改造前后快切",
+     "like": "改造对比类爆款",
+     "d": "同机位前后一切，三秒抓住眼球",
+     "best": [
+      "house",
+      "real",
+      "tour"
+     ],
+     "copy": "开头一句「改之前 / 改之后」的反差；每处改动一句话说花了什么心思；节奏快，结尾给预算或工期。",
+     "visual": "同一机位前后对比，卡点切换；先放改造后的效果，再切回原样。",
+     "pace": 2,
+     "bgm": "轻电子",
+     "subs": "key",
+     "enabled": true
+    },
+    {
+     "id": "product",
+     "n": "产品价值解读",
+     "like": "测评类账号",
+     "d": "一个卖点讲透，和别家的区别看得见",
+     "best": [
+      "product",
+      "real"
+     ],
+     "copy": "只讲一个卖点；先说用户的痛点，再用一个对比或实验证明；参数翻译成生活里的好处；结尾邀请到店或要样品。",
+     "visual": "微距特写和对比实验；同条件并排对比；手部操作展示细节。",
+     "pace": 3,
+     "bgm": "轻电子",
+     "subs": "key",
+     "enabled": true
+    },
+    {
+     "id": "sales",
+     "n": "案场高级感",
+     "like": "地产宣传片",
+     "d": "楼盘和样板间的质感，适合案场和开发商",
+     "best": [
+      "tour",
+      "story"
+     ],
+     "copy": "克制、有分寸；少形容词多事实（面宽、距离、景观）；结尾邀请到访。",
+     "visual": "稳定器长镜头，广角、干净的线条和材质特写；光线明亮通透。",
+     "pace": 4,
+     "bgm": "弦乐氛围",
+     "subs": "doc",
+     "enabled": true
+    },
+    {
+     "id": "stay",
+     "n": "民宿慢生活",
+     "like": "旅行生活类账号",
+     "d": "让人想马上来住",
+     "best": [
+      "tour",
+      "vlog",
+      "story"
+     ],
+     "copy": "写一段住进来的时间线：到达、窗外、晚上、第二天早上；用感受代替介绍；结尾一句可以直接预订。",
+     "visual": "窗景、晨光、日常动作；节奏慢，留白多。",
+     "pace": 5,
+     "bgm": "温暖钢琴",
+     "subs": "doc",
+     "enabled": true
+    },
+    {
+     "id": "renew",
+     "n": "房源焕新",
+     "like": "房产经纪改造预览",
+     "d": "老房子改完能怎么住",
+     "best": [
+      "house",
+      "tour"
+     ],
+     "copy": "先说房子现在的问题，再说改完的样子和花多少钱；用户视角，像带看时的讲解。",
+     "visual": "先老房现状后改造效果，同机位过渡；明亮、可信。",
+     "pace": 3,
+     "bgm": "城市律动",
+     "subs": "plain",
+     "enabled": true
+    }
+   ],
+   "typeDefault": {
+    "tour": "cinema",
+    "explain": "dazhe",
+    "talk": "dazhe",
+    "before": "compare",
+    "case": "yitiao",
+    "product": "product",
+    "site": "site",
+    "vlog": "vlog"
+   }
+  },
+  "examples": [],
+  "fields": [],
+  "labels": {
+   "bgm": {
+    "n": "默认音乐（曲库）",
+    "options": [
+     "温暖钢琴",
+     "城市律动",
+     "弦乐氛围",
+     "轻电子",
+     "不要"
+    ]
+   },
+   "best": {
+    "n": "最适合的视频类型（旧版生成页）",
+    "kind": "lines",
+    "help": "real 实拍 / talk 口播 / tour 漫游 / house 改造 / story 故事 / product 产品 / site 工地 / vlog"
+   },
+   "typeDefault": {
+    "n": "每类成片默认风格",
+    "help": "选「AI 推荐」时用；填上面风格的编号"
+   }
+  }
+ },
+ {
+  "id": "video-options",
+  "name": "成片参数",
+  "category": "rule",
+  "version": "1.0.0",
+  "order": 45,
+  "summary": "一键生成视频第 2 步「这条怎么出」的选项：时长、画面比例、字幕字体（带授权说明）、背景音乐（对应曲库）",
+  "uses": [],
+  "doc": "# 成片参数\n\n- **durations**：时长选项。第一项「AI 推荐」按成片类型的推荐时长；其余写成「30 秒」这样（数字 + 秒），扣点按秒数折算。\n- **ratios**：画面比例（9:16 竖屏、3:4 竖屏、1:1 方形、16:9 横屏）。土豆网关只认 9:16、16:9、1:1，3:4 会按 9:16 出。\n- **fonts**：字幕字体。`note` 是授权说明，显示在下拉下面——**商用前必须确认授权**；`enabled` 关掉就不出现。\n- **bgm**：背景音乐。`n` 是用户看到的名字，`mood` 是适合什么片，`use` 是合成时用曲库里的哪首（温暖钢琴 / 城市律动 / 弦乐氛围 / 轻电子 / 不要）；新加音乐要先把曲子放进服务端曲库再填 `use`。",
+  "prompts": {},
+  "config": {
+   "durations": [
+    "AI 推荐",
+    "15 秒",
+    "30 秒",
+    "45 秒",
+    "60 秒"
+   ],
+   "ratios": [
+    "9:16 竖屏",
+    "3:4 竖屏",
+    "1:1 方形",
+    "16:9 横屏"
+   ],
+   "fonts": [
+    {
+     "n": "思源黑体",
+     "note": "可免费商用",
+     "enabled": true
+    },
+    {
+     "n": "思源宋体",
+     "note": "可免费商用",
+     "enabled": true
+    },
+    {
+     "n": "阿里巴巴普惠体",
+     "note": "可免费商用",
+     "enabled": true
+    },
+    {
+     "n": "站酷快乐体",
+     "note": "可免费商用",
+     "enabled": true
+    }
+   ],
+   "bgm": [
+    {
+     "n": "轻钢琴",
+     "mood": "温暖、安静，适合纪实和完工案例",
+     "use": "温暖钢琴",
+     "enabled": true
+    },
+    {
+     "n": "城市律动",
+     "mood": "轻快有节奏，适合 Vlog 和工地",
+     "use": "城市律动",
+     "enabled": true
+    },
+    {
+     "n": "弦乐氛围",
+     "mood": "大气、有电影感，适合空间漫游",
+     "use": "弦乐氛围",
+     "enabled": true
+    },
+    {
+     "n": "轻电子",
+     "mood": "利落、现代，适合口播和产品",
+     "use": "轻电子",
+     "enabled": true
+    },
+    {
+     "n": "不要音乐",
+     "mood": "只留人声和现场声",
+     "use": "不要",
+     "enabled": true
+    }
+   ]
+  },
+  "examples": [],
+  "fields": [],
+  "labels": {}
+ },
+ {
+  "id": "cover-templates",
+  "name": "封面模板",
+  "category": "rule",
+  "version": "1.0.0",
+  "order": 46,
+  "summary": "一键生成视频第 4 步的封面排法和颜色（大字压底 / 顶部标题 / 上图下字），可以加新模板、改品牌色",
+  "uses": [],
+  "doc": "# 封面模板\n\n每个模板：`id`（编号，别重复）、`n` 名字、`d` 适合什么时候用、`layout` 排法、`bg` 底色、`fg` 字色、`enabled` 开关。\n\n| layout | 排法 |\n| --- | --- |\n| `band` | 画面铺满，底部一条色块压大字 |\n| `top` | 大字压在画面上方，配渐变暗角（`bg` 是暗角颜色） |\n| `split` | 上面画面、下面色块写字 |\n\n颜色写 `#RRGGBB`。精修还是去 dazheip 的「制作封面图文」。",
+  "prompts": {},
+  "config": {
+   "templates": [
+    {
+     "id": "A",
+     "n": "大字压底",
+     "d": "画面在上，底部一条黄底大字，最稳",
+     "layout": "band",
+     "bg": "#FFCB05",
+     "fg": "#0B0B0C",
+     "enabled": true
+    },
+    {
+     "id": "B",
+     "n": "顶部标题",
+     "d": "大字压在画面上方，配暗角，适合夜景和氛围",
+     "layout": "top",
+     "bg": "#000000",
+     "fg": "#FFFFFF",
+     "enabled": true
+    },
+    {
+     "id": "C",
+     "n": "上图下字",
+     "d": "上面画面、下面白底黑字，信息量大的时候用",
+     "layout": "split",
+     "bg": "#FFFFFF",
+     "fg": "#0B0B0C",
+     "enabled": true
+    }
+   ]
+  },
+  "examples": [],
+  "fields": [],
+  "labels": {}
+ },
+ {
+  "id": "publish-accounts",
+  "name": "发布账号",
+  "category": "rule",
+  "version": "1.0.0",
+  "order": 47,
+  "summary": "「安排发布计划」和「加入发布队列」里默认可选的发布账号（用户自己加的账号会排在后面）",
+  "uses": [],
+  "doc": "# 发布账号\n\n**accounts**：默认的账号名列表，第一个是默认账号。用户在发布计划里用过的账号会自动加进他自己的选项，不用在这里加。\n正式上线后这里应换成从 dazheip 账号绑定里取；现在是演示用的默认值。",
+  "prompts": {},
+  "config": {
+   "accounts": [
+    "三哥看豪宅",
+    "三哥设计笔记",
+    "三哥本人号"
+   ]
+  },
+  "examples": [],
+  "fields": [],
+  "labels": {}
  },
  {
   "id": "up-llm",
@@ -1698,7 +2079,8 @@ export const SKILL_FILES: SkillFile[] = [
     "type": "number",
     "placeholder": "25000"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-vision",
@@ -1733,7 +2115,8 @@ export const SKILL_FILES: SkillFile[] = [
     "required": true,
     "placeholder": "doubao-1.5-vision-pro"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-seedance",
@@ -1792,7 +2175,8 @@ export const SKILL_FILES: SkillFile[] = [
     "type": "number",
     "placeholder": "5000"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-newapi",
@@ -1850,7 +2234,8 @@ export const SKILL_FILES: SkillFile[] = [
     "env": "VIDEO_POLL_MS",
     "type": "number"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-tts",
@@ -1896,7 +2281,8 @@ export const SKILL_FILES: SkillFile[] = [
     "label": "知性女声 音色 id",
     "env": "TTS_VOICE_P2"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-wxpay",
@@ -1959,7 +2345,8 @@ export const SKILL_FILES: SkillFile[] = [
     "env": "WXPAY_PLATFORM_KEY_ID",
     "placeholder": "PUB_KEY_ID_…"
    }
-  ]
+  ],
+  "labels": {}
  },
  {
   "id": "up-alipay",
@@ -2002,6 +2389,7 @@ export const SKILL_FILES: SkillFile[] = [
     "label": "网关（不填用正式环境）",
     "env": "ALIPAY_GATEWAY"
    }
-  ]
+  ],
+  "labels": {}
  }
 ];

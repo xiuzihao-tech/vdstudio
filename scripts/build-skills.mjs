@@ -5,6 +5,7 @@
 //   config.json   参数和数据（题库、模板、价格、规则……）
 //   examples.json （可选）试运行用的输入 [{ "name": "", "input": {} }]
 //   fields.json   （上游接口）后台表单的字段定义
+//   labels.json   （可选）后台参数表单里字段的中文名和说明 { "字段名": { "n": "名字", "help": "说明" } }，不写用通用词表
 // 用法：npm run skills（build、test 之前会自动跑）；node scripts/build-skills.mjs --check 只检查生成文件是不是最新
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -62,6 +63,7 @@ export function buildSkills() {
       config: readJson(join(d, 'config.json'), {}),
       examples: readJson(join(d, 'examples.json'), []),
       fields: readJson(join(d, 'fields.json'), []),
+      labels: readJson(join(d, 'labels.json'), {}),
     });
   }
   skills.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));

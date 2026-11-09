@@ -4,7 +4,7 @@ import { api } from '../../api.ts';
 import { useApp } from '../../store.tsx';
 import { Ph } from '../../ui/kit.tsx';
 import { fileUrl } from '../../config.ts';
-import { avatarOf, mmss, vtype, type AvatarLook, type Mat, type Shot, type StudioState, type VType } from '../../../shared/studio.ts';
+import { COVERS, avatarOf, mmss, vtype, type AvatarLook, type Mat, type Shot, type StudioState, type VType } from '../../../shared/studio.ts';
 
 /* ---------- 状态：每个工作区一份，所有页面共用 ---------- */
 let cur: { ws: string; st: StudioState } | null = null;
@@ -100,7 +100,7 @@ export function Schema({ type, face, avatar }: { type: VType; face: 'avatar' | '
 }
 
 /* ---------- 成片预览：按镜头轮播，字幕跟着走（接上视频服务前的示意） ---------- */
-export function Player({ shots, ratio, font, title, avatar, tag = '成片预览 · 示意' }: { shots: Shot[]; ratio: string; font: string; title: string; avatar: string; tag?: string }) {
+export function Player({ shots, ratio, font, title, avatar, tag = '成片预览 · 示意', subs = 'plain', styleName }: { shots: Shot[]; ratio: string; font: string; title: string; avatar: string; tag?: string; subs?: 'doc' | 'key' | 'plain'; styleName?: string }) {
   const [i, setI] = useState(0);
   const [t, setT] = useState(0);
   const [on, setOn] = useState(true);
@@ -121,9 +121,9 @@ export function Player({ shots, ratio, font, title, avatar, tag = '成片预览 
   }, [on, i, shots.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const before = shots.slice(0, i).reduce((a, x) => a + x.secs, 0);
   const ar = ratio.startsWith('16:9') ? '16/9' : ratio.startsWith('1:1') ? '1/1' : ratio.startsWith('3:4') ? '3/4' : '9/16';
-  return <div className="player" style={{ aspectRatio: ar }} data-font={font}>
+  return <div className="player" style={{ aspectRatio: ar }} data-font={font} data-subs={subs}>
     {s && <div className="pl-shot" key={`${i}`}><Thumb mat={s.mat} k={s.k} avatar={s.avatar ? avatar : null} className="kb" /></div>}
-    <span className="pl-tag">{tag}</span>
+    <span className="pl-tag">{tag}{styleName ? ` · ${styleName}` : ''}</span>
     {i === 0 && t < 2.2 && <p className="pl-title">{title}</p>}
     {s && <p className="pl-sub">{s.line}</p>}
     <div className="pl-ctl">
@@ -134,11 +134,13 @@ export function Player({ shots, ratio, font, title, avatar, tag = '成片预览 
   </div>;
 }
 
-/** 封面三种排法：大字说人话 */
-export function CoverArt({ v, title, mat, k }: { v: 'A' | 'B' | 'C'; title: string; mat?: Mat | null; k: string }) {
+/** 封面：按技能「封面模板」里的排法和颜色出；大字说人话 */
+export function CoverArt({ v, title, mat, k }: { v: string; title: string; mat?: Mat | null; k: string }) {
   const words = title.split(/[｜|·，,]/).filter(Boolean);
   const big = words[0] ?? title, small = words.slice(1).join(' ');
-  return <div className={`cover cv-${v}`}>
+  const tpl = COVERS.find(c => c.id === v) ?? COVERS[0];
+  const cls = tpl ? { band: 'A', top: 'B', split: 'C' }[tpl.layout] : 'A';
+  return <div className={`cover cv-${cls}`} data-tpl={tpl?.id} style={tpl ? { ['--cvbg' as string]: tpl.bg, ['--cvfg' as string]: tpl.fg } : undefined}>
     <Thumb mat={mat} k={k} />
     <div className="cv-txt"><b>{big}</b>{small && <span>{small}</span>}</div>
   </div>;
