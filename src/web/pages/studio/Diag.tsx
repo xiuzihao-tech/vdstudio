@@ -6,16 +6,22 @@ import { useApp, useData } from '../../store.tsx';
 import { studioNow, useStudio } from './common.tsx';
 import { usePayOrder } from './Pay.tsx';
 import { CHANNEL_NAME, yuan } from '../../../shared/billing.ts';
+import { CAT } from '../../catalog.ts';
 import {
-  ACCOUNTS, DEMO_ANSWERS, DEMO_NAME, DIAG_MORE, DIAG_PRICE, DIAG_QS, SHENG, STAGES, diagResult, makeTopics, schedule, vtype,
+  ACCOUNTS, DEMO_ANSWERS, DEMO_NAME, DIAG_MORE, DIAG_PRICE, DIAG_QS, SHENG, STAGES, TOPICS_DEFAULT, diagResult, makeTopics, schedule, vtype,
   type DiagMsg, type DiagResult, type DiagState,
 } from '../../../shared/studio.ts';
 
+// 问题、欢迎语、阶段名、演示回答都在技能中心的「大哲诊断 · 深聊」里维护（session 下发到 CAT.diag）；没拿到就用这里的默认
 const WELCOME = '欢迎来到大哲诊断账号。我会一路问下去——从你的回答里抓个性、专业、品牌三类标签，最后定出四档栏目。题目不限，直到你说够了：随时点右上角「结束并生成诊断」。打字或者按麦克风说都行，想到什么说什么。';
 const ACKS = ['记下了。', '好，这个很有用。', '明白。', '这句能做成栏目。', '嗯，接着来。'];
+const stages = () => CAT.diag?.stages?.length === 4 ? CAT.diag.stages : [...STAGES];
 const qMsg = (i: number): DiagMsg => i < DIAG_QS.length
   ? { who: 'ai', text: DIAG_QS[i][1], stage: DIAG_QS[i][0], n: i + 1 }
   : { who: 'ai', text: DIAG_MORE[Math.min(i - DIAG_QS.length, DIAG_MORE.length - 1)], stage: 3, n: i + 1 };
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+/** 发布计划的默认发布日和时间（技能「大哲诊断 · 排选题」里改；排选题时服务端带回来） */
+let SCHED: { weekdays: number[]; time: string } = { weekdays: TOPICS_DEFAULT.weekdays, time: TOPICS_DEFAULT.time };
 
 export function DiagPage() {
   const { st, saveDiag } = useStudio();
@@ -71,10 +77,11 @@ function Paywall({ onSample }: { onSample: () => void }) {
 }
 
 function Sample({ onBack }: { onBack: () => void }) {
-  const topics = makeTopics(SHENG.columns, [3, 2, 2, 3]);
+  const sample = CAT.diag?.sample ?? SHENG;
+  const topics = makeTopics(sample.columns, [3, 2, 2, 3]);
   return <>
     <div className="row" style={{ justifyContent: 'space-between', paddingTop: 30 }}><button className="lnk s" onClick={onBack}>← 返回</button><span className="tag">示例报告 · 内容待苗苗润色</span></div>
-    <ResultView r={SHENG} />
+    <ResultView r={sample} />
     <p className="lb" style={{ marginTop: 26 }}>第二轮聊完排出的选题（前 6 条）</p>
     <ol className="toplist">{topics.slice(0, 6).map((t, i) => <li key={i}><b>{t.title}</b><span className="xs m3">{t.column} · {vtype(t.type).n}</span></li>)}</ol>
     <div className="stfoot"><span className="xs m3">你的诊断会按你自己的回答出。</span><button className="btn k" onClick={onBack}>想要我的 →</button></div>
@@ -90,7 +97,11 @@ function Chat({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>, localOn
   const [rec, setRec] = useState(false);
   const live = { get current() { return studioNow()?.diag ?? g; } };
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (!g.msgs.length) void setG({ msgs: [{ who: 'ai', text: WELCOME }, qMsg(0)], asked: 1 }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (g.msgs.length) return;
+    // 第一问也从服务端拿（技能中心改过问题就用新的）；拿不到用默认
+    void api.studioAi.diagNext([], 0).then(r => r.msg, () => qMsg(0)).then(q => setG({ msgs: [{ who: 'ai', text: CAT.diag?.welcome || WELCOME }, { who: 'ai', text: q.text, stage: q.stage, n: q.n ?? 1 }], asked: 1 }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [g.msgs.length, typing]);
   const answers = g.msgs.filter(m => m.who === 'me').length;
   const stage = [...g.msgs].reverse().find(m => m.stage !== undefined)?.stage ?? 0;
@@ -103,22 +114,29 @@ function Chat({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>, localOn
     const msgs = [...cur.msgs, { who: 'me' as const, text: v }];
     await setG({ msgs }, true);
     setTyping(true);
-    await new Promise(r => setTimeout(r, 450));
+    // 下一问：服务端按技能「大哲诊断 · 深聊」出（接了大模型会接着他的话追问），至少停 450 毫秒像在打字
+    const [q] = await Promise.all([
+      api.studioAi.diagNext(msgs, cur.asked).then(r => ({ who: 'ai' as const, text: r.msg.text, stage: r.msg.stage, n: r.msg.n ?? cur.asked + 1 }))
+        .catch(() => { const x = qMsg(cur.asked); return { ...x, text: `${ACKS[cur.asked % ACKS.length]}${x.text}` }; }),
+      wait(450),
+    ]);
     setTyping(false);
-    const q = qMsg(cur.asked);
-    await setG({ msgs: [...msgs, { ...q, text: `${ACKS[cur.asked % ACKS.length]}${q.text}` }], asked: cur.asked + 1 });
+    await setG({ msgs: [...msgs, q], asked: cur.asked + 1 });
   };
   const finish = async () => {
-    if (live.current.msgs.filter(m => m.who === 'me').length < 3) { toast('再聊两句，至少回答 3 个问题'); return; }
+    const min = CAT.diag?.minAnswers ?? 3;
+    if (live.current.msgs.filter(m => m.who === 'me').length < min) { toast(`再聊两句，至少回答 ${min} 个问题`); return; }
     setBusy(true);
-    await new Promise(r => setTimeout(r, 900));
-    const me = live.current.msgs.filter(m => m.who === 'me').map(m => m.text);
-    await setG({ result: diagResult(me, session!.workspace.positioning.name || '我'), round: 1 });
+    const me = live.current.msgs.filter(m => m.who === 'me').map(m => m.text), name = session!.workspace.positioning.name || '我';
+    // 出诊断：服务端按技能「大哲诊断 · 标签与栏目」出（接了大模型走模型）；出错用本地规则
+    const [result] = await Promise.all([api.studioAi.diagReport(me, name).then(r => r.result).catch(() => diagResult(me, name)), wait(900)]);
+    await setG({ result, round: 1 });
     setBusy(false);
   };
   const demo = async () => {
     setBusy(true);
-    for (let i = answers; i < DEMO_ANSWERS.length; i++) await send(DEMO_ANSWERS[i]);
+    const answersDemo = CAT.diag?.demoAnswers?.length ? CAT.diag.demoAnswers : DEMO_ANSWERS;
+    for (let i = answers; i < answersDemo.length; i++) await send(answersDemo[i]);
     setBusy(false);
     await finish();
   };
@@ -134,16 +152,16 @@ function Chat({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>, localOn
   const lastQ = [...g.msgs].reverse().find(m => m.who === 'ai' && m.n);
   return <div className="dgchat" id="dgChat">
     <div className="chathd">
-      <div><p className="eyebrow">大哲诊断账号</p><ol className="dgsteps" id="dgStages">{STAGES.map((s, i) => <li key={s} className={i === stage ? 'on' : i < stage ? 'done' : ''}>{s}</li>)}</ol></div>
+      <div><p className="eyebrow">大哲诊断账号</p><ol className="dgsteps" id="dgStages">{stages().map((s, i) => <li key={s} className={i === stage ? 'on' : i < stage ? 'done' : ''}>{s}</li>)}</ol></div>
       <div className="row" style={{ gap: 10 }}><span className="xs m3" id="dgCount">第 {lastQ?.n ?? 1} 问 · 不限题数</span><button className="btn k sm" id="dgEnd" disabled={busy} onClick={finish}>结束并生成诊断</button></div>
     </div>
     <div className="msgs" id="dgMsgs">
       {g.msgs.map((m, i) => <div key={i} className={`msg ${m.who}`}>
         {m.who === 'ai' && <span className="aiav">哲</span>}
-        <div className="dbub">{m.n && <span className="qn">第 {m.n} 问 · {STAGES[m.stage ?? 3]}</span>}<p>{m.text}</p></div>
+        <div className="dbub">{m.n && <span className="qn">第 {m.n} 问 · {stages()[m.stage ?? 3]}</span>}<p>{m.text}</p></div>
       </div>)}
       {typing && <div className="msg ai"><span className="aiav">哲</span><div className="dbub dots"><i /><i /><i /></div></div>}
-      {busy && !typing && answers >= 3 && <div className="msg ai"><span className="aiav">哲</span><div className="dbub"><p>好，我在整理你的标签和栏目…</p></div></div>}
+      {busy && !typing && answers >= (CAT.diag?.minAnswers ?? 3) && <div className="msg ai"><span className="aiav">哲</span><div className="dbub"><p>好，我在整理你的标签和栏目…</p></div></div>}
       <div ref={end} />
     </div>
     <div className="chatin">
@@ -152,7 +170,7 @@ function Chat({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>, localOn
       <button className="btn k" id="dgSend" disabled={busy || !text.trim()} onClick={() => send(text)}>发送</button>
     </div>
     <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
-      <button className="lnk xs" id="dgDemo" disabled={busy} onClick={demo}>一键演示 · {DEMO_NAME}</button>
+      <button className="lnk xs" id="dgDemo" disabled={busy} onClick={demo}>一键演示 · {CAT.diag?.demoName || DEMO_NAME}</button>
       <span className="xs m3">回答随时存着，关掉页面下次接着聊</span>
     </div>
   </div>;
@@ -210,10 +228,19 @@ function Round2({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>) => Pr
   const r = g.result!;
   const counts = g.counts ?? r.columns.map(() => 0);
   const cur = counts.findIndex(c => !c);
-  const setCount = (i: number, n: number) => { const c = counts.map((x, j) => j === i ? n : x); void setG({ counts: c, topics: c.every(Boolean) ? makeTopics(r.columns, c) : null }); };
+  const [busy, setBusy] = useState(false);
+  const setCount = async (i: number, n: number) => {
+    const c = counts.map((x, j) => j === i ? n : x);
+    if (!c.every(Boolean)) { void setG({ counts: c, topics: null }); return; }
+    // 排选题：服务端按技能「大哲诊断 · 排选题」出（接了大模型按诊断写选题），出错用本地模板
+    setBusy(true);
+    const topics = await api.studioAi.diagTopics(r, c).then(x => { SCHED = x.schedule; return x.topics; }).catch(() => makeTopics(r.columns, c));
+    setBusy(false);
+    void setG({ counts: c, topics });
+  };
   const saveAll = () => {
     const acc = st!.plan[0]?.account ?? ACCOUNTS[0];
-    const items = schedule(g.topics!, session!.today, acc);
+    const items = schedule(g.topics!, session!.today, acc, SCHED);
     void save({ plan: [...st!.plan.filter(x => x.from !== 'diag' || x.status !== '待确认'), ...items], diag: { ...g, saved: true } });
     toast(`${items.length} 条选题进了发布计划，状态「待确认」`);
     nav('sched');
@@ -225,11 +252,12 @@ function Round2({ g, setG }: { g: DiagState; setG: (p: Partial<DiagState>) => Pr
     <div className="msgs r2q">
       {r.columns.map((c, i) => (i <= cur || cur === -1) && <div key={i}>
         <div className="msg ai"><span className="aiav">哲</span><div className="dbub"><span className="qn">栏目 {i + 1} · {c.n}</span><p>{c.ask}</p></div></div>
-        {counts[i] ? <div className="msg me"><div className="dbub"><p>{counts[i] >= 5 ? `5 ${c.unit}以上` : `${counts[i]} ${c.unit}`}</p></div><button className="lnk xs" onClick={() => setCount(i, 0)}>改</button></div>
-          : <div className="nums" data-ask={i}>{[1, 2, 3, 4, 5].map(n => <button key={n} className="pill" onClick={() => setCount(i, n)}>{n === 5 ? `5${c.unit}+` : `${n} ${c.unit}`}</button>)}</div>}
+        {counts[i] ? <div className="msg me"><div className="dbub"><p>{counts[i] >= 5 ? `5 ${c.unit}以上` : `${counts[i]} ${c.unit}`}</p></div><button className="lnk xs" disabled={busy} onClick={() => void setCount(i, 0)}>改</button></div>
+          : <div className="nums" data-ask={i}>{[1, 2, 3, 4, 5].map(n => <button key={n} className="pill" disabled={busy} onClick={() => void setCount(i, n)}>{n === 5 ? `5${c.unit}+` : `${n} ${c.unit}`}</button>)}</div>}
       </div>)}
     </div>
-    {g.topics && <>
+    {busy && <div className="msg ai" id="dgTopicsBusy"><span className="aiav">哲</span><div className="dbub"><p>好，我在按你的栏目排选题…</p></div></div>}
+    {g.topics && !busy && <>
       <p className="lb" style={{ marginTop: 26 }}>排出 {g.topics.length} 条选题 · 一周 3 条，排 {Math.ceil(g.topics.length / 3)} 周</p>
       <ol className="toplist" id="dgTopics">{g.topics.map((t, i) => <li key={i}><b>{t.title}</b><span className="xs m3">{t.column} · {vtype(t.type).n} · {t.why}</span></li>)}</ol>
       <p className="note">保存后：四档栏目会进入「安排发布计划」，每档的选题每周自动生成；写文案、出片都会按这套标签来。这些随时可以改。</p>

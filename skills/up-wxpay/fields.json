@@ -2,22 +2,26 @@
   {
     "key": "mchid",
     "label": "商户号",
-    "env": "WXPAY_MCHID"
+    "env": "WXPAY_MCHID",
+    "required": true
   },
   {
     "key": "appid",
     "label": "AppID",
-    "env": "WXPAY_APPID"
+    "env": "WXPAY_APPID",
+    "required": true
   },
   {
     "key": "serialNo",
     "label": "商户证书序列号",
-    "env": "WXPAY_SERIAL_NO"
+    "env": "WXPAY_SERIAL_NO",
+    "required": true
   },
   {
     "key": "privateKey",
     "label": "商户私钥（PEM）",
     "env": "WXPAY_PRIVATE_KEY",
+    "required": true,
     "secret": true,
     "type": "textarea"
   },
@@ -25,12 +29,14 @@
     "key": "apiV3Key",
     "label": "APIv3 密钥",
     "env": "WXPAY_API_V3_KEY",
+    "required": true,
     "secret": true
   },
   {
     "key": "platformPublicKey",
     "label": "微信支付公钥（PEM）",
     "env": "WXPAY_PLATFORM_PUBLIC_KEY",
+    "required": true,
     "type": "textarea"
   },
   {

@@ -2,12 +2,14 @@
   {
     "key": "appId",
     "label": "应用 ID",
-    "env": "ALIPAY_APP_ID"
+    "env": "ALIPAY_APP_ID",
+    "required": true
   },
   {
     "key": "privateKey",
     "label": "应用私钥（PEM）",
     "env": "ALIPAY_PRIVATE_KEY",
+    "required": true,
     "secret": true,
     "type": "textarea"
   },
@@ -15,6 +17,7 @@
     "key": "publicKey",
     "label": "支付宝公钥（PEM）",
     "env": "ALIPAY_PUBLIC_KEY",
+    "required": true,
     "type": "textarea"
   },
   {

@@ -3,6 +3,7 @@
     "key": "baseUrl",
     "label": "接口地址",
     "env": "LLM_BASE_URL",
+    "required": true,
     "placeholder": "https://ark.cn-beijing.volces.com/api/v3",
     "help": "到 /v1 或 /api/v3 为止，不要带 /chat/completions"
   },
@@ -10,12 +11,14 @@
     "key": "apiKey",
     "label": "API Key",
     "env": "LLM_API_KEY",
+    "required": true,
     "secret": true
   },
   {
     "key": "model",
     "label": "默认模型",
     "env": "LLM_MODEL",
+    "required": true,
     "placeholder": "deepseek-v4-flash"
   },
   {

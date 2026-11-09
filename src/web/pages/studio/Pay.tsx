@@ -6,6 +6,8 @@ import { api } from '../../api.ts';
 import { useApp, useData } from '../../store.tsx';
 import { useMods } from '../../ui/mods.tsx';
 import { CHANNEL_NAME, ORDER_TTL_MIN, STATUS_NAME, totalPoints, yuan, type Order, type PayChannel, type Product } from '../../../shared/billing.ts';
+import { KIND_NAME } from '../../../shared/points.ts';
+import { InviteCard } from '../../ui/invite.tsx';
 
 /** 二维码（SVG） */
 export function Qr({ text, size = 200 }: { text: string; size?: number }) {
@@ -98,7 +100,10 @@ export function useRecharge() {
 }
 
 export function PayPage() {
-  const { session, toast, fail, reloadSession, bump } = useApp();
+  const { session, toast, fail, reloadSession, bump, route } = useApp();
+  const mods = useMods();
+  // 侧栏「邀请好友」进来：滚到邀请卡片
+  useEffect(() => { if (route.sub === 'invite') setTimeout(() => document.getElementById('inviteCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300); }, [route.sub]);
   const b = useData(() => api.billing(), []);
   const led = useData(() => api.ledger(), []);
   const [code, setCode] = useState('');
@@ -120,13 +125,14 @@ export function PayPage() {
             <button className="btn y" id="redeemBtn" disabled={code.trim().length < 4} onClick={async () => { try { const r = await api.redeem(code.trim()); toast(`到账 ${r.points} 点`); setCode(''); await reloadSession(); led.reload(); bump(); } catch (e) { fail(e); } }}>兑换</button>
           </div>
         </div>
+        {mods.on('invite') && <div style={{ marginTop: 12 }}><InviteCard /></div>}
         <div className="card" style={{ marginTop: 12 }}>
           <p className="t2">订单</p>
           <div className="list" id="orders" style={{ marginTop: 8 }}>{b.data?.orders.length ? b.data.orders.slice(0, 10).map(o => <div key={o.id}><span>{o.title}<br /><span className="xs m3">{new Date(o.createdAt).toLocaleString()} · {CHANNEL_NAME[o.channel]}</span></span><span className="v">{yuan(o.amount)}<br /><span className={`xs ${o.status === 'paid' ? 'ok' : 'm3'}`}>{STATUS_NAME[o.status]}</span></span></div>) : <div><span className="m">还没有订单</span></div>}</div>
         </div>
         <div className="card" style={{ marginTop: 12 }}>
           <p className="t2">点数流水</p>
-          <div className="list" id="ledger" style={{ marginTop: 8 }}>{led.data?.items.length ? led.data.items.slice(0, 15).map((x, i) => <div key={i}><span>{x.reason}<br /><span className="xs m3">{new Date(x.createdAt).toLocaleString()}</span></span><span className="v" style={{ color: x.delta > 0 ? 'var(--real)' : undefined }}>{x.delta > 0 ? '+' : ''}{Math.round(x.delta)}</span></div>) : <div><span className="m">还没有流水</span></div>}</div>
+          <div className="list" id="ledger" style={{ marginTop: 8 }}>{led.data?.items.length ? led.data.items.slice(0, 15).map((x, i) => <div key={i}><span>{x.reason}<br /><span className="xs m3">{KIND_NAME[x.kind] ?? ''}{KIND_NAME[x.kind] ? ' · ' : ''}{new Date(x.createdAt).toLocaleString()}</span></span><span className="v" style={{ color: x.delta > 0 ? 'var(--real)' : undefined }}>{x.delta > 0 ? '+' : ''}{Math.round(x.delta)}</span></div>) : <div><span className="m">还没有流水</span></div>}</div>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { useOnboarding } from './ui/onboarding.tsx';
 import { LibraryPage } from './pages/Library.tsx';
 import { LoginScreen } from './ui/auth.tsx';
 import { AdminPage } from './pages/Admin.tsx';
+import { AdminShell } from './pages/admin/Shell.tsx';
 import { FeedbackButton } from './ui/feedback.tsx';
 import { TalkPage } from './pages/Talk.tsx';
 import { SoonCard, useMods } from './ui/mods.tsx';
@@ -20,6 +21,10 @@ import { SchedPage } from './pages/studio/Sched.tsx';
 import { MatPage } from './pages/studio/Mat.tsx';
 import { DataPage } from './pages/studio/Data.tsx';
 import { PayPage } from './pages/studio/Pay.tsx';
+import { RefBanner, captureRef } from './ui/invite.tsx';
+
+// 好友的分享链接（?ref=邀请码）：记下来，注册时带上
+captureRef();
 
 function Pages() {
   const { session, route, needLogin, nav } = useApp();
@@ -60,13 +65,22 @@ function Foot() {
   return <footer className="foot">FIND AI × 大哲 联合出品 · {mockParts ? `开发版：${mockParts}为模拟结果` : '文案与视频由真实 AI 服务生成'}，热门选题为示意数据，“点”为占位单位</footer>;
 }
 
+/** 后台（dazheip 后台同款）整页换掉前台的侧栏和页脚 */
+function Body() {
+  const { route, session } = useApp();
+  if (route.view === 'admin' && session?.admin) return <AdminShell />;
+  return <>
+    <Header />
+    <main id="main"><RefBanner /><Pages /></main>
+    <Foot />
+    <FeedbackButton />
+  </>;
+}
+
 function App() {
   return <AppProvider>
     <Icons />
-    <Header />
-    <main id="main"><Pages /></main>
-    <Foot />
-    <FeedbackButton />
+    <Body />
   </AppProvider>;
 }
 

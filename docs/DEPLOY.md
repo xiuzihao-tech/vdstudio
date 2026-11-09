@@ -36,7 +36,8 @@ npm run start:env           # = node --env-file=.env dist/server.js
    DAILY_BUDGET_POINTS=3000    # 全站每天最多花 3000 点，超了自动停
    PUBLIC_BASE_URL=https://你的域名
    FILE_SIGN_SECRET=一串长随机字符
-   LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=...   # 文案模型
+   SECRETS_KEY=另一串长随机字符   # 后台「上游接口」里填的密钥用它加密，设了别改
+   LLM_BASE_URL=... LLM_API_KEY=... LLM_MODEL=...   # 文案模型（也可以上线后在后台「上游接口」里填）
    ARK_API_KEY=...                                   # Seedance
    ```
 4. 域名 A 记录指到服务器 IP，然后：
@@ -44,15 +45,19 @@ npm run start:env           # = node --env-file=.env dist/server.js
    cd deploy && docker compose up -d --build
    ```
    Caddy 会自动申请 HTTPS 证书。`docker compose logs -f app` 看日志；`curl https://你的域名/healthz` 应返回 `{"ok":true,...}`。
-5. 用 `ADMIN_EMAILS` 里的邮箱注册（管理员不需要邀请码）→ 顶栏「后台」→「邀请码」生成链接，发给试用者。
+5. 用 `ADMIN_EMAILS` 里的邮箱注册（管理员不需要邀请码）→ 左侧菜单「后台」→「兑换码与邀请码」生成链接，发给试用者。后台怎么用见 `docs/后台与技能.md`。
 
 ### 日常运维
 
 | 要做什么 | 怎么做 |
 |---|---|
-| 临时停掉所有生成（发现花费异常） | 后台 → 概览 → 关掉「生成开放中」 |
-| 给某人加点 | 后台 → 用户 → ＋500 点 |
-| 看用户反馈 | 后台 → 反馈 |
+| 临时停掉所有生成（发现花费异常） | 后台 → 数据总览 → 最下面关掉「生成开放中」；或 上游接口 → 视频用哪家 → 模拟 |
+| 给某人加点 / 扣点 | 后台 → 积分系统 → 手动调整（要写原因，记操作日志） |
+| 用户说片子不满意要退点 | 后台 → 出片任务 → 人工退点（每条一次） |
+| 改价格、提示词、邀请奖励 | 后台 → 积分系统 / 技能中心 / 邀请赠送（存版本，能回滚） |
+| 换大模型、视频、支付的密钥 | 后台 → 上游接口 → 测试连接 → 保存（马上生效，不用重启） |
+| 看用户反馈 | 后台 → 用户反馈 |
+| 谁改了什么 | 后台 → 操作日志 |
 | 更新版本 | `git pull && cd deploy && docker compose up -d --build` |
 | 备份 | `backup` 容器每天自动做一份，保留 14 份，在数据卷的 `/data/backups` |
 | 恢复备份 | 停掉 app，把备份文件复制成 `/data/app.db`，再启动 |
@@ -62,9 +67,11 @@ npm run start:env           # = node --env-file=.env dist/server.js
 - [ ] `.env` 里 `AUTH_REQUIRED=1`、`INVITE_REQUIRED=1`（`SECURE_COOKIES` 由 compose 自动设为 1）
 - [ ] 设了 `DAILY_BUDGET_POINTS`，并在 OpenLux、土豆两个站的后台也设了消费上限（双保险）
 - [ ] 设了 `FILE_SIGN_SECRET`（`openssl rand -hex 32` 生成）和 `ADMIN_EMAILS`——没设的话服务**会拒绝启动**，`docker compose logs app` 里能看到缺什么
+- [ ] 设了 `SECRETS_KEY`（同样 `openssl rand -hex 32`），没设启动时会提醒；`DEMO_ADMIN` 不能开
 - [ ] 文件存储：建好 OSS / COS 桶，填 `STORAGE=s3` 和 `S3_*`（见 `.env.example`）；先用本机存储也行，但要备份数据卷
 - [ ] 两个 AI 站的密钥换成新生成的（旧的在聊天里出现过）
-- [ ] 后台「AI 服务」点「用推荐配置」→「保存」→「测试文案模型」
+- [ ] 后台「上游接口」：文案大模型、视频、支付逐个「测试连接」都通过
+- [ ] 后台「邀请赠送」「积分系统」里的奖励和价格改成定好的数（现在是占位）
 - [ ] 用一个普通账号走一遍：注册 → 出选题 → 写文案 → 生成 → 下载
 - [ ] `/healthz` 正常；`docker compose ps` 三个容器都在运行
 

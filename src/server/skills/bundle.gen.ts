@@ -1663,6 +1663,7 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "baseUrl",
     "label": "接口地址",
     "env": "LLM_BASE_URL",
+    "required": true,
     "placeholder": "https://ark.cn-beijing.volces.com/api/v3",
     "help": "到 /v1 或 /api/v3 为止，不要带 /chat/completions"
    },
@@ -1670,12 +1671,14 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "apiKey",
     "label": "API Key",
     "env": "LLM_API_KEY",
+    "required": true,
     "secret": true
    },
    {
     "key": "model",
     "label": "默认模型",
     "env": "LLM_MODEL",
+    "required": true,
     "placeholder": "deepseek-v4-flash"
    },
    {
@@ -1727,6 +1730,7 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "model",
     "label": "模型",
     "env": "VISION_MODEL",
+    "required": true,
     "placeholder": "doubao-1.5-vision-pro"
    }
   ]
@@ -1750,6 +1754,7 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "apiKey",
     "label": "API Key",
     "env": "ARK_API_KEY",
+    "required": true,
     "secret": true
    },
    {
@@ -1808,12 +1813,14 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "baseUrl",
     "label": "接口地址",
     "env": "VIDEO_BASE_URL",
+    "required": true,
     "placeholder": "https://api.tudou.example/v1"
    },
    {
     "key": "apiKey",
     "label": "API Key",
     "env": "VIDEO_API_KEY",
+    "required": true,
     "secret": true
    },
    {
@@ -1870,6 +1877,7 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "apiKey",
     "label": "API Key",
     "env": "TTS_API_KEY",
+    "required": true,
     "secret": true
    },
    {
@@ -1908,22 +1916,26 @@ export const SKILL_FILES: SkillFile[] = [
    {
     "key": "mchid",
     "label": "商户号",
-    "env": "WXPAY_MCHID"
+    "env": "WXPAY_MCHID",
+    "required": true
    },
    {
     "key": "appid",
     "label": "AppID",
-    "env": "WXPAY_APPID"
+    "env": "WXPAY_APPID",
+    "required": true
    },
    {
     "key": "serialNo",
     "label": "商户证书序列号",
-    "env": "WXPAY_SERIAL_NO"
+    "env": "WXPAY_SERIAL_NO",
+    "required": true
    },
    {
     "key": "privateKey",
     "label": "商户私钥（PEM）",
     "env": "WXPAY_PRIVATE_KEY",
+    "required": true,
     "secret": true,
     "type": "textarea"
    },
@@ -1931,12 +1943,14 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "apiV3Key",
     "label": "APIv3 密钥",
     "env": "WXPAY_API_V3_KEY",
+    "required": true,
     "secret": true
    },
    {
     "key": "platformPublicKey",
     "label": "微信支付公钥（PEM）",
     "env": "WXPAY_PLATFORM_PUBLIC_KEY",
+    "required": true,
     "type": "textarea"
    },
    {
@@ -1965,12 +1979,14 @@ export const SKILL_FILES: SkillFile[] = [
    {
     "key": "appId",
     "label": "应用 ID",
-    "env": "ALIPAY_APP_ID"
+    "env": "ALIPAY_APP_ID",
+    "required": true
    },
    {
     "key": "privateKey",
     "label": "应用私钥（PEM）",
     "env": "ALIPAY_PRIVATE_KEY",
+    "required": true,
     "secret": true,
     "type": "textarea"
    },
@@ -1978,6 +1994,7 @@ export const SKILL_FILES: SkillFile[] = [
     "key": "publicKey",
     "label": "支付宝公钥（PEM）",
     "env": "ALIPAY_PUBLIC_KEY",
+    "required": true,
     "type": "textarea"
    },
    {

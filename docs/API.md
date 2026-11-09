@@ -71,3 +71,52 @@
 |---|---|---|
 | GET | /api/covers | 列表 |
 | POST | /api/covers | `{title, style, generate}`；generate=true 扣 12 点 |
+
+## 一键生成视频 / 诊断的 AI 技能（11/9）
+提示词和规则都在后台「技能中心」；接了大模型且技能里 `useLlm=true` 就走模型，出错、格式不对按规则兜底。返回里的 `path` 是 `llm` 或 `rule`。
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /api/catalog | 成片类型和价格、样片、积分口径、数字人和声音、诊断和发布包装参数（session 里也带着 `catalog`） |
+| POST | /api/studio/advise | `{mats, copy, pick}` → `{advice: {type, why, fit, fitText, chips}}` |
+| POST | /api/studio/storyboard | `{mats, copy, type, face, target?}` → `{shots}` |
+| POST | /api/studio/pack | `{type, lines, city?}` → `{title, caption, tags, pick, banned, tagMin, tagMax, titleMax}` |
+| POST | /api/studio/diag/next | `{msgs, asked}` → `{msg}`；没解锁 402 |
+| POST | /api/studio/diag/report | `{answers, name?}` → `{result}`；回答少于技能里的 `minAnswers` 返回 400 |
+| POST | /api/studio/diag/topics | `{result, counts}` → `{topics, schedule: {weekdays, time}}` |
+
+## 邀请有礼（11/9）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | /api/referral/click | `{code}` 分享链接被打开（前端同一会话只报一次） |
+| GET | /api/referral/preview?code= | `{preview: {name, bonus}}`，注册页显示「谁邀请你、多送几点」 |
+| GET | /api/referral | 我的邀请码、打开 / 注册 / 充值人数、得到的点数、规则、记录（没登录返回 `{needLogin: true}`） |
+| POST | /api/referral/share | 分享奖励（每天第一次；奖励为 0 就不发） |
+| POST | /api/auth/register | 多了 `ref`（邀请码）；返回多了 `gift`（这次注册一共送了几点） |
+
+## 后台（11/9，dazheip 后台同款）
+都要后台账号；按角色检查权限（`src/shared/admin.ts`），没权限 403。改东西的都记操作日志。
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | /api/admin/me | 任意后台账号 | 我的角色和权限、所有角色、dazheip 原有菜单的外链 |
+| GET | /api/admin/dashboard?days= | overview | 数据块、成片类型覆盖、价格表、近 14 天、服务接入 |
+| GET | /api/admin/skills · /:id | skills | 技能列表 / 详情（提示词、参数、默认值、版本、调用统计、最近调用） |
+| PUT | /api/admin/skills/:id | skills | `{data: {enabled, prompts, config}, note}` 存成新版本并启用；格式不对 400 |
+| POST | /api/admin/skills/:id/activate | skills | `{version}` 切到某一版；0 = 恢复仓库默认 |
+| POST | /api/admin/skills/:id/enabled | skills | `{enabled}` 启用 / 停用（也存成一版） |
+| POST | /api/admin/skills/:id/test | skills | `{input, data?, force?: 'llm'｜'rule'}` 试运行（能用没保存的草稿），不记调用、不扣点 |
+| GET | /api/admin/skills/:id/versions/:v · /export | skills | 某一版的内容 / 导出 JSON（`scripts/skill-import.mjs` 能写回仓库） |
+| GET | /api/admin/upstreams | upstreams | 7 个上游接口的状态、字段（密钥打码）、来源、调用统计；视频用哪家 |
+| PUT | /api/admin/upstreams/:id | upstreams | `{enabled?, values?}`；密钥传空 = 不改，传 null = 清掉；保存后马上重新接上 |
+| POST | /api/admin/upstreams/:id/test · /models | upstreams | 测试连接（可带没保存的值）/ 拉模型列表 |
+| PUT | /api/admin/upstreams/video-provider | upstreams | `{provider: auto｜seedance｜newapi｜mock}` |
+| GET / PUT | /api/admin/points | points | 按类型统计、流水搜索、积分规则 |
+| PUT | /api/admin/points/types | points | 成片类型的价格、时长、启用 |
+| POST | /api/admin/points/adjust | points | `{email, delta, reason}` 手动加 / 扣（扣到 0 为止） |
+| GET / PUT | /api/admin/referral | referral | 邀请数据、排行、记录、规则 |
+| POST | /api/admin/referral/:id/revoke | referral | `{note}` 收回这条邀请发出的全部点数 |
+| GET | /api/admin/jobs | jobs | 全站出片任务 |
+| POST | /api/admin/jobs/:id/refund | jobs | `{reason}` 人工退点（每条一次；失败的已自动退） |
+| PUT | /api/admin/billing | points | 充值套餐和诊断价格（存进技能「积分规则」） |
+| POST | /api/admin/billing/orders/:id/refund | orders + points | 标记退款：扣回点数，这笔订单带出的首充、返点一起收回 |
+| GET / POST / DELETE | /api/admin/admins | admins | 后台账号（ADMIN_EMAILS 里的超级管理员不在这里） |
+| GET | /api/admin/audit?q= | audit | 操作日志（最近 300 条） |

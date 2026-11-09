@@ -6,6 +6,10 @@ import type { CopyCheck, Rewrite } from '../shared/copy.ts';
 import { API_BASE, CREDENTIALS } from './config.ts';
 import type { MakeDraft, StudioState } from '../shared/studio.ts';
 import type { BillingConfig, Order, PayChannel, Product } from '../shared/billing.ts';
+import type { AdminMe, AdminRole, AdminPerm } from '../shared/admin.ts';
+import type { SkillCategory, SkillData, SkillView, UpstreamField, UpstreamStatus, SkillStats } from '../shared/skills.ts';
+import type { LedgerItem, LedgerKind } from '../shared/points.ts';
+import type { Catalog, DiagMsg, DiagResult, Mat, Shot, VType } from '../shared/studio.ts';
 
 export interface AiStatus {
   copy: { kind: 'mock' | 'llm'; baseUrl?: string; model?: string; envModel?: string; fineModel?: string; fallbacks?: string[] };
@@ -31,7 +35,58 @@ async function call<T>(method: string, path: string, data?: unknown, headers: Re
 export interface Session { user: { email: string; name: string } | null; isAdmin: boolean; authRequired: boolean; inviteRequired: boolean; limits: { dailyJobs: number; jobsToday: number; genPaused: boolean }; ai: { copy: 'mock' | 'llm'; video: 'mock' | 'seedance' | 'newapi'; tts: 'mock' | 'minimax' | 'none'; vision: 'llm' | 'none'; /** 素材图能否当首帧发给视频服务 */ firstFrame?: boolean }; workspace: Workspace; persona: Persona; personas: { id: PersonaId; n: string }[]; models: VideoModel[]; today: string;
   /** 模块开关：每个模块对这个用户是能用 / 预告 / 看不到 */
   modules: Record<string, ModView>; modulePro: string[];
-  storage: { retentionDays: number; capacityMb: number; usedBytes: number } }
+  storage: { retentionDays: number; capacityMb: number; usedBytes: number };
+  /** 后台账号（没有 = 不是后台账号） */
+  admin: AdminMe | null;
+  /** 技能中心里的目录：成片类型和价格、样片、积分口径、数字人、诊断和发布包装的参数（后台改了马上生效） */
+  catalog: ServerCatalog }
+export interface ServerCatalog extends Catalog {
+  diag: { stages: string[]; welcome: string; minAnswers: number; demoName: string; demoAnswers: string[]; sample: DiagResult };
+  pack: { tagMin: number; tagMax: number; titleMax: number; banned: string[] };
+}
+
+/* ---------- 后台（dazheip 后台同款）返回的数据 ---------- */
+export interface AdminMenu { id: string; n: string; url: string }
+export interface AdminDashboard {
+  days: number;
+  tiles: { users: number; usersNew: number; payers: number; orders: number; revenue: number; revenuePeriod: number; jobs: number; finals: number; failed: number; spent: number;
+    issuedPaid: number; issuedGift: number; balance: number; referrals: number; diagUnlocks: number; skills: number; skillsEdited: number; upstreams: number; upstreamsOn: number; feedbackNew: number };
+  coverage: { name: string; n: number; final: number; sample: number; failed: number; cost: number }[];
+  typePrices: { id: string; n: string; pts: number; sample: number; secs: number; enabled: boolean }[];
+  trend: { day: string; users: number; jobs: number; amount: number }[];
+  ai: { copy: string; video: string; tts: string; vision: string }; pay: { channels: string[]; mock: boolean };
+}
+export interface SkillRun { out: any; path: 'llm' | 'rule'; ms: number; error?: string; prompt?: { system: string; user: string; missing: string[] }; raw?: string; model?: string }
+export interface SkillCall { path: string; ok: number; ms: number; error: string | null; createdAt: string }
+export interface UpstreamView { id: string; name: string; summary: string; doc: string; fields: UpstreamField[]; status: UpstreamStatus; meta: { updatedAt: string | null; by: string | null }; stats: SkillStats }
+export interface AiInfo { copy: string; video: string; tts: string; vision: string }
+export interface PointsAdmin {
+  days: number; byKind: { kind: LedgerKind; name: string; sum: number; n: number }[]; kinds: Record<LedgerKind, string>;
+  ledger: { delta: number; reason: string; kind: LedgerKind; createdAt: string; email: string | null; name: string | null }[];
+  balance: number; config: PointsConfig; version: number;
+  types: { id: string; n: string; pts: number; secs: number; sample: number; enabled: boolean }[];
+}
+export interface PointsConfig { pointName: string; secondsPerPoint: number; sampleRate: number; sampleMin: number; minCost: number; initialPoints: number | null; signupBonus: number; lowBalance: number; diagPrice: number; orderTtlMin: number; packages: { id: string; n: string; price: number; points: number; bonus: number; tag?: string }[] }
+export interface ReferralConfig {
+  enabled: boolean;
+  invite: { inviterPoints: number; inviteePoints: number; rewardOn: 'register' | 'first_gen' | 'first_pay'; dailyCap: number; monthlyCap: number; ipDailyLimit: number };
+  rebate: { rate: number; scope: 'first' | 'all'; days: number; capPerInvitee: number };
+  firstRecharge: { fixed: number; rate: number };
+  shareDaily: number; shareTitle: string; shareText: string; rules: string[];
+}
+export type RefStatus = 'pending' | 'rewarded' | 'capped' | 'blocked' | 'revoked';
+export interface ReferralRow { id: string; code: string; inviter: string | null; inviterName: string | null; invitee: string | null; inviteeName: string | null; ip: string | null; status: RefStatus; statusName: string; note: string; createdAt: string; activatedAt: string | null; paid: number; inviterPoints: number; inviteePoints: number }
+export interface ReferralAdmin {
+  stats: { clicks: number; registrations: number; rewarded: number; payers: number; payAmount: number; points: Record<string, number>; top: { email: string | null; name: string | null; n: number; ok: number; earned: number }[] };
+  days: number; list: ReferralRow[]; config: ReferralConfig; version: number; rules: string[];
+}
+export interface MyReferral {
+  code: string; clicks: number; earned: number; enabled: boolean; invited: number; rewarded: number; recharged: number;
+  cfg: { inviter: number; invitee: number; rate: number; days: number; rewardOn: 'register' | 'first_gen' | 'first_pay'; shareTitle: string; shareText: string; shareDaily: number; rules: string[] };
+  records: { who: string; email: string; createdAt: string; status: RefStatus; statusName: string; paid: boolean; points: number }[];
+}
+export interface AdminJob { id: string; kind: string; status: string; cost: number; title: string; error: string | null; createdAt: string; updatedAt: string; email: string; type: string; model: string; draft: boolean; len: number; manualRefund: boolean }
+export interface AuditItem { id: number; actor: string; action: string; target: string; detail: string | null; createdAt: string }
 export interface ModuleUsage { opens: number; users: number; done: number | null }
 export interface StorageInfo { retentionDays: number; capacityMb: number; usedBytes: number; expiring: { kind: 'asset' | 'video'; id: string; name: string; url: string | null; expiresAt: string; daysLeft: number }[] }
 export type EmptyDay = { date: string; empty: true; weekday: string; label: string };
@@ -54,7 +109,7 @@ const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o)
 
 export const api = {
   session: () => call<Session>('GET', '/api/session'),
-  register: (email: string, password: string, name: string, invite?: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/register', { email, password, name, invite: invite || undefined }),
+  register: (email: string, password: string, name: string, invite?: string, ref?: string) => call<{ user: { email: string; name: string }; message: string; gift: number }>('POST', '/api/auth/register', { email, password, name, invite: invite || undefined, ref: ref || undefined }),
   authConfig: () => call<{ authRequired: boolean; inviteRequired: boolean }>('GET', '/api/auth/config'),
   track: (name: string, props?: Record<string, string | number | boolean>) => call<{ ok: true }>('POST', '/api/events', { name, props }).catch(() => undefined),
   feedback: (text: string, page: string, contact: string) => call<{ ok: true }>('POST', '/api/feedback', { text, page, contact }),
@@ -78,6 +133,63 @@ export const api = {
     saveBilling: (c: BillingConfig) => call<{ config: BillingConfig }>('PUT', '/api/admin/billing', c),
     refundOrder: (id: string) => call<{ ok: true; note: string }>('POST', `/api/admin/billing/orders/${id}/refund`),
     setPaused: (genPaused: boolean) => call<{ settings: { genPaused: boolean } }>('PUT', '/api/admin/settings', { genPaused }),
+
+    /* ---------- 新后台：数据总览、技能中心、上游接口、积分、邀请、任务、后台账号、日志 ---------- */
+    me: () => call<{ me: AdminMe; roles: Record<AdminRole, { n: string; d: string; perms: AdminPerm[] }>; dazheip: { base: string; menu: AdminMenu[] } }>('GET', '/api/admin/me'),
+    dashboard: (days = 30) => call<AdminDashboard>('GET', `/api/admin/dashboard?days=${days}`),
+    skills: () => call<{ skills: SkillView[]; categories: Record<SkillCategory, string> }>('GET', '/api/admin/skills'),
+    skill: (id: string) => call<{ skill: SkillView; calls: SkillCall[] }>('GET', `/api/admin/skills/${id}`),
+    skillVersion: (id: string, v: number) => call<{ data: SkillData }>('GET', `/api/admin/skills/${id}/versions/${v}`),
+    saveSkill: (id: string, data: SkillData, note: string) => call<{ skill: SkillView; version: number }>('PUT', `/api/admin/skills/${id}`, { data, note }),
+    activateSkill: (id: string, version: number) => call<{ skill: SkillView }>('POST', `/api/admin/skills/${id}/activate`, { version }),
+    enableSkill: (id: string, enabled: boolean) => call<{ skill: SkillView }>('POST', `/api/admin/skills/${id}/enabled`, { enabled }),
+    testSkill: (id: string, input: Record<string, unknown>, data?: SkillData, force?: 'llm' | 'rule') => call<SkillRun>('POST', `/api/admin/skills/${id}/test`, { input, data, force }),
+    exportSkill: async (id: string) => {
+      const res = await fetch(`${API_BASE}/api/admin/skills/${id}/export`, { credentials: CREDENTIALS });
+      if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.error ?? `导出失败（${res.status}）`);
+      const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `${id}.json`;
+      return { name, blob: await res.blob() };
+    },
+    upstreams: () => call<{ upstreams: UpstreamView[]; videoProvider: string; ai: AiInfo; pay: { channels: string[]; mock: boolean }; videoStats: SkillStats }>('GET', '/api/admin/upstreams'),
+    saveUpstream: (id: string, p: { enabled?: boolean; values?: Record<string, string | null> }) => call<{ upstreams: UpstreamView[]; ai: AiInfo; pay: { channels: string[]; mock: boolean } }>('PUT', `/api/admin/upstreams/${id}`, p),
+    testUpstream: (id: string, values: Record<string, string>) => call<{ ok: boolean; ms: number; message: string }>('POST', `/api/admin/upstreams/${id}/test`, { values }),
+    upstreamModels: (id: string) => call<{ models: string[] }>('POST', `/api/admin/upstreams/${id}/models`, {}),
+    setVideoProvider: (provider: string) => call<{ videoProvider: string; ai: AiInfo }>('PUT', '/api/admin/upstreams/video-provider', { provider }),
+    points: (q: { days?: number; q?: string; kind?: string } = {}) => call<PointsAdmin>('GET', `/api/admin/points?${qs({ days: q.days ?? 30, q: q.q ?? '', kind: q.kind ?? '' })}`),
+    savePoints: (config: Partial<PointsConfig>, note = '') => call<{ config: PointsConfig }>('PUT', '/api/admin/points', { config, note }),
+    saveTypes: (types: { id: string; pts: number; secs: number; enabled: boolean }[]) => call<{ types: PointsAdmin['types'] }>('PUT', '/api/admin/points/types', { types }),
+    adjust: (email: string, delta: number, reason: string) => call<{ delta: number; balance: number }>('POST', '/api/admin/points/adjust', { email, delta, reason }),
+    referral: (q: { days?: number; status?: string; q?: string } = {}) => call<ReferralAdmin>('GET', `/api/admin/referral?${qs({ days: q.days ?? 30, status: q.status ?? '', q: q.q ?? '' })}`),
+    saveReferral: (config: Partial<ReferralConfig>, note = '') => call<{ config: ReferralConfig; rules: string[] }>('PUT', '/api/admin/referral', { config, note }),
+    revokeReferral: (id: string, note: string) => call<{ back: number }>('POST', `/api/admin/referral/${id}/revoke`, { note }),
+    jobs: (q: { status?: string; q?: string } = {}) => call<{ jobs: AdminJob[]; counts: Record<string, number> }>('GET', `/api/admin/jobs?${qs({ status: q.status ?? '', q: q.q ?? '' })}`),
+    refundJob: (id: string, reason: string) => call<{ points: number }>('POST', `/api/admin/jobs/${id}/refund`, { reason }),
+    admins: () => call<{ supers: string[]; admins: { email: string; role: AdminRole; note: string; createdAt: string; createdBy: string }[]; roles: Record<AdminRole, { n: string; d: string; perms: AdminPerm[] }> }>('GET', '/api/admin/admins'),
+    addAdmin: (email: string, role: AdminRole, note: string) => call<{ ok: true }>('POST', '/api/admin/admins', { email, role, note }),
+    removeAdmin: (email: string) => call<{ ok: true }>('DELETE', `/api/admin/admins/${encodeURIComponent(email)}`),
+    audit: (q = '') => call<{ items: AuditItem[] }>('GET', `/api/admin/audit?${qs({ q })}`),
+  },
+  /** 一键生成视频 / 诊断的 AI 技能（服务端按技能中心的提示词和规则出；接了大模型走模型） */
+  studioAi: {
+    advise: (mats: Pick<Mat, 'kind' | 'name'>[], copy: string, pick: VType | 'auto') => call<{ advice: { type: VType; why: string; [k: string]: unknown }; path: 'llm' | 'rule' }>('POST', '/api/studio/advise', { mats: mats.slice(0, 40).map(m => ({ kind: m.kind, name: m.name.slice(0, 120) })), copy: copy.slice(0, 4000), pick }),
+    storyboard: (mats: Mat[], copy: string, type: VType, face: 'avatar' | 'none', target?: number) => call<{ shots: Shot[]; path: 'llm' | 'rule' }>('POST', '/api/studio/storyboard', { mats: mats.slice(0, 40).map(m => ({ id: m.id.slice(0, 40), name: m.name.slice(0, 120), kind: m.kind, k: m.k.slice(0, 20) })), copy: copy.slice(0, 4000), type, face, target: target ? Math.max(3, Math.min(600, Math.round(target))) : undefined }),
+    pack: (type: VType, lines: string[], city?: string) => call<{ title: string; caption: string; tags: [string, string[]][]; pick: string[]; banned: string[]; tagMin: number; tagMax: number; titleMax: number; path: 'llm' | 'rule' }>('POST', '/api/studio/pack', { type, lines: lines.slice(0, 20).map(l => l.slice(0, 300)), city }),
+    diagNext: (msgs: DiagMsg[], asked: number) => call<{ msg: DiagMsg & { done?: boolean }; path: 'llm' | 'rule' }>('POST', '/api/studio/diag/next', { msgs: msgs.slice(-400).map(m => ({ ...m, text: m.text.slice(0, 2000) })), asked: Math.min(400, asked) }),
+    diagReport: (answers: string[], name?: string) => call<{ result: DiagResult; path: 'llm' | 'rule' }>('POST', '/api/studio/diag/report', { answers: answers.slice(-200).map(a => a.slice(0, 2000)), name: name?.slice(0, 20) }),
+    diagTopics: (r: DiagResult, counts: number[]) => {
+      // 用户能改栏目名、标签：按服务端的长度上限截一下，免得多打几个字就整个请求被拒
+      const cut = (x: unknown, n: number) => String(x ?? '').slice(0, n);
+      const result = { who: cut(r.who, 20), tags: { personal: r.tags.personal.map(t => cut(t, 30)), pro: r.tags.pro.map(t => cut(t, 40)), brand: r.tags.brand.map(t => cut(t, 60)) },
+        columns: r.columns.slice(0, 8).map(c => ({ n: cut(c.n, 20), d: cut(c.d, 200), eg: cut(c.eg, 80), freq: Math.max(1, Math.min(7, Math.round(c.freq) || 1)), src: cut(c.src, 60), type: c.type, ask: cut(c.ask, 80), unit: cut(c.unit, 6) })) };
+      return call<{ topics: { title: string; column: string; type: VType; why: string }[]; path: 'llm' | 'rule'; schedule: { weekdays: number[]; time: string } }>('POST', '/api/studio/diag/topics', { result, counts: counts.slice(0, 8).map(n => Math.max(0, Math.min(99, Math.round(n)))) });
+    },
+  },
+  /** 邀请有礼 */
+  referral: {
+    mine: () => call<({ needLogin: true }) | ({ needLogin: false } & MyReferral)>('GET', '/api/referral'),
+    click: (code: string) => call<{ ok: boolean }>('POST', '/api/referral/click', { code }),
+    preview: (code: string) => call<{ preview: { name: string; bonus: number } | null }>('GET', `/api/referral/preview?code=${encodeURIComponent(code)}`),
+    share: () => call<{ points: number }>('POST', '/api/referral/share'),
   },
   login: (email: string, password: string) => call<{ user: { email: string; name: string }; message: string }>('POST', '/api/auth/login', { email, password }),
   logout: () => call<{ ok: true }>('POST', '/api/auth/logout'),
@@ -134,7 +246,7 @@ export const api = {
   genVoice: (lines: string[], speed: number, voice: string) => call<{ provider: string; secs: number[] }>('POST', '/api/gen/voice', { lines, speed, voice }),
   createAvatar: (kind: 'clone' | 'photo', file: Blob | null) => call<{ avatars: Workspace['avatars'] }>('POST', '/api/avatars', file ?? new Blob(['demo']), { 'content-type': file?.type || 'application/octet-stream', 'x-kind': kind, 'x-consent': 'yes', ...(file ? {} : { 'x-sample': 'demo' }) }),
   deleteAvatar: (kind: 'clone' | 'photo') => call<{ avatars: Workspace['avatars'] }>('DELETE', `/api/avatars/${kind}`),
-  ledger: () => call<{ items: { delta: number; reason: string; createdAt: string }[] }>('GET', '/api/ledger'),
+  ledger: () => call<{ items: LedgerItem[] }>('GET', '/api/ledger'),
   redeem: (code: string) => call<{ points: number; balance: number }>('POST', '/api/points/redeem', { code }),
   genCheck: (g: GenSettings) => call<{ issues: GenIssue[]; shots: PlannedShot[]; cost: number; finalCost: number }>('POST', '/api/gen/check', g),
   generate: (settings: GenSettings, final: boolean, title: string) => call<Job>('POST', '/api/gen', { settings, final, title }),

@@ -3,12 +3,14 @@
     "key": "baseUrl",
     "label": "接口地址",
     "env": "VIDEO_BASE_URL",
+    "required": true,
     "placeholder": "https://api.tudou.example/v1"
   },
   {
     "key": "apiKey",
     "label": "API Key",
     "env": "VIDEO_API_KEY",
+    "required": true,
     "secret": true
   },
   {

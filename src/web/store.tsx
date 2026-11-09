@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, type Session } from './api.ts';
 import { setVideoModels } from '../shared/gen.ts';
+import { applyServerCatalog } from './catalog.ts';
 import type { GenSettings, Topic } from '../shared/types.ts';
 
 export type View = 'home' | 'ip' | 'gen' | 'wb' | 'plan' | 'ops' | 'me' | 'lib' | 'admin' | 'talk' | 'diag' | 'make' | 'mat' | 'sched' | 'data' | 'pay';
@@ -50,7 +51,7 @@ export const useApp = () => { const c = useContext(C); if (!c) throw new Error('
 export function AppProvider({ children }: { children: ReactNode }) {
   const [session, setSessionRaw] = useState<Session | null>(null);
   /** 换会话时同步视频档位目录（服务端按接入的中转站给出实际能力），保证前后端校验一致 */
-  const setSession = useCallback((s: Session | null) => { if (s?.models) setVideoModels(s.models); setSessionRaw(s); }, []);
+  const setSession = useCallback((s: Session | null) => { if (s?.models) setVideoModels(s.models); if (s?.catalog) applyServerCatalog(s.catalog); setSessionRaw(s); }, []);
   const [route, setRoute] = useState<Route>(() => parseRoute(curPath()));
   const [toastMsg, setToast] = useState<{ m: string; n: number } | null>(null);
   const [sheetSpec, setSheet] = useState<SheetSpec | null>(null);

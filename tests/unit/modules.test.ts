@@ -11,9 +11,9 @@ process.env.MOCK_DELAY_MS = '0';
 process.env.AI_PROVIDER = 'mock';
 const { createApp } = await import('../../src/server/app.ts');
 
-test('模块清单：51 个，一期 33 / 二期 13 / 三期 5（口播数字人、充值提到一期），先做 6 个，依赖都存在', () => {
+test('模块清单：51 个，一期 34 / 二期 12 / 三期 5（口播数字人、充值、邀请有礼提到一期），先做 6 个，依赖都存在', () => {
   assert.equal(MODULES.length, 51);
-  assert.deepEqual([1, 2, 3].map(p => MODULES.filter(m => m.phase === p).length), [33, 13, 5]);
+  assert.deepEqual([1, 2, 3].map(p => MODULES.filter(m => m.phase === p).length), [34, 12, 5]);
   assert.equal(MODULES.filter(m => m.first).length, 6);
   const ids = new Set(MODULES.map(m => m.id));
   assert.equal(ids.size, 51);

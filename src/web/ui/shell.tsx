@@ -91,7 +91,8 @@ export function Header() {
       </nav>
       <div className="dzlinks">{DZ_AFTER.map(dzLink)}</div>
       <span className="sp" />
-      <button className="pts" id="ptsBtn" aria-current={route.view === 'pay' ? 'page' : undefined} onClick={() => session && (mods.on('points') ? nav('pay') : sheet({ title: '点数', body: <PointsSheet /> }))}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点<span className="ptsub">1点=1秒 · 充值 ›</span></button>
+      <button className="pts" id="ptsBtn" aria-current={route.view === 'pay' && route.sub !== 'invite' ? 'page' : undefined} onClick={() => session && (mods.on('points') ? nav('pay') : sheet({ title: '点数', body: <PointsSheet /> }))}>余额 <b id="bal">{Math.round(session?.workspace.balance ?? 0).toLocaleString()}</b> 点<span className="ptsub">1点=1秒 · 充值 ›</span></button>
+      {session && mods.on('points') && mods.on('invite') && <button className="ptsinv" id="inviteBtn" aria-current={route.view === 'pay' && route.sub === 'invite' ? 'page' : undefined} onClick={() => nav({ view: 'pay', sub: 'invite' })}>🎁 邀请好友 · 双方得点数</button>}
       {session && !session.user && <button className="btn g sm" id="loginBtn" onClick={() => sheet({ title: '登录', body: <AuthForm onDone={() => sheet(null)} /> })}>登录</button>}
       <button className="who" id="whoBtn" aria-label="切换身份和账号" onClick={whoSheet} disabled={!session}>{session ? `${session.user ? `${session.user.name} · ` : ''}${session.persona.n}` : '…'}</button>
       <button className="ico" id="taskBtn" aria-label="任务" onClick={jobsSheet}><svg><use href="#i-task" /></svg>{running > 0 && <span className="n">{running}</span>}</button>
@@ -125,6 +126,23 @@ export function Icons() {
       <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
       <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8" /></symbol>
       <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></symbol>
+      {/* 后台菜单 */}
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="4" rx="1" /><rect x="13" y="10" width="7" height="10" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /></symbol>
+      <symbol id="i-chip" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" /></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4" /></symbol>
+      <symbol id="i-coin" viewBox="0 0 24 24"><ellipse cx="12" cy="7" rx="7" ry="3" /><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5" /></symbol>
+      <symbol id="i-gift" viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="11" rx="1" /><path d="M3 9h18M12 9v11M12 9c-2-4-6-4-6-1.5S9 9 12 9zM12 9c2-4 6-4 6-1.5S15 9 12 9z" /></symbol>
+      <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6M9 16h3" /></symbol>
+      <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" /><path d="M3 19c.8-3.4 3.2-5 6-5s5.2 1.6 6 5M16 5.5a3 3 0 0 1 0 5.5M18 14c1.6.6 2.6 2.2 3 5" /></symbol>
+      <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4V7zM14 7v10" /></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5z" /></symbol>
+      <symbol id="i-toggle" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="5" /><circle cx="16" cy="12" r="3" /></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" /><path d="M11 11l8-8M16 6l2 2M14 8l2 2" /></symbol>
+      <symbol id="i-log" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6V3zM15 3v4h4M9 11h7M9 15h7" /></symbol>
+      <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5" /></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M10 6l-6 6 6 6M4 12h16" /></symbol>
+      <symbol id="i-out" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" /></symbol>
     </svg>
   );
 }

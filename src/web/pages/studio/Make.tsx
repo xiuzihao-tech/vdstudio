@@ -9,9 +9,10 @@ import { DAZHEIP_URL, fileUrl } from '../../config.ts';
 import { useRecharge } from './Pay.tsx';
 import { speak } from '../Gen.tsx';
 import { AvatarArt, CoverArt, Player, Schema, Thumb, useStudio } from './common.tsx';
+import { CAT, bannedWords } from '../../catalog.ts';
 import {
-  ACCOUNTS, AUTO, AVATARS, FONT_NOTE, OPT, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, mmss, newDraft, pack, sampleCost, shotReady, splitLines, totalSecs, vtype, whenLabel,
-  type MakeDraft, type Mat, type PlanItem, type Sample, type SampleCat, type Shot, type VType,
+  ACCOUNTS, AUTO, AVATARS, FONT_NOTE, OPT, SAMPLES, SAMPLE_CATS, VOICES, VTYPES, addDays, advise, avatarOf, buildShots, chars, costOf, liveTypes, mmss, newDraft, pack, sampleCost, shotReady, splitLines, totalSecs, vtype, whenLabel,
+  type Advice, type MakeDraft, type Mat, type PlanItem, type Sample, type SampleCat, type Shot, type VType,
 } from '../../../shared/studio.ts';
 import type { Asset, Job, VideoOutput } from '../../../shared/types.ts';
 
@@ -22,7 +23,36 @@ const SAMPLE_COPY = '这套140㎡意式极简，我最想让你看两个细节�
 const toMat = (a: Asset): Mat => ({ id: a.id, name: a.name, kind: a.type === '视频' || a.mime?.startsWith('video/') ? 'video' : 'photo', k: a.k, url: a.url, mime: a.mime });
 const nowIso = () => new Date().toISOString();
 const ago = (iso: string) => { const d = new Date(iso), n = new Date(); const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; return d.toDateString() === n.toDateString() ? `今天${hm}` : n.getTime() - d.getTime() < 2 * 864e5 ? `昨天${hm}` : `${d.getMonth() + 1}月${d.getDate()}日`; };
-const TYPE_BY_NAME = Object.fromEntries(VTYPES.map(t => [t.n, t.id])) as Record<string, VType>;
+const typeByName = (n: string) => VTYPES.find(t => t.n === n)?.id;
+
+/* ---------- AI 技能（服务端按技能中心的提示词和规则出，接了大模型走模型；出错用本地规则兜底） ---------- */
+/** 第 1 步拿到的 AI 建议：按输入记下来，第 2 步直接用 */
+const AI_ADVICE = new Map<string, Advice>();
+const adviceKey = (d: Pick<MakeDraft, 'mats' | 'copy' | 'pick'>) => `${d.pick}|${d.mats.map(m => m.id).join(',')}|${d.copy.trim()}`;
+/** 发布包装（标题、文案、话题）：按台词记下来，第 3、4 步共用 */
+type PackOut = Awaited<ReturnType<typeof api.studioAi.pack>>;
+const PACKS = new Map<string, PackOut>();
+const packKey = (type: VType, shots: Shot[]) => `${type}|${shots.map(s => s.line).join('\n')}`;
+const localPack = (d: MakeDraft, shots: Shot[]) => { const p = pack({ ...d, shots }); return { title: p.title, caption: p.caption, tags: p.tags, pick: p.tags.flatMap(([, l]) => l).filter((_, i) => [0, 1, 3, 7].includes(i)) }; };
+async function packFor(d: MakeDraft, shots: Shot[]): Promise<{ title: string; caption: string; tags: [string, string[]][]; pick: string[] }> {
+  const k = packKey(d.type, shots), hit = PACKS.get(k);
+  if (hit) return hit;
+  const lines = shots.map(s => s.line.trim()).filter(Boolean);
+  if (!lines.length) return localPack(d, shots);
+  try { const r = await api.studioAi.pack(d.type, lines.slice(0, 20)); PACKS.set(k, r); return r; } catch { return localPack(d, shots); }
+}
+function usePack(d: MakeDraft) {
+  const k = packKey(d.type, d.shots);
+  const [srv, setSrv] = useState<PackOut | null>(() => PACKS.get(k) ?? null);
+  useEffect(() => {
+    const hit = PACKS.get(k); if (hit) { setSrv(hit); return; }
+    let live = true;
+    void packFor(d, d.shots).then(r => { if (live && PACKS.get(k)) setSrv(r as PackOut); });
+    return () => { live = false; };
+  }, [k]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loc = useMemo(() => localPack(d, d.shots), [k]); // eslint-disable-line react-hooks/exhaustive-deps
+  return srv ?? loc;
+}
 
 /** 上传（拖进来或点选），失败的跳过 */
 async function uploadAll(files: File[], toast: (m: string) => void): Promise<Mat[]> {
@@ -41,7 +71,7 @@ export function MakePage() {
   useEffect(() => {
     if (!genSeed || !st) return;
     const d = newDraft(nowIso());
-    const t = genSeed.type ? (TYPE_BY_NAME[genSeed.type as string] ?? (VTYPES.some(v => v.id === genSeed.type) ? genSeed.type as VType : null)) : null;
+    const t = genSeed.type ? (typeByName(genSeed.type as string) ?? (VTYPES.some(v => v.id === genSeed.type) ? genSeed.type as VType : null)) : null;
     void save({ draft: { ...d, title: genSeed.title ?? '', copy: genSeed.copy ?? '', planId: genSeed.topicId ?? null, pick: t ?? AUTO } });
     setGenSeed(null);
     nav({ view: 'make', sub: 'flow' }, true);
@@ -184,8 +214,14 @@ function Step1({ d, set, go }: SP) {
   };
   const n = chars(d.copy);
   const pick = d.pick === AUTO ? null : vtype(d.pick);
-  const next = () => {
-    const a = advise(d), t = vtype(a.type);
+  const next = async () => {
+    setBusy('next');
+    let a = advise(d);
+    try {
+      const r = await api.studioAi.advise(d.mats, d.copy, d.pick === AUTO ? 'auto' : d.pick);
+      if (liveTypes().some(x => x.id === r.advice.type) && Array.isArray(r.advice.chips)) { a = r.advice as unknown as Advice; AI_ADVICE.set(adviceKey(d), a); }
+    } catch { /* 网络不好就按本地规则 */ } finally { setBusy(''); }
+    const t = vtype(a.type);
     go(2, { type: a.type, face: t.face === 'avatar' ? 'avatar' : 'none', avatar: st?.avatar ?? d.avatar, cost: costOf(a.type, d.opt.dur), opt: { ...d.opt, dur: 'AI 推荐' } });
   };
   return <div className="stp" id="mkStep1">
@@ -217,13 +253,13 @@ function Step1({ d, set, go }: SP) {
       <div className="s1hd"><label className="t2" htmlFor="mkType"><i>3</i>成片类型 <span className="xs m3">可选</span></label><span className="xs m3">不确定就交给 AI，按你的文案和素材挑</span></div>
       <select className="fld big" id="mkType" value={d.pick} onChange={e => set({ pick: e.target.value as VType | typeof AUTO })}>
         <option value={AUTO}>✓ 交给 AI 决定（推荐）</option>
-        {VTYPES.map(t => <option key={t.id} value={t.id}>{t.n} · {t.pts} 点{t.tag ? ` · ${t.tag}` : ''}</option>)}
+        {liveTypes().map(t => <option key={t.id} value={t.id}>{t.n} · {t.pts} 点{t.tag ? ` · ${t.tag}` : ''}</option>)}
       </select>
       {pick && <p className="xs m3" style={{ marginTop: 6 }}>{pick.d}。要准备：{pick.need}</p>}
     </div>
     <div className="stfoot">
       <span className="xs m3">{!d.mats.length && !n ? '文案和素材至少放一样' : `${d.mats.length} 份素材 · ${n ? `${n} 字文案` : '没有文案'}`}</span>
-      <button className="btn k" id="mkNext1" disabled={!d.mats.length && !n} onClick={next}>下一步 · 让 AI 看看 →</button>
+      <button className="btn k" id="mkNext1" disabled={(!d.mats.length && !n) || !!busy} onClick={() => void next()}>{busy === 'next' ? 'AI 在看…' : '下一步 · 让 AI 看看 →'}</button>
     </div>
   </div>;
 }
@@ -249,7 +285,8 @@ function Opt({ id, label, value, options, auto, note, onChange }: { id: string; 
 function Step2({ d, set, go }: SP) {
   const { sheet, session } = useApp();
   const { save, st } = useStudio();
-  const a = useMemo(() => advise({ ...d, pick: d.pick }), [d.mats, d.copy, d.pick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const a = useMemo(() => AI_ADVICE.get(adviceKey(d)) ?? advise({ ...d, pick: d.pick }), [d.mats, d.copy, d.pick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [sb, setSb] = useState(false);
   const t = vtype(d.type);
   const av = avatarOf(d.avatar);
   const built = !av.mine || session!.workspace.avatars?.[av.id === 'me-photo' ? 'photo' : 'clone'] === 'ready';
@@ -258,6 +295,16 @@ function Step2({ d, set, go }: SP) {
   const cost = costOf(d.type, d.opt.dur);
   const target = d.opt.dur === 'AI 推荐' ? autoSecs : parseInt(d.opt.dur) || autoSecs;
   useEffect(() => { if (cost !== d.cost) set({ cost }); }, [cost]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** 排分镜：服务端按技能「分镜」出（接了大模型走模型），素材按 id 换回本地的完整信息；出错用本地规则 */
+  const toShots = async () => {
+    setSb(true);
+    let shots = buildShots(d, target);
+    try {
+      const r = await api.studioAi.storyboard(d.mats, d.copy, d.type, d.face, target);
+      if (r.shots.length) shots = r.shots.map(s => ({ ...s, mat: s.mat ? d.mats.find(m => m.id === s.mat!.id) ?? s.mat : null }));
+    } catch { /* 本地规则兜底 */ } finally { setSb(false); }
+    go(3, { shots, cost });
+  };
   const change = (id: VType) => { const x = vtype(id); set({ type: id, face: x.face === 'avatar' ? 'avatar' : d.face, cost: costOf(id, d.opt.dur) }); };
   const pickAvatar = () => sheet({
     title: '换数字人', wide: true,
@@ -299,12 +346,12 @@ function Step2({ d, set, go }: SP) {
     </div>
 
     <p className="lb" style={{ marginTop: 26 }}>不想做这个？换一类——</p>
-    <div className="pills" id="mkSwap">{VTYPES.map(x => <button key={x.id} className="pill" data-ty={x.id} aria-pressed={d.type === x.id} onClick={() => change(x.id)}>{x.n} <span className="xs m3">{costOf(x.id, d.opt.dur)}点</span></button>)}</div>
+    <div className="pills" id="mkSwap">{liveTypes().map(x => <button key={x.id} className="pill" data-ty={x.id} aria-pressed={d.type === x.id} onClick={() => change(x.id)}>{x.n} <span className="xs m3">{costOf(x.id, d.opt.dur)}点</span></button>)}</div>
 
     <div className="stfoot">
       <button className="btn g" onClick={() => go(1)}>← 上一步</button>
       <span className="s">预计消耗 <b>{cost}</b> 点</span>
-      <button className="btn k" id="mkNext2" onClick={() => go(3, { shots: buildShots(d, target), cost })}>下一步 · 生成分镜 →</button>
+      <button className="btn k" id="mkNext2" disabled={sb} onClick={() => void toShots()}>{sb ? 'AI 在排分镜…' : '下一步 · 生成分镜 →'}</button>
     </div>
   </div>;
 }
@@ -353,11 +400,11 @@ function Step3({ d, set, go }: SP) {
   const render = async (mode: 'sample' | 'final') => {
     sheet(null); setRendering(0);
     try {
-      const p = pack({ ...d, shots });
+      const p = await packFor(d, shots);
       const title = d.title || p.title;
       const r = await api.render({ type: d.type, face: d.face, avatar: d.avatar, title, opt: d.opt, mats: d.mats, shots }, mode);
       void reloadSession();
-      go(4, { shots, rendered: true, title, caption: d.caption || p.caption, tags: d.tags.length ? d.tags : p.tags.flatMap(([, l]) => l).filter((_, i) => [0, 1, 3, 7].includes(i)), sampleJob: mode === 'sample' ? r.job.id : null, finalJob: mode === 'final' ? r.job.id : null });
+      go(4, { shots, rendered: true, title, caption: d.caption || p.caption, tags: d.tags.length ? d.tags : p.pick, sampleJob: mode === 'sample' ? r.job.id : null, finalJob: mode === 'final' ? r.job.id : null });
     } catch (e) {
       if (e instanceof ApiError && e.status === 402) recharge(Math.max(1, (mode === 'sample' ? sample : d.cost) - Math.round(session!.workspace.balance)), () => void render(mode));
       else fail(e);
@@ -425,7 +472,9 @@ function Step4({ d, set, go }: SP) {
   const { st, save } = useStudio();
   const recharge = useRecharge();
   const t = vtype(d.type);
-  const p = useMemo(() => pack(d), [d.shots]); // eslint-disable-line react-hooks/exhaustive-deps
+  const p = usePack(d);
+  const { titleMax, tagMin, tagMax } = CAT.pack;
+  const badTitle = bannedWords(d.title), badCap = bannedWords(d.caption);
   const [voiceOn, setVoiceOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const sj = useJob(d.sampleJob), fj = useJob(d.finalJob);
@@ -434,7 +483,7 @@ function Step4({ d, set, go }: SP) {
   const out = cur?.status === 'done' ? cur.output as VideoOutput | null : null;
   const spent = (d.sampleJob ? sampleCost(d.cost) : 0) + (d.finalJob ? d.cost : 0);
   const allTags = p.tags.flatMap(([, l]) => l);
-  const okTitle = !!d.title.trim() && d.title.length <= 30, okCap = !!d.caption.trim(), okTags = d.tags.length >= 3 && d.tags.length <= 5;
+  const okTitle = !!d.title.trim() && d.title.length <= titleMax, okCap = !!d.caption.trim(), okTags = d.tags.length >= tagMin && d.tags.length <= tagMax;
   const checks: [string, boolean][] = [['成片', finalDone], ['封面', true], ['标题', okTitle], ['文案', okCap], ['话题', okTags]];
   const n = checks.filter(c => c[1]).length;
   const ratio = d.opt.ratio === 'AI 推荐' ? '9:16 竖屏' : d.opt.ratio, font = d.opt.font === 'AI 推荐' ? '思源黑体' : d.opt.font;
@@ -497,13 +546,15 @@ function Step4({ d, set, go }: SP) {
           <div className="covers" id="mkCovers">{(['A', 'B', 'C'] as const).map(v => <button key={v} aria-pressed={d.cover === v} aria-label={`封面 ${v}`} onClick={() => set({ cover: v })}><CoverArt v={v} title={d.title || p.title} mat={first} k={firstK} /><span>{v}</span></button>)}</div>
           <a className="lnk xs" id="mkCoverTool" href={`${DAZHEIP_URL}/covers`} target={DAZHEIP_URL ? '_blank' : undefined} rel="noopener">去封面工具精修 →</a>
         </div>
-        <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>标题</b><span className={`xs ${d.title.length > 30 ? 'err' : 'm3'}`}>{d.title.length}/30 · 建议≤30字</span></div>
+        <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>标题</b><span className={`xs ${d.title.length > titleMax ? 'err' : 'm3'}`}>{d.title.length}/{titleMax} · 建议≤{titleMax}字</span></div>
           <input className="fld" id="mkTitle" value={d.title} onChange={e => set({ title: e.target.value })} placeholder={p.title} />
+          {badTitle.length > 0 && <p className="xs warnline" id="mkTitleBan">⚠ 有广告法敏感词「{badTitle.join('」「')}」，建议改掉再发</p>}
         </div>
         <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>发布文案</b><span className="xs m3">把选题自然地讲进正文，带钩子</span></div>
           <textarea className="fld" id="mkCaption" rows={4} value={d.caption} onChange={e => set({ caption: e.target.value })} />
+          {badCap.length > 0 && <p className="xs warnline" id="mkCapBan">⚠ 有广告法敏感词「{badCap.join('」「')}」，建议改掉再发</p>}
         </div>
-        <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>话题</b><span className={`xs ${okTags ? 'm3' : 'err'}`}>{allTags.length} 个候选，选 3–5 个最佳，多了被判堆砌 · 已选 {d.tags.length}</span></div>
+        <div className="pubsec"><div className="row" style={{ justifyContent: 'space-between' }}><b>话题</b><span className={`xs ${okTags ? 'm3' : 'err'}`}>{allTags.length} 个候选，选 {tagMin}–{tagMax} 个最佳，多了被判堆砌 · 已选 {d.tags.length}</span></div>
           {p.tags.map(([g, l]) => <div key={g} className="taggrp"><span className="xs m3">{g}</span>{l.map(x => <button key={x} className="pill sm" aria-pressed={d.tags.includes(x)} onClick={() => toggleTag(x)}>{x}</button>)}</div>)}
         </div>
         <div className="stfoot" style={{ marginTop: 18 }}>

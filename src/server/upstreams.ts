@@ -77,9 +77,10 @@ export function makeUpstreams(db: DB, skills: Skills, o: { env: NodeJS.ProcessEn
         const v = valueOf(id, x.key);
         values[x.key] = { value: v.broken ? '（解不开：服务器的 SECRETS_KEY 变了，请重新填）' : x.secret && v.value ? mask(v.value) : v.value, source: v.source, secret: !!x.secret };
       }
-      // 「接通」的判断：必填的几个字段都有值（密钥、地址、商户号等）
-      const need = f.fields.filter(x => x.secret || /baseUrl|mchid|appid|appId/.test(x.key)).filter(x => !/VISION_(BASE_URL|API_KEY)/.test(x.env));
-      const configured = need.length ? need.every(x => valueOf(id, x.key).value) : false;
+      // 「接通」的判断：fields.json 里标了 required 的字段都有值（看素材的地址和 Key 不填会沿用文案大模型的）
+      const req = f.fields.filter(x => x.required);
+      const need = req.length ? req : f.fields.filter(x => x.secret);
+      const configured = need.length ? need.every(x => valueOf(id, x.key).value) && (id !== 'up-vision' || !!(valueOf(id, 'apiKey').value || valueOf('up-llm', 'apiKey').value)) : false;
       return { configured: configured && (r?.enabled ?? true), enabled: r?.enabled ?? true, values };
     },
     meta: (id: string) => { const r = rec(id); return { updatedAt: r?.updatedAt ?? null, by: r?.by ?? null }; },

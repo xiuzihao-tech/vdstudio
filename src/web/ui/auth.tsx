@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api.ts';
 import { useApp } from '../store.tsx';
+import { clearRef, refCode } from './invite.tsx';
 
 export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; initial?: 'login' | 'register' }) {
   const { reloadSession, bump, toast } = useApp();
@@ -12,12 +13,17 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
   const [invite, setInvite] = useState(() => new URLSearchParams(location.search).get('invite') ?? '');
   const [needInvite, setNeedInvite] = useState(false);
   useEffect(() => { api.authConfig().then(c => setNeedInvite(c.inviteRequired)).catch(() => undefined); }, []);
+  // 从好友的分享链接进来的：注册时带上邀请码，双方得点（规则在后台「邀请赠送」）
+  const [ref] = useState(refCode);
+  const [pv, setPv] = useState<{ name: string; bonus: number } | null>(null);
+  useEffect(() => { if (ref) api.referral.preview(ref).then(r => setPv(r.preview)).catch(() => undefined); }, [ref]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try {
-      const r = mode === 'login' ? await api.login(email, password) : await api.register(email, password, name, invite);
+      const r = mode === 'login' ? await api.login(email, password) : await api.register(email, password, name, invite, pv ? ref : undefined);
+      if (mode === 'register') clearRef();
       await reloadSession(); bump(); toast(r.message); onDone?.();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : '出错了'); } finally { setBusy(false); }
   };
@@ -26,7 +32,8 @@ export function AuthForm({ onDone, initial = 'login' }: { onDone?: () => void; i
       <button type="button" aria-pressed={mode === 'login'} onClick={() => setMode('login')}>登录</button>
       <button type="button" aria-pressed={mode === 'register'} onClick={() => setMode('register')}>注册</button>
     </div>
-    {mode === 'register' && needInvite && <><label className="lb" htmlFor="auInvite">邀请码</label><input className="fld" id="auInvite" value={invite} onChange={e => setInvite(e.target.value.toUpperCase())} required placeholder="比如 FD3K9QXZ" style={{ marginBottom: 14, letterSpacing: '.08em' }} /></>}
+    {mode === 'register' && pv && <p className="refnote" id="auRef">🎁 {pv.name} 邀请你注册{pv.bonus > 0 ? `，注册后多送 ${pv.bonus} 点` : ''}</p>}
+    {mode === 'register' && needInvite && <><label className="lb" htmlFor="auInvite">邀请码{pv && <span className="m3"> 用好友的链接注册可以不填</span>}</label><input className="fld" id="auInvite" value={invite} onChange={e => setInvite(e.target.value.toUpperCase())} required={!pv} placeholder="比如 FD3K9QXZ" style={{ marginBottom: 14, letterSpacing: '.08em' }} /></>}
     {mode === 'register' && <><label className="lb" htmlFor="auName">名字</label><input className="fld" id="auName" autoComplete="name" value={name} onChange={e => setName(e.target.value)} required maxLength={40} /></>}
     <label className="lb" htmlFor="auEmail" style={{ marginTop: mode === 'register' ? 14 : 0 }}>邮箱</label>
     <input className="fld" id="auEmail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />

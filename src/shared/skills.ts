@@ -13,6 +13,8 @@ export interface UpstreamField {
   /** 对应的环境变量（后台没填时用它） */
   env: string;
   secret?: boolean; type?: 'text' | 'number' | 'bool' | 'textarea'; placeholder?: string; help?: string;
+  /** 必填：这几项都有值才算「已接通」（有默认值的地址之类不用标） */
+  required?: boolean;
 }
 
 /** 仓库里的技能包（编译进 bundle.gen.ts） */

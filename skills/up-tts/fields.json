@@ -9,6 +9,7 @@
     "key": "apiKey",
     "label": "API Key",
     "env": "TTS_API_KEY",
+    "required": true,
     "secret": true
   },
   {

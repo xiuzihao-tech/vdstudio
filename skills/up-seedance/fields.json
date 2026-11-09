@@ -3,6 +3,7 @@
     "key": "apiKey",
     "label": "API Key",
     "env": "ARK_API_KEY",
+    "required": true,
     "secret": true
   },
   {
