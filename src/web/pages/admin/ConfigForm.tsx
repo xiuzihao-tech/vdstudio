@@ -3,6 +3,7 @@
 // 不认识的字段照样能改（显示字段名）。复杂的改法切到「JSON」。
 import { useEffect, useState, type ReactNode } from 'react';
 import type { FieldLabel } from '../../../shared/skills.ts';
+import { ask } from '../../ui/dialog.tsx';
 
 type V = unknown;
 type Obj = Record<string, V>;
@@ -148,7 +149,7 @@ function Items({ v, set, L, path }: { v: V[]; set: (x: V) => void; L: Lf; path: 
           <button type="button" disabled={i === 0} title="上移" onClick={() => move(i, -1)}>↑</button>
           <button type="button" disabled={i === v.length - 1} title="下移" onClick={() => move(i, 1)}>↓</button>
           <button type="button" title="复制一份" onClick={() => { const c = clone(x); if (isObj(c) && typeof c.id === 'string') c.id = `${c.id}-2`; const a = [...v]; a.splice(i + 1, 0, c); set(a); setOpen(i + 1); }}>复制</button>
-          <button type="button" title="删掉" onClick={() => { if (confirm(`删掉「${titleOf(x, i)}」？保存前都能放弃修改。`)) { set(v.filter((_, a) => a !== i)); setOpen(null); } }}>删除</button>
+          <button type="button" title="删掉" onClick={async () => { if (await ask(`删掉「${titleOf(x, i)}」？保存前都能放弃修改。`)) { set(v.filter((_, a) => a !== i)); setOpen(null); } }}>删除</button>
         </span>
       </div>
       {open === i && <div className="cf-ib"><Node v={x} set={y => set(v.map((z, a) => a === i ? y : z))} L={L} path={`${path}[${i}]`} lab={{ n: '' }} /></div>}

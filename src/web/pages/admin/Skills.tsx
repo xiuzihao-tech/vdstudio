@@ -7,6 +7,7 @@ import { Seg, Skel } from '../../ui/kit.tsx';
 import { CATEGORY_NAME, templateVars, type SkillCategory, type SkillData, type SkillView } from '../../../shared/skills.ts';
 import { Chip, Doc, Table, download, fmtTime } from './ui.tsx';
 import { ConfigForm } from './ConfigForm.tsx';
+import { ask } from '../../ui/dialog.tsx';
 
 const PROMPT_NAME: Record<string, string> = {
   system: '系统提示词（角色和总规则）', next: '下一个问题', report: '出诊断：标签和栏目', topics: '排选题', advise: '推荐成片类型', storyboard: '排分镜',
@@ -81,13 +82,13 @@ function SkillDetail({ id }: { id: string }) {
     catch (e) { fail(e); } finally { setBusy(''); }
   };
   const activate = async (v: number) => {
-    if (dirty && !confirm('有没保存的修改，切换版本会丢掉。继续？')) return;
+    if (dirty && !await ask('有没保存的修改，切换版本会丢掉。继续？')) return;
     setBusy(`v${v}`);
     try { const r = await api.admin.activateSkill(id, v); d.set({ skill: r.skill, calls: d.data!.calls }); toast(v ? `已切到第 ${v} 版` : '已恢复仓库默认'); }
     catch (e) { fail(e); } finally { setBusy(''); }
   };
   const toggle = async () => {
-    if (s.data.enabled && !confirm(s.category === 'ai' ? `停用「${s.name}」以后不再调用大模型，按规则兜底。确定？` : `停用「${s.name}」？`)) return;
+    if (s.data.enabled && !await ask(s.category === 'ai' ? `停用「${s.name}」以后不再调用大模型，按规则兜底。确定？` : `停用「${s.name}」？`)) return;
     try { const r = await api.admin.enableSkill(id, !s.data.enabled); d.set({ skill: r.skill, calls: d.data!.calls }); toast(r.skill.data.enabled ? '已启用' : '已停用'); } catch (e) { fail(e); }
   };
   const exp = async () => { try { const f = await api.admin.exportSkill(id); if (await download(f.name, f.blob) !== 'declined') toast(`已导出 ${f.name}`); } catch (e) { fail(e); } };

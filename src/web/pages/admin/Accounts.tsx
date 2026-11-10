@@ -6,6 +6,7 @@ import { useApp, useData } from '../../store.tsx';
 import { Skel } from '../../ui/kit.tsx';
 import type { AdminPerm, AdminRole } from '../../../shared/admin.ts';
 import { Chip, Field, Sec, Table, fmtTime } from './ui.tsx';
+import { ask } from '../../ui/dialog.tsx';
 
 const PERM_NAME: Record<AdminPerm, string> = { overview: '数据总览', skills: '技能中心', upstreams: '上游接口', points: '积分系统', referral: '邀请赠送', orders: '充值订单', jobs: '出片任务', users: '视频站用户', modules: '模块开关', codes: '兑换码与邀请码', feedback: '用户反馈', admins: '后台账号', audit: '操作日志' };
 
@@ -20,7 +21,7 @@ export function AccountsPage() {
     try { await api.admin.addAdmin(email.trim(), role, note); toast(`${email} 现在是「${x.roles[role].n}」，用这个邮箱注册 / 登录就能进后台`); setF({ email: '', role: 'ops', note: '' }); d.reload(); } catch (e) { fail(e); }
   };
   const remove = async (email: string) => {
-    if (!confirm(`删掉后台账号 ${email}？删了以后这个账号进不了后台（前台照常用）。`)) return;
+    if (!await ask(`删掉后台账号 ${email}？删了以后这个账号进不了后台（前台照常用）。`)) return;
     try { await api.admin.removeAdmin(email); toast('已删除'); d.reload(); } catch (e) { fail(e); }
   };
   return <div id="admAccounts">

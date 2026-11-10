@@ -5,6 +5,7 @@ import { api } from '../../api.ts';
 import { useApp, useData } from '../../store.tsx';
 import { Seg, Skel } from '../../ui/kit.tsx';
 import { Chip, Sec, Table, Tile, fmtNum, fmtTime } from './ui.tsx';
+import { askText } from '../../ui/dialog.tsx';
 
 const ST: Record<string, ['ok' | 'warn' | 'err' | '', string]> = { queued: ['', '排队'], running: ['warn', '生成中'], done: ['ok', '完成'], failed: ['err', '失败'] };
 
@@ -16,7 +17,7 @@ export function JobsPage() {
   if (!d.data) return <Skel h={300} />;
   const x = d.data, c = x.counts;
   const refund = async (id: string, title: string, cost: number) => {
-    const why = prompt(`给「${title}」人工退 ${cost} 积分（每条只能退一次）。写一下原因：`, '');
+    const why = await askText(`给「${title}」人工退 ${cost} 积分（每条只能退一次）。写一下原因：`, '');
     if (why === null) return;
     if (why.trim().length < 2) { toast('原因至少写两个字'); return; }
     try { const r = await api.admin.refundJob(id, why.trim()); toast(`退了 ${r.points} 积分`); d.reload(); } catch (e) { fail(e); }

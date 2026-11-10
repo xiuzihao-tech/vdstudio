@@ -7,6 +7,7 @@ import { Seg, Skel } from '../../ui/kit.tsx';
 import { yuan } from '../../../shared/billing.ts';
 import { KIND_NAME, type LedgerKind } from '../../../shared/points.ts';
 import { Chip, Field, NumIn, Sec, Table, Tile, fmtNum, fmtTime } from './ui.tsx';
+import { askText } from '../../ui/dialog.tsx';
 
 const ST: Record<RefStatus, ['ok' | 'warn' | 'err' | '', string]> = { rewarded: ['ok', '已奖励'], pending: ['warn', '等好友出片 / 充值'], capped: ['', '超过上限'], blocked: ['err', '同网络重复'], revoked: ['err', '已收回'] };
 const ON: Record<ReferralConfig['invite']['rewardOn'], string> = { register: '好友注册成功就发', first_gen: '好友第一次出片成功后发', first_pay: '好友第一次充值后发' };
@@ -36,7 +37,7 @@ export function ReferralPage() {
     try { const r = await api.admin.saveReferral({ ...c, rules: c.rules.map(x => x.trim()).filter(Boolean) }, note || '邀请赠送规则'); setC(r.config); setNote(''); d.reload(); toast('邀请赠送规则已保存，马上生效'); } catch (e) { fail(e); } finally { setBusy(''); }
   };
   const revoke = async (id: string, who: string) => {
-    const why = prompt(`收回「${who}」这条邀请发出的全部积分（邀请人和好友的都收回，扣到 0 为止）。写一下原因：`, '刷号');
+    const why = await askText(`收回「${who}」这条邀请发出的全部积分（邀请人和好友的都收回，扣到 0 为止）。写一下原因：`, '刷号');
     if (why === null) return;
     if (why.trim().length < 2) { toast('原因至少写两个字'); return; }
     try { const r = await api.admin.revokeReferral(id, why.trim()); toast(`收回了 ${fmtNum(r.back)} 积分`); d.reload(); } catch (e) { fail(e); }

@@ -4,6 +4,7 @@ import { api } from '../api.ts';
 import { useApp, useData } from '../store.tsx';
 import { Skel } from '../ui/kit.tsx';
 import { CHANNEL_NAME, STATUS_NAME, totalPoints, yuan, type BillingConfig, type Package } from '../../shared/billing.ts';
+import { ask } from '../ui/dialog.tsx';
 
 export function AdminBilling() {
   const { toast, fail } = useApp();
@@ -45,7 +46,7 @@ export function AdminBilling() {
     <div className="list" id="orderList">{x.orders.length ? x.orders.map(o => <div key={o.id} style={{ flexWrap: 'wrap' }}>
       <span style={{ flex: 1, minWidth: '50%' }}>{o.title} · <b>{yuan(o.amount)}</b><br /><span className="xs m3">{o.email ?? '未登录用户'} · {CHANNEL_NAME[o.channel]} · {new Date(o.createdAt).toLocaleString()} · {o.id}{o.tradeNo ? ` · 流水 ${o.tradeNo}` : ''}</span></span>
       <span className={`xs ${o.status === 'paid' ? 'ok' : 'm3'}`}>{STATUS_NAME[o.status]}</span>
-      {o.status === 'paid' && <button className="btn g sm" onClick={async () => { if (!confirm(`把「${o.title}」标记成已退款？会扣回 ${o.points} 点。钱要在商户后台原路退。`)) return; try { const r = await api.admin.refundOrder(o.id); toast(r.note); d.reload(); } catch (e) { fail(e); } }}>标记退款</button>}
+      {o.status === 'paid' && <button className="btn g sm" onClick={async () => { if (!await ask(`把「${o.title}」标记成已退款？会扣回 ${o.points} 点。钱要在商户后台原路退。`)) return; try { const r = await api.admin.refundOrder(o.id); toast(r.note); d.reload(); } catch (e) { fail(e); } }}>标记退款</button>}
     </div>) : <div><span className="m">还没有订单</span></div>}</div>
   </div>;
 }

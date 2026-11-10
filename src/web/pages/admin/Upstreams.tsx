@@ -5,6 +5,7 @@ import { api, type UpstreamView } from '../../api.ts';
 import { useApp, useData } from '../../store.tsx';
 import { Seg, Skel } from '../../ui/kit.tsx';
 import { Chip, Doc, Sec, fmtTime } from './ui.tsx';
+import { ask } from '../../ui/dialog.tsx';
 
 const AI_NAME: Record<string, string> = { mock: '模拟（没接）', llm: '大模型已接', seedance: '火山方舟 Seedance', newapi: '土豆网关', minimax: 'MiniMax', none: '没接' };
 const VP: Record<string, string> = { auto: '自动（有网关用网关，没有用方舟）', seedance: '火山方舟直连', newapi: '土豆网关', mock: '模拟（不花钱，演示用）' };
@@ -55,7 +56,7 @@ function UpCard({ u, onSaved }: { u: UpstreamView; onSaved: (r: Awaited<ReturnTy
     catch (e) { fail(e); } finally { setBusy(''); }
   };
   const toggle = async () => {
-    if (st.enabled && !confirm(`停用「${u.name}」？停用后这个接口不再调用（大模型、视频会退回模拟，支付渠道会关掉）。`)) return;
+    if (st.enabled && !await ask(`停用「${u.name}」？停用后这个接口不再调用（大模型、视频会退回模拟，支付渠道会关掉）。`)) return;
     try { const r = await api.admin.saveUpstream(u.id, { enabled: !st.enabled }); onSaved(r); toast(st.enabled ? '已停用' : '已启用'); } catch (e) { fail(e); }
   };
   const runTest = async () => {

@@ -7,6 +7,7 @@ import { Seg, Skel } from '../../ui/kit.tsx';
 import { yuan } from '../../../shared/billing.ts';
 import { GIFT_KINDS, KIND_NAME, type LedgerKind } from '../../../shared/points.ts';
 import { Chip, Field, NumIn, Sec, Table, Tile, fmtNum, fmtTime, signed } from './ui.tsx';
+import { ask } from '../../ui/dialog.tsx';
 
 const sampleOf = (pts: number, c: PointsConfig) => Math.max(c.sampleMin, Math.round((pts * c.sampleRate) / 5) * 5);
 
@@ -39,7 +40,7 @@ export function PointsPage() {
   };
   const adjust = async () => {
     if (!adj.email.trim() || !adj.delta || adj.reason.trim().length < 2) { toast('邮箱、积分数、原因都要填'); return; }
-    if (!confirm(`给 ${adj.email} ${adj.delta > 0 ? '加' : '扣'} ${Math.abs(adj.delta)} 积分？原因：${adj.reason}`)) return;
+    if (!await ask(`给 ${adj.email} ${adj.delta > 0 ? '加' : '扣'} ${Math.abs(adj.delta)} 积分？原因：${adj.reason}`)) return;
     setBusy('adj');
     try { const r = await api.admin.adjust(adj.email.trim(), adj.delta, adj.reason.trim()); toast(`已${r.delta > 0 ? '加' : '扣'} ${Math.abs(r.delta)}，现在余额 ${fmtNum(r.balance)}`); setAdj({ email: '', delta: 100, reason: '' }); d.reload(); } catch (e) { fail(e); } finally { setBusy(''); }
   };

@@ -77,7 +77,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const nav = useCallback((r: Route | View, replace = false) => {
     const next = typeof r === 'string' ? { view: r } : r;
     const p = routePath(next);
-    if (p !== curPath()) (replace ? history.replaceState : history.pushState).call(history, null, '', HASH ? (p === '/' ? location.pathname + location.search : toHash(p)) : p);
+    // 嵌在 claude.ai 页面（沙箱、没有自己的地址）里改不了地址栏，pushState 会报错：那就只换页面、不改地址
+    if (p !== curPath()) try { (replace ? history.replaceState : history.pushState).call(history, null, '', HASH ? (p === '/' ? location.pathname + location.search : toHash(p)) : p); } catch { /* 只在内存里换页 */ }
     setRoute(next); setSheet(null); window.scrollTo(0, 0);
   }, []);
   const toast = useCallback((m: string) => setToast({ m, n: Date.now() }), []);
